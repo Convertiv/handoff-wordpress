@@ -105,7 +105,7 @@ npm run build:plugin
 
 ## 9. Use the Blocks
 
-1. Go to http://localhost:8888/wp-admin
+1. Go to http://localhost:8888/wp-admin (username: admin password: password)
 2. Create a new Page or Post
 3. Click the **+** button to add a block
 4. Look for **Handoff Blocks** category
