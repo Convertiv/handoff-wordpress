@@ -2,8 +2,8 @@
   "name": "handoff-wordpress",
   "version": "1.0.0",
   "description": "A compiler that will read the Handoff API and generate WordPress Gutenberg blocks and theme templates.",
-  "license": "ISC",
-  "author": "Brad Merin <brad@convertiv.com>",
+  "license": "MIT",
+  "author": "Brad Mering <brad@convertiv.com>",
   "type": "commonjs",
   "main": "dist/index.js",
   "scripts": {

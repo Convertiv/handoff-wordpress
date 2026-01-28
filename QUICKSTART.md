@@ -13,7 +13,7 @@ Before you begin, make sure you have the following installed:
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/handoff-wordpress.git
+git clone git@bitbucket.org:convertiv-dev/handoff-wordpress.git
 cd handoff-wordpress
 ```
 

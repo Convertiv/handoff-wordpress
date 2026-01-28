@@ -241,4 +241,4 @@ If breaking changes are detected, the compiler will exit with an error unless th
 
 ## License
 
-ISC
+MIT
