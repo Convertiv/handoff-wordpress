@@ -3,6 +3,7 @@
  */
 
 import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute } from '../types';
+import { sanitizeReservedName } from './handlebars-to-jsx/utils';
 
 /**
  * Get default value for a type
@@ -129,9 +130,18 @@ const chooseIcon = (component: HandoffComponent): string => {
 
 /**
  * Convert component ID to block name (kebab-case)
+ * Also sanitizes reserved JavaScript words by prefixing with 'block-'
  */
 const toBlockName = (id: string): string => {
-  return id.toLowerCase().replace(/_/g, '-');
+  const kebabCase = id.toLowerCase().replace(/_/g, '-');
+  // Check if the base name (without underscores/hyphens) is a reserved word
+  const baseName = kebabCase.replace(/-/g, '');
+  const sanitized = sanitizeReservedName(baseName);
+  // If it was sanitized, convert the sanitized name to kebab-case
+  if (sanitized !== baseName) {
+    return sanitized.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+  }
+  return kebabCase;
 };
 
 /**

@@ -14,7 +14,7 @@ import { nodeToJsx } from './node-converter';
 import { postprocessJsx, postprocessTemplateLiterals } from './postprocessors';
 
 // Re-export utilities that are used by other parts of the codebase
-export { toCamelCase } from './utils';
+export { toCamelCase, isReservedWord, sanitizeReservedName } from './utils';
 
 /**
  * Main transpiler function - converts Handlebars template to JSX

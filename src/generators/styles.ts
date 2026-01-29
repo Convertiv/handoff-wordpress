@@ -6,6 +6,20 @@ import { HandoffComponent } from '../types';
 
 /**
  * Generate editor.scss with preview styles
+ * TODO: This is much too specific to the framework that we're using to test.
+ * We should consider removing this and using the native styles, with limited 
+ * tweaks to improve the editing experience.
+ *
+ * @param component - The Handoff component data
+ * @returns The SCSS for the editor.scss file
+ * @example
+ * ```scss
+ * .about-editor-preview {
+ *   position: relative;
+ *   min-height: 200px;
+ *   color: #fff;
+ * }
+ * ```
  */
 const generateEditorScss = (component: HandoffComponent): string => {
   const className = component.id.replace(/_/g, '-');
@@ -16,9 +30,9 @@ const generateEditorScss = (component: HandoffComponent): string => {
 .${className}-editor-preview {
   position: relative;
   min-height: 200px;
-  background-color: #434a50;
   color: #fff;`;
   
+  // TODO: consider removing this because the native styles should handle this
   if (hasBackgroundImage) {
     scss += `
   background-size: cover;
@@ -34,7 +48,6 @@ const generateEditorScss = (component: HandoffComponent): string => {
     bottom: 0;
     left: 0;
     right: 0;
-    background-color: #434a50;
     pointer-events: none;
   }
 
@@ -148,7 +161,6 @@ const generateStyleScss = (component: HandoffComponent): string => {
     bottom: 0;
     left: 0;
     right: 0;
-    background-color: #434a50;
   }
 `;
   }

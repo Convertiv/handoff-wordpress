@@ -5,10 +5,53 @@
 import { HTML_TO_JSX_ATTR_MAP, SELF_CLOSING_TAGS } from './constants';
 
 /**
- * Convert snake_case to camelCase
+ * JavaScript/TypeScript reserved words that cannot be used as identifiers
+ */
+const JS_RESERVED_WORDS = new Set([
+  // JavaScript keywords
+  'break', 'case', 'catch', 'continue', 'debugger', 'default', 'delete', 'do',
+  'else', 'finally', 'for', 'function', 'if', 'in', 'instanceof', 'new',
+  'return', 'switch', 'this', 'throw', 'try', 'typeof', 'var', 'void', 'while', 'with',
+  // Future reserved words
+  'class', 'const', 'enum', 'export', 'extends', 'import', 'super',
+  // Strict mode reserved words
+  'implements', 'interface', 'let', 'package', 'private', 'protected', 'public', 'static', 'yield',
+  // Literals
+  'null', 'true', 'false',
+  // ES6+ additions
+  'await', 'async',
+  // Common global objects that could cause issues
+  'arguments', 'eval',
+  // TypeScript keywords
+  'any', 'as', 'boolean', 'constructor', 'declare', 'get', 'module', 'namespace',
+  'never', 'readonly', 'require', 'number', 'object', 'set', 'string', 'symbol', 'type', 'from', 'of'
+]);
+
+/**
+ * Check if a name is a JavaScript reserved word
+ */
+export const isReservedWord = (name: string): boolean => {
+  return JS_RESERVED_WORDS.has(name.toLowerCase());
+};
+
+/**
+ * Sanitize a name if it's a reserved word by prefixing with 'block'
+ * e.g., 'super' -> 'blockSuper', 'class' -> 'blockClass'
+ */
+export const sanitizeReservedName = (name: string): string => {
+  if (isReservedWord(name)) {
+    // Prefix with 'block' and capitalize the first letter of the original name
+    return 'block' + name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+  }
+  return name;
+};
+
+/**
+ * Convert snake_case to camelCase, sanitizing reserved words
  */
 export const toCamelCase = (str: string): string => {
-  return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  const camelCased = str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  return sanitizeReservedName(camelCased);
 };
 
 /**
