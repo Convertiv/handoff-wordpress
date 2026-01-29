@@ -589,6 +589,7 @@ ${generatePropertyControl(key, property)}
   // Check the generated preview for components that need to be imported
   // This catches components added by the handlebars-to-jsx transpiler (e.g., from {{#field}} markers)
   const previewUsesRichText = previewJsx.includes('<RichText');
+  const previewUses10upImage = previewJsx.includes('<Image');
   
   // Add RichText to imports if used in preview (and not already included from property types)
   if (previewUsesRichText && !blockEditorImports.includes('RichText')) {
@@ -663,6 +664,11 @@ ${generatePropertyControl(key, property)}
     }, [${attrNames.join(', ')}]);
 ` : '';
   
+  // Build the 10up import if needed
+  const tenUpImport = previewUses10upImage 
+    ? `import { Image } from '@10up/block-components';\n` 
+    : '';
+  
   return `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
@@ -672,7 +678,7 @@ import {
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import { Fragment } from '@wordpress/element';
-import metadata from './block.json';
+${tenUpImport}import metadata from './block.json';
 import './editor.scss';
 import './style.scss';
 

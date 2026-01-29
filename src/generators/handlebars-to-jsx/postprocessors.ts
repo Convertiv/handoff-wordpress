@@ -351,7 +351,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
     }
   );
   
-  // Convert editable field markers to RichText (for richtext) or PlainText (for text) components
+  // Convert editable field markers to appropriate components based on field type
   // Handle both hyphenated and camelCase attribute names
   result = result.replace(
     /<editable-field-marker\s+(?:data-field|dataField)="([^"]+)"\s*(?:\/>|><\/editable-field-marker>)/gi,
@@ -368,12 +368,17 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         // Extract the property reference from content like {{properties.title}} or {{crumb.label}}
         let valueExpr: string;
         let onChangeExpr: string;
+        let imageIdExpr: string = '';
+        let imageOnSelectExpr: string = '';
         
         if (pathParts.length === 1) {
           // Top-level field: "title" -> title, setAttributes({ title: value })
           const propName = toCamelCase(pathParts[0]);
           valueExpr = `${propName} || ''`;
           onChangeExpr = `(value) => setAttributes({ ${propName}: value })`;
+          // For images, we need to handle the id and full image object
+          imageIdExpr = `${propName}?.id`;
+          imageOnSelectExpr = `(image) => setAttributes({ ${propName}: { id: image.id, src: image.url, alt: image.alt || '' } })`;
         } else if (pathParts.length === 2) {
           // Could be nested object "button.text" or array field "breadcrumbs.label"
           const parentName = toCamelCase(pathParts[0]);
@@ -388,10 +393,20 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
               newItems[index] = { ...newItems[index], ${fieldName}: value };
               setAttributes({ ${parentName}: newItems });
             }`;
+            // For images in arrays
+            imageIdExpr = `${parentLoopVar}.${fieldName}?.id`;
+            imageOnSelectExpr = `(image) => {
+              const newItems = [...${parentName}];
+              newItems[index] = { ...newItems[index], ${fieldName}: { id: image.id, src: image.url, alt: image.alt || '' } };
+              setAttributes({ ${parentName}: newItems });
+            }`;
           } else {
             // Nested object field
             valueExpr = `${parentName}?.${fieldName} || ''`;
             onChangeExpr = `(value) => setAttributes({ ${parentName}: { ...${parentName}, ${fieldName}: value } })`;
+            // For images in nested objects
+            imageIdExpr = `${parentName}?.${fieldName}?.id`;
+            imageOnSelectExpr = `(image) => setAttributes({ ${parentName}: { ...${parentName}, ${fieldName}: { id: image.id, src: image.url, alt: image.alt || '' } } })`;
           }
         } else {
           // Deeply nested - default to simpler handling
@@ -402,13 +417,26 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
             newItems[index] = { ...newItems[index], ${pathParts[pathParts.length - 1]}: value };
             setAttributes({ ${propName}: newItems });
           }`;
+          // For images in deeply nested paths
+          const lastField = pathParts[pathParts.length - 1];
+          imageIdExpr = `${parentLoopVar}.${lastField}?.id`;
+          imageOnSelectExpr = `(image) => {
+            const newItems = [...${propName}];
+            newItems[index] = { ...newItems[index], ${lastField}: { id: image.id, src: image.url, alt: image.alt || '' } };
+            setAttributes({ ${propName}: newItems });
+          }`;
         }
         
-        // Generate RichText for both field types
-        // For text fields, use RichText with allowedFormats={[]} to disable formatting
-        // This gives the native contenteditable inline editing experience
-        // Add handoff-editable-field class for hover/focus styling
-        if (type === 'richtext') {
+        // Generate appropriate component based on field type
+        if (type === 'image') {
+          // Use 10up Image component for inline-editable images
+          return `<Image
+            id={${imageIdExpr}}
+            className="handoff-editable-field"
+            onSelect={${imageOnSelectExpr}}
+            size="large"
+          />`;
+        } else if (type === 'richtext') {
           return `<RichText
             tagName="div"
             className="handoff-editable-field"

@@ -38,9 +38,9 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
     // Look up the field type
     const fieldType = lookupFieldType(fieldPath, properties);
     
-    // Only create editable markers for text and richtext fields that resolve to known properties
+    // Create editable markers for supported field types that resolve to known properties
     // If fieldType is null, the field path doesn't resolve - just output the content as-is (non-editable)
-    if (fieldType === 'text' || fieldType === 'richtext') {
+    if (fieldType === 'text' || fieldType === 'richtext' || fieldType === 'image') {
       // Encode field info in marker
       const fieldInfo = Buffer.from(JSON.stringify({
         path: fieldPath,
@@ -53,7 +53,7 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
       result = result.substring(0, startPos) + replacement + result.substring(startPos + fullMatch.length);
       fieldRegex.lastIndex = startPos + replacement.length;
     } else {
-      // For non-text fields OR unresolved field paths (fieldType === null),
+      // For unsupported field types OR unresolved field paths (fieldType === null),
       // just keep the content without making it editable
       result = result.substring(0, startPos) + content + result.substring(startPos + fullMatch.length);
       fieldRegex.lastIndex = startPos + content.length;

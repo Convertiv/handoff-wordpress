@@ -15,5 +15,8 @@
     "handoff"
   ],
   "author": "Brad Mering <brad@convertiv.com>",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@10up/block-components": "^1.22.1"
+  }
 }
