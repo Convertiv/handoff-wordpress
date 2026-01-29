@@ -13,6 +13,17 @@ const blockFolders = fs.existsSync(blocksDir)
     })
   : [];
 
+// Exit early with helpful message if no blocks found
+if (blockFolders.length === 0) {
+  console.log('\n⚠️  No blocks found in demo/plugin/blocks/');
+  console.log('   Run "npm run dev" or "npm run fetch" first to generate blocks from Handoff.\n');
+  // Export a minimal valid config that does nothing
+  module.exports = {
+    entry: {},
+    plugins: [],
+  };
+} else {
+
 // Create entry points for each block - output as {block}/index
 const entry = {};
 blockFolders.forEach(block => {
@@ -45,7 +56,7 @@ const copyPatterns = blockFolders.flatMap(block => {
 
 module.exports = {
   ...defaultConfig,
-  entry: Object.keys(entry).length > 0 ? entry : defaultConfig.entry,
+  entry,
   output: {
     ...defaultConfig.output,
     path: path.resolve(__dirname, 'build'),
@@ -62,3 +73,5 @@ module.exports = {
     ] : []),
   ],
 };
+
+} // end of else block for when blocks exist
