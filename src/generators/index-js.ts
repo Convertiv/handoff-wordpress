@@ -152,6 +152,81 @@ ${indent}  options={[${options}]}
 ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}/>`;
     
+    case 'array':
+      // Handle simple string arrays with a repeatable list control
+      // Check if this is a simple type array (string, number, etc.) vs object array
+      const itemType = property.items?.type;
+      if (!property.items?.properties && (itemType === 'string' || !itemType)) {
+        // Generate a list control for string arrays
+        return `${indent}<div className="components-base-control">
+${indent}  <label className="components-base-control__label">{__('${label}', 'handoff')}</label>
+${indent}  <VStack spacing={2}>
+${indent}    {(${valueAccessor} || []).map((listItem, listIndex) => (
+${indent}      <HStack key={listIndex} spacing={2} alignment="center">
+${indent}        <div style={{ flex: 1 }}>
+${indent}          <TextControl
+${indent}            value={listItem || ''}
+${indent}            onChange={(value) => {
+${indent}              const newList = [...(${valueAccessor} || [])];
+${indent}              newList[listIndex] = value;
+${indent}              ${onChangeHandler('newList')};
+${indent}            }}
+${indent}            placeholder={__('Enter item...', 'handoff')}
+${indent}          />
+${indent}        </div>
+${indent}        <Button
+${indent}          icon="arrow-up-alt2"
+${indent}          label={__('Move up', 'handoff')}
+${indent}          onClick={() => {
+${indent}            if (listIndex === 0) return;
+${indent}            const newList = [...(${valueAccessor} || [])];
+${indent}            [newList[listIndex], newList[listIndex - 1]] = [newList[listIndex - 1], newList[listIndex]];
+${indent}            ${onChangeHandler('newList')};
+${indent}          }}
+${indent}          disabled={listIndex === 0}
+${indent}          size="small"
+${indent}        />
+${indent}        <Button
+${indent}          icon="arrow-down-alt2"
+${indent}          label={__('Move down', 'handoff')}
+${indent}          onClick={() => {
+${indent}            const list = ${valueAccessor} || [];
+${indent}            if (listIndex >= list.length - 1) return;
+${indent}            const newList = [...list];
+${indent}            [newList[listIndex], newList[listIndex + 1]] = [newList[listIndex + 1], newList[listIndex]];
+${indent}            ${onChangeHandler('newList')};
+${indent}          }}
+${indent}          disabled={listIndex >= (${valueAccessor} || []).length - 1}
+${indent}          size="small"
+${indent}        />
+${indent}        <Button
+${indent}          icon="trash"
+${indent}          label={__('Remove', 'handoff')}
+${indent}          onClick={() => {
+${indent}            const newList = (${valueAccessor} || []).filter((_, i) => i !== listIndex);
+${indent}            ${onChangeHandler('newList')};
+${indent}          }}
+${indent}          isDestructive
+${indent}          size="small"
+${indent}        />
+${indent}      </HStack>
+${indent}    ))}
+${indent}    <Button
+${indent}      onClick={() => {
+${indent}        const newList = [...(${valueAccessor} || []), ''];
+${indent}        ${onChangeHandler('newList')};
+${indent}      }}
+${indent}      variant="secondary"
+${indent}      size="small"
+${indent}    >
+${indent}      {__('Add Item', 'handoff')}
+${indent}    </Button>
+${indent}  </VStack>
+${indent}</div>`;
+      }
+      // For object arrays, fall through to default (these should be handled by generateArrayControl at top level)
+      return '';
+    
     case 'object':
       if (property.properties) {
         const nestedControls = Object.entries(property.properties)
