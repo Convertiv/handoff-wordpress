@@ -10,14 +10,20 @@ import { toCamelCase } from './utils';
  * e.g., "title" -> properties.title.type
  * e.g., "button.text" -> properties.button.properties.text.type
  * e.g., "breadcrumbs.label" -> properties.breadcrumbs.items.properties.label.type
+ * 
+ * Returns null if the field path doesn't resolve to a known property.
+ * This allows callers to decide how to handle unresolved fields.
  */
-export const lookupFieldType = (fieldPath: string, properties: Record<string, HandoffProperty>): string => {
+export const lookupFieldType = (fieldPath: string, properties: Record<string, HandoffProperty>): string | null => {
   const parts = fieldPath.split('.');
   
   if (parts.length === 1) {
     // Top-level field
     const prop = properties[parts[0]] || properties[toCamelCase(parts[0])];
-    return prop?.type || 'text';
+    if (!prop) {
+      return null; // Field not found
+    }
+    return prop.type || 'text';
   }
   
   // Nested field - traverse the path
@@ -34,7 +40,7 @@ export const lookupFieldType = (fieldPath: string, properties: Record<string, Ha
     }
     
     if (!next) {
-      return 'text'; // Default to text if not found
+      return null; // Field not found at this level
     }
     
     // If this is the last part, return its type
@@ -54,5 +60,5 @@ export const lookupFieldType = (fieldPath: string, properties: Record<string, Ha
     }
   }
   
-  return 'text';
+  return null; // Path didn't fully resolve
 };
