@@ -51,10 +51,10 @@ function handoff_theme_setup() {
     // Add support for editor styles
     add_theme_support('editor-styles');
     
-    // Enqueue editor styles - this properly scopes CSS to the editor content area
-    // Load style.css first for block alignment, then main.css for component styles
-    add_editor_style('style.css');
-    add_editor_style('assets/css/main.css');
+    // Note: We use enqueue_block_assets hook instead of add_editor_style()
+    // to avoid CSS selector scoping issues. add_editor_style() wraps selectors
+    // with .editor-styles-wrapper which can break some CSS frameworks.
+    // The enqueue_block_assets hook loads CSS identically in frontend and editor.
 
     // Add support for custom line height
     add_theme_support('custom-line-height');
@@ -107,34 +107,70 @@ function handoff_enqueue_scripts() {
 add_action('wp_enqueue_scripts', 'handoff_enqueue_scripts');
 
 /**
- * Enqueue block editor assets (styles and scripts)
+ * Enqueue block assets for both frontend and editor
  * 
- * This ensures the editor preview looks like the frontend.
- * Note: add_editor_style() in theme setup handles the primary CSS scoping,
- * but we also enqueue here for any CSS that needs to affect the editor UI.
+ * Using enqueue_block_assets ensures the same CSS loads in both contexts,
+ * making the editor preview match the frontend exactly.
  */
-function handoff_block_editor_assets() {
-    // Enqueue additional editor-specific styles if needed
-    // This supplements add_editor_style() for styles that should affect editor UI
+function handoff_block_assets() {
+    // Enqueue main CSS for both frontend and editor
+    // This ensures block previews look identical to the frontend
     wp_enqueue_style(
-        'handoff-block-editor',
+        'handoff-block-main',
         get_template_directory_uri() . '/assets/css/main.css',
         array(),
         '1.0.0'
     );
+}
+add_action('enqueue_block_assets', 'handoff_block_assets');
+
+/**
+ * Enqueue editor-only assets (scripts that should only run in the editor)
+ */
+function handoff_block_editor_assets() {
+    // Enqueue main.js for interactive components in editor previews
+    // This enables accordions, sliders, and other interactive elements to work in the editor
+    wp_enqueue_script(
+        'handoff-editor-main-js',
+        get_template_directory_uri() . '/assets/js/main.js',
+        array('wp-dom-ready'),
+        '1.0.0',
+        true
+    );
     
-    // Note: main.js includes bundled jQuery which may conflict with WordPress's jQuery.
-    // Only enqueue if interactive components (sliders, etc.) need to work in editor previews.
-    // For static block previews, CSS alone is usually sufficient.
-    // 
-    // Uncomment below if you need JS interactivity in editor:
-    // wp_enqueue_script(
-    //     'handoff-block-editor-js',
-    //     get_template_directory_uri() . '/assets/js/main.js',
-    //     array('wp-blocks', 'wp-dom-ready'),
-    //     '1.0.0',
-    //     true
-    // );
+    // Re-initialize JS components when blocks are added/updated
+    wp_add_inline_script(
+        'handoff-editor-main-js',
+        "wp.domReady(function() {
+            // Re-run initialization when editor content changes
+            if (typeof wp !== 'undefined' && wp.data) {
+                wp.data.subscribe(function() {
+                    // Debounced re-initialization could be added here if needed
+                });
+            }
+        });"
+    );
+    
+    // Add editor-specific styles (sidebar width, etc.)
+    wp_register_style('handoff-editor-overrides', false);
+    wp_enqueue_style('handoff-editor-overrides');
+    wp_add_inline_style('handoff-editor-overrides', '
+        /* Widen the Gutenberg sidebar for better editing experience */
+        .interface-complementary-area {
+            width: 450px !important;
+        }
+        
+        /* Adjust the editor content area to account for wider sidebar */
+        .interface-interface-skeleton__sidebar {
+            width: 450px !important;
+        }
+        
+        /* Ensure settings panels have enough space */
+        .edit-post-sidebar,
+        .editor-sidebar {
+            width: 450px !important;
+        }
+    ');
 }
 add_action('enqueue_block_editor_assets', 'handoff_block_editor_assets');
 

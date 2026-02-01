@@ -32,13 +32,13 @@ interface FieldContext {
  * Generate a field control for any property type - unified function for both top-level and nested fields
  */
 const generateFieldControl = (
-  fieldKey: string, 
-  property: HandoffProperty, 
+  fieldKey: string,
+  property: HandoffProperty,
   context: FieldContext
 ): string => {
   const { valueAccessor, onChangeHandler, indent } = context;
   const label = property.name || toTitleCase(fieldKey);
-  
+
   switch (property.type) {
     case 'text':
       return `${indent}<TextControl
@@ -46,7 +46,7 @@ ${indent}  label={__('${label}', 'handoff')}
 ${indent}  value={${valueAccessor} || ''}
 ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}/>`;
-    
+
     case 'richtext':
       return `${indent}<div className="components-base-control">
 ${indent}  <label className="components-base-control__label">{__('${label}', 'handoff')}</label>
@@ -57,7 +57,7 @@ ${indent}    onChange={(value) => ${onChangeHandler('value')}}
 ${indent}    placeholder={__('Enter ${label.toLowerCase()}...', 'handoff')}
 ${indent}  />
 ${indent}</div>`;
-    
+
     case 'number':
       return `${indent}<RangeControl
 ${indent}  label={__('${label}', 'handoff')}
@@ -66,14 +66,14 @@ ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}  min={0}
 ${indent}  max={100}
 ${indent}/>`;
-    
+
     case 'boolean':
       return `${indent}<ToggleControl
 ${indent}  label={__('${label}', 'handoff')}
 ${indent}  checked={${valueAccessor} || false}
 ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}/>`;
-    
+
     case 'image':
       // Use 'src' instead of 'url' to match Handoff's image property naming convention
       return `${indent}<MediaUploadCheck>
@@ -108,7 +108,7 @@ ${indent}      </VStack>
 ${indent}    )}
 ${indent}  />
 ${indent}</MediaUploadCheck>`;
-    
+
     case 'link':
       // For links, use LinkControl which provides internal page search and URL validation
       const linkHandler = onChangeHandler(`{ 
@@ -140,9 +140,9 @@ ${indent}      suggestionsQuery={{ type: 'post', subtype: 'any' }}
 ${indent}    />
 ${indent}  </div>
 ${indent}</div>`;
-    
+
     case 'select':
-      const options = property.options?.map(opt => 
+      const options = property.options?.map(opt =>
         `{ label: '${opt.label}', value: '${opt.value}' }`
       ).join(', ') || '';
       return `${indent}<SelectControl
@@ -151,7 +151,7 @@ ${indent}  value={${valueAccessor} || ''}
 ${indent}  options={[${options}]}
 ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}/>`;
-    
+
     case 'array':
       // Handle simple string arrays with a repeatable list control
       // Check if this is a simple type array (string, number, etc.) vs object array
@@ -226,7 +226,7 @@ ${indent}</div>`;
       }
       // For object arrays, fall through to default (these should be handled by generateArrayControl at top level)
       return '';
-    
+
     case 'object':
       if (property.properties) {
         const nestedControls = Object.entries(property.properties)
@@ -243,7 +243,7 @@ ${nestedControls}
 ${indent}</VStack>`;
       }
       return '';
-    
+
     default:
       return `${indent}<TextControl
 ${indent}  label={__('${label}', 'handoff')}
@@ -254,65 +254,56 @@ ${indent}/>`;
 };
 
 /**
- * Generate array (repeater) control - uses generateFieldControl for each item field
- * Includes move up/down buttons for reordering items
+ * Generate array (repeater) control using 10up Repeater component
+ * Provides drag-and-drop reordering and built-in add/remove functionality
  */
 const generateArrayControl = (key: string, property: HandoffProperty, attrName: string, label: string, indent: string): string => {
   const itemProps = property.items?.properties || {};
-  const updateFuncName = `update${toCamelCase(key)}Item`;
-  const camelKey = toCamelCase(key);
-  
+
+  // Generate field controls that use setItem from the Repeater render prop
   const itemFields = Object.entries(itemProps).map(([fieldKey, fieldProp]) => {
     const fieldContext: FieldContext = {
       valueAccessor: `item.${fieldKey}`,
-      onChangeHandler: (value) => `${updateFuncName}(index, '${fieldKey}', ${value})`,
-      indent: indent + '            '
+      onChangeHandler: (value) => `setItem({ ...item, ${fieldKey}: ${value} })`,
+      indent: indent + '      '
     };
     return generateFieldControl(fieldKey, fieldProp, fieldContext);
   }).join('\n');
 
-  return `${indent}<VStack spacing={3}>
-${indent}  {${attrName} && ${attrName}.map((item, index) => (
-${indent}    <Card key={index} size="small">
-${indent}      <CardBody>
-${indent}        <VStack spacing={2}>
-${indent}          <HStack spacing={1} justify="flex-end">
+  // Get a display title from the first text field if available
+  const firstTextField = Object.entries(itemProps).find(([, prop]) => prop.type === 'text');
+  const titleAccessor = firstTextField ? `item.${firstTextField[0]} || ` : '';
+  
+  return `${indent}<Repeater attribute="${attrName}" allowReordering={true}>
+${indent}  {(item, index, setItem, removeItem) => (
+${indent}    <div className="repeater-item">
+${indent}      <details className="repeater-item__collapse">
+${indent}        <summary className="repeater-item__header">
+${indent}          <span className="repeater-item__title">{${titleAccessor}\`Item \${index + 1}\`}</span>
+${indent}          <span className="repeater-item__actions" onClick={(e) => e.stopPropagation()}>
 ${indent}            <Button
-${indent}              icon="arrow-up-alt2"
-${indent}              label={__('Move up', 'handoff')}
-${indent}              onClick={() => move${camelKey}Item(index, 'up')}
-${indent}              disabled={index === 0}
+${indent}              onClick={removeItem}
+${indent}              icon={
+${indent}                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+${indent}                  <path d="M5 6.5V18a2 2 0 002 2h10a2 2 0 002-2V6.5h-2.5V18a.5.5 0 01-.5.5H8a.5.5 0 01-.5-.5V6.5H5zM9 9v8h1.5V9H9zm4.5 0v8H15V9h-1.5z"/>
+${indent}                  <path d="M20 5h-5V3.5A1.5 1.5 0 0013.5 2h-3A1.5 1.5 0 009 3.5V5H4v1.5h16V5zm-6.5 0h-3V3.5h3V5z"/>
+${indent}                </svg>
+${indent}              }
+${indent}              label={__('Remove item', 'handoff')}
+${indent}              isDestructive
 ${indent}              size="small"
 ${indent}            />
-${indent}            <Button
-${indent}              icon="arrow-down-alt2"
-${indent}              label={__('Move down', 'handoff')}
-${indent}              onClick={() => move${camelKey}Item(index, 'down')}
-${indent}              disabled={index === ${attrName}.length - 1}
-${indent}              size="small"
-${indent}            />
-${indent}          </HStack>
+${indent}          </span>
+${indent}        </summary>
+${indent}        <div className="repeater-item__fields">
+${indent}          <VStack spacing={2}>
 ${itemFields}
-${indent}          <Button
-${indent}            onClick={() => remove${camelKey}Item(index)}
-${indent}            variant="link"
-${indent}            isDestructive
-${indent}            size="small"
-${indent}          >
-${indent}            {__('Remove', 'handoff')}
-${indent}          </Button>
-${indent}        </VStack>
-${indent}      </CardBody>
-${indent}    </Card>
-${indent}  ))}
-${indent}  <Button
-${indent}    onClick={add${camelKey}Item}
-${indent}    variant="secondary"
-${indent}    size="small"
-${indent}  >
-${indent}    {__('Add ${label}', 'handoff')}
-${indent}  </Button>
-${indent}</VStack>`;
+${indent}          </VStack>
+${indent}        </div>
+${indent}      </details>
+${indent}    </div>
+${indent}  )}
+${indent}</Repeater>`;
 };
 
 /**
@@ -322,19 +313,19 @@ ${indent}</VStack>`;
 const generatePropertyControl = (key: string, property: HandoffProperty, indent: string = '          '): string => {
   const attrName = toCamelCase(key);
   const label = property.name || toTitleCase(key);
-  
+
   // For array type, use the specialized array control
   if (property.type === 'array') {
     return generateArrayControl(key, property, attrName, label, indent);
   }
-  
+
   // For all other types, use the unified field control generator
   const context: FieldContext = {
     valueAccessor: attrName,
     onChangeHandler: (value) => `setAttributes({ ${attrName}: ${value} })`,
     indent
   };
-  
+
   return generateFieldControl(key, property, context);
 };
 
@@ -369,53 +360,13 @@ const getDefaultValue = (fieldProp: HandoffProperty): any => {
 
 /**
  * Generate helper functions for array properties
+ * Note: With the 10up Repeater component, we no longer need custom add/update/remove/move functions
+ * The Repeater handles all of this internally via its render prop
  */
 const generateArrayHelpers = (properties: Record<string, HandoffProperty>): string => {
-  const helpers: string[] = [];
-  
-  for (const [key, property] of Object.entries(properties)) {
-    if (property.type === 'array') {
-      const attrName = toCamelCase(key);
-      const funcName = attrName;
-      
-      // Determine the default item structure using getDefaultValue for proper types
-      const itemProps = property.items?.properties || {};
-      const defaultItem: Record<string, any> = {};
-      for (const [fieldKey, fieldProp] of Object.entries(itemProps)) {
-        defaultItem[fieldKey] = getDefaultValue(fieldProp);
-      }
-      const defaultItemStr = JSON.stringify(defaultItem);
-      
-      helpers.push(`
-    // Helpers for ${key} array
-    const update${funcName}Item = (index, field, value) => {
-      const newItems = [...${attrName}];
-      newItems[index] = { ...newItems[index], [field]: value };
-      setAttributes({ ${attrName}: newItems });
-    };
-
-    const add${funcName}Item = () => {
-      setAttributes({ 
-        ${attrName}: [...(${attrName} || []), ${defaultItemStr}] 
-      });
-    };
-
-    const remove${funcName}Item = (index) => {
-      const newItems = ${attrName}.filter((_, i) => i !== index);
-      setAttributes({ ${attrName}: newItems });
-    };
-
-    const move${funcName}Item = (index, direction) => {
-      const newItems = [...${attrName}];
-      const newIndex = direction === 'up' ? index - 1 : index + 1;
-      if (newIndex < 0 || newIndex >= newItems.length) return;
-      [newItems[index], newItems[newIndex]] = [newItems[newIndex], newItems[index]];
-      setAttributes({ ${attrName}: newItems });
-    };`);
-    }
-  }
-  
-  return helpers.join('\n');
+  // The 10up Repeater component handles array manipulation internally
+  // No custom helper functions are needed
+  return '';
 };
 
 /**
@@ -424,15 +375,15 @@ const generateArrayHelpers = (properties: Record<string, HandoffProperty>): stri
  */
 const generateValidationRules = (properties: Record<string, HandoffProperty>): { rules: string; hasValidation: boolean } => {
   const rules: string[] = [];
-  
+
   const processProperty = (key: string, prop: HandoffProperty, path: string = '') => {
     const fieldPath = path ? `${path}.${key}` : key;
     const camelKey = toCamelCase(key);
     const valuePath = path ? `${path}?.${camelKey}` : camelKey;
-    
+
     if (prop.rules?.required) {
       const label = prop.name || toTitleCase(key);
-      
+
       if (prop.type === 'text' || prop.type === 'richtext') {
         rules.push(`    { field: '${valuePath}', label: '${label}', validate: (v) => !!v && v.trim() !== '' }`);
       } else if (prop.type === 'image') {
@@ -447,14 +398,14 @@ const generateValidationRules = (properties: Record<string, HandoffProperty>): {
         rules.push(`    { field: '${valuePath}', label: '${label}', validate: (v) => v !== undefined && v !== null && v !== '' }`);
       }
     }
-    
+
     // Process nested properties in objects
     if (prop.type === 'object' && prop.properties) {
       for (const [nestedKey, nestedProp] of Object.entries(prop.properties)) {
         processProperty(nestedKey, nestedProp, valuePath);
       }
     }
-    
+
     // Process item properties in arrays (these validate per-item)
     if (prop.type === 'array' && prop.items?.properties) {
       for (const [itemKey, itemProp] of Object.entries(prop.items.properties)) {
@@ -466,11 +417,11 @@ const generateValidationRules = (properties: Record<string, HandoffProperty>): {
       }
     }
   };
-  
+
   for (const [key, prop] of Object.entries(properties)) {
     processProperty(key, prop);
   }
-  
+
   return {
     rules: rules.length > 0 ? `[\n${rules.join(',\n')}\n  ]` : '[]',
     hasValidation: rules.length > 0
@@ -483,16 +434,16 @@ const generateValidationRules = (properties: Record<string, HandoffProperty>): {
 const generateIndexJs = (component: HandoffComponent): string => {
   const blockName = toBlockName(component.id);
   const properties = component.properties;
-  
+
   // Get all attribute names
   const attrNames = Object.keys(properties).map(toCamelCase);
-  
+
   // Check for overlay in template
   const hasOverlay = component.code.includes('overlay');
   if (hasOverlay && !attrNames.includes('overlayOpacity')) {
     attrNames.push('overlayOpacity');
   }
-  
+
   // Helper to check for a type in properties, including nested in arrays/objects
   const hasPropertyType = (type: string): boolean => {
     const checkProperty = (prop: HandoffProperty): boolean => {
@@ -509,7 +460,7 @@ const generateIndexJs = (component: HandoffComponent): string => {
     };
     return Object.values(properties).some(checkProperty);
   };
-  
+
   // Determine which components we need to import
   const needsMediaUpload = hasPropertyType('image');
   const needsRangeControl = hasPropertyType('number') || hasOverlay;
@@ -518,7 +469,7 @@ const generateIndexJs = (component: HandoffComponent): string => {
   const needsRichText = hasPropertyType('richtext');
   const hasArrayProps = Object.values(properties).some(p => p.type === 'array');
   const hasObjectProps = hasPropertyType('object');
-  
+
   // Build imports
   const blockEditorImports = ['useBlockProps', 'InspectorControls'];
   if (needsMediaUpload) {
@@ -532,34 +483,37 @@ const generateIndexJs = (component: HandoffComponent): string => {
   if (needsLinkControl) {
     blockEditorImports.push('__experimentalLinkControl as LinkControl');
   }
-  
+
   const componentImports = ['PanelBody', 'TextControl', 'Button'];
   if (needsRangeControl) componentImports.push('RangeControl');
   if (needsToggleControl) componentImports.push('ToggleControl');
   if (needsSelectControl) componentImports.push('SelectControl');
-  
-  if (hasArrayProps) {
-    componentImports.push('Card', 'CardBody');
-  }
+
   componentImports.push('__experimentalVStack as VStack');
-  // HStack is needed for array reorder buttons or nested objects
-  if (hasArrayProps || hasObjectProps) {
+  // HStack is needed for nested objects or string arrays with reorder buttons
+  if (hasObjectProps) {
     componentImports.push('__experimentalHStack as HStack');
   }
-  
+
+  // 10up block-components imports
+  const tenUpImports: string[] = [];
+  if (hasArrayProps) {
+    tenUpImports.push('Repeater');
+  }
+
   // Generate panel bodies for each property
   const panels: string[] = [];
-  
+
   for (const [key, property] of Object.entries(properties)) {
     const label = property.name || toTitleCase(key);
     const isImageOrArray = property.type === 'image' || property.type === 'array';
-    
+
     panels.push(`          {/* ${label} Panel */}
           <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
 ${generatePropertyControl(key, property)}
           </PanelBody>`);
   }
-  
+
   // Add overlay opacity panel if detected
   if (hasOverlay && !properties.overlayOpacity) {
     panels.push(`          {/* Overlay Panel */}
@@ -574,31 +528,31 @@ ${generatePropertyControl(key, property)}
             />
           </PanelBody>`);
   }
-  
+
   // Generate array helpers
   const arrayHelpers = generateArrayHelpers(properties);
-  
+
   // Generate JSX preview from handlebars template
   const previewJsx = generateJsxPreview(
-    component.code, 
-    properties, 
-    component.id, 
+    component.code,
+    properties,
+    component.id,
     component.title
   );
-  
+
   // Check the generated preview for components that need to be imported
   // This catches components added by the handlebars-to-jsx transpiler (e.g., from {{#field}} markers)
   const previewUsesRichText = previewJsx.includes('<RichText');
   const previewUses10upImage = previewJsx.includes('<Image');
-  
+
   // Add RichText to imports if used in preview (and not already included from property types)
   if (previewUsesRichText && !blockEditorImports.includes('RichText')) {
     blockEditorImports.push('RichText');
   }
-  
+
   // Generate validation rules from properties
   const { rules: validationRules, hasValidation } = generateValidationRules(properties);
-  
+
   // Generate validation code if there are rules
   const validationCode = hasValidation ? `
     // Validation rules for required fields
@@ -663,12 +617,15 @@ ${generatePropertyControl(key, property)}
       };
     }, [${attrNames.join(', ')}]);
 ` : '';
-  
-  // Build the 10up import if needed
-  const tenUpImport = previewUses10upImage 
-    ? `import { Image } from '@10up/block-components';\n` 
+
+  // Build the 10up import if needed (Image for preview, Repeater for arrays)
+  if (previewUses10upImage) {
+    tenUpImports.push('Image');
+  }
+  const tenUpImport = tenUpImports.length > 0
+    ? `import { ${tenUpImports.join(', ')} } from '@10up/block-components';\n`
     : '';
-  
+
   return `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 

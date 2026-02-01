@@ -10,7 +10,7 @@
 These templates were transpiled from the Handoff design system.
 
 - **API URL:** https://cynosure.handoff.com
-- **Generated:** 2026-01-28T22:29:27.288Z
+- **Generated:** 2026-01-30T19:05:41.746Z
 
 ## Files
 

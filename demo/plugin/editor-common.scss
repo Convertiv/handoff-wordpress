@@ -1,0 +1,214 @@
+/**
+ * Handoff Blocks - Common Editor Styles
+ * Shared styles for all Handoff-generated blocks
+ */
+
+/* ============================================
+   Repeater Component Styling
+   ============================================ */
+
+/* Repeater container */
+.tenup-block-components-repeater {
+  margin-top: 8px;
+}
+
+/* Individual repeater item */
+.tenup-block-components-repeater__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: #007cba;
+  }
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+/* Drag handle styling */
+.tenup-block-components-repeater__item-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  margin-top: 4px;
+  cursor: grab;
+  color: #757575;
+  border-radius: 2px;
+  transition: color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    color: #1e1e1e;
+    background: #e0e0e0;
+  }
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* Item content area */
+.tenup-block-components-repeater__item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Styling for items being dragged */
+.tenup-block-components-repeater__item--is-dragging {
+  opacity: 0.5;
+  border-color: #007cba;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Drop placeholder */
+.tenup-block-components-repeater__drop-indicator {
+  height: 4px;
+  background: #007cba;
+  border-radius: 2px;
+  margin: 4px 0;
+}
+
+/* Add button styling */
+.tenup-block-components-repeater__add-button {
+  margin-top: 12px;
+}
+
+/* ============================================
+   Repeater Item Form Fields
+   ============================================ */
+
+/* Ensure form fields inside repeater items are properly spaced */
+.tenup-block-components-repeater__item {
+  .components-base-control {
+    margin-bottom: 12px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .components-text-control__input,
+  .components-textarea-control__input {
+    width: 100%;
+  }
+}
+
+/* Collapsible repeater item structure */
+.repeater-item__collapse {
+  width: 100%;
+
+  /* Remove default marker/arrow */
+  > summary {
+    list-style: none;
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+}
+
+/* Header row with title and actions */
+.repeater-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  cursor: pointer;
+  user-select: none;
+
+  /* Custom collapse indicator */
+  &::before {
+    content: '';
+    display: inline-block;
+    width: 0;
+    height: 0;
+    margin-right: 8px;
+    border-left: 5px solid #757575;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transition: transform 0.15s ease;
+  }
+
+  /* Rotate arrow when open */
+  details[open] > &::before {
+    transform: rotate(90deg);
+  }
+}
+
+/* Item title */
+.repeater-item__title {
+  flex: 1;
+  font-weight: 500;
+  font-size: 13px;
+  color: #1e1e1e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Actions container (remove button) */
+.repeater-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+
+  .components-button.is-destructive {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    min-width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
+
+    &:hover {
+      background-color: rgba(204, 24, 24, 0.1);
+    }
+
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+}
+
+/* Collapsible fields container */
+.repeater-item__fields {
+  padding: 12px 0 4px 13px;
+  border-left: 2px solid #e0e0e0;
+  margin-left: 2px;
+  margin-top: 4px;
+}
+
+/* VStack inside repeater items */
+.tenup-block-components-repeater__item-content > .components-v-stack {
+  width: 100%;
+}
+
+/* ============================================
+   Inspector Panel Repeater Styling
+   ============================================ */
+
+/* Repeater inside inspector panels */
+.components-panel__body .tenup-block-components-repeater {
+  .tenup-block-components-repeater__item {
+    background: #fff;
+    border-color: #ddd;
+  }
+}
