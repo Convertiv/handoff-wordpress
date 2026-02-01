@@ -471,9 +471,9 @@ const generateIndexJs = (component: HandoffComponent): string => {
   const hasObjectProps = hasPropertyType('object');
 
   // Build imports
-  const blockEditorImports = ['useBlockProps', 'InspectorControls'];
+  const blockEditorImports = ['useBlockProps', 'InspectorControls', 'BlockControls'];
   if (needsMediaUpload) {
-    blockEditorImports.push('MediaUpload', 'MediaUploadCheck');
+    blockEditorImports.push('MediaUpload', 'MediaUploadCheck', 'MediaReplaceFlow');
   }
   if (needsRichText) {
     blockEditorImports.push('RichText');
@@ -626,6 +626,66 @@ ${generatePropertyControl(key, property)}
     ? `import { ${tenUpImports.join(', ')} } from '@10up/block-components';\n`
     : '';
 
+  // Collect all image fields for BlockControls/MediaReplaceFlow
+  interface ImageFieldInfo {
+    label: string;
+    attrPath: string;  // e.g., 'backgroundImage' or 'leftCard.image'
+    valueExpr: string; // e.g., 'backgroundImage' or 'leftCard?.image'
+    updateExpr: string; // e.g., 'setAttributes({ backgroundImage: ... })' or nested update
+  }
+  
+  const imageFields: ImageFieldInfo[] = [];
+  
+  const collectImageFields = (props: Record<string, HandoffProperty>, parentPath: string = '', parentValuePath: string = '') => {
+    for (const [key, prop] of Object.entries(props)) {
+      const attrName = toCamelCase(key);
+      const currentPath = parentPath ? `${parentPath}.${attrName}` : attrName;
+      const currentValuePath = parentValuePath ? `${parentValuePath}?.${attrName}` : attrName;
+      
+      if (prop.type === 'image') {
+        const label = prop.name || toTitleCase(key);
+        let updateExpr: string;
+        
+        if (parentPath) {
+          // Nested image field - need to spread parent object
+          const parentAttr = parentPath.split('.')[0];
+          const parentCamel = toCamelCase(parentAttr);
+          updateExpr = `setAttributes({ ${parentCamel}: { ...${parentCamel}, ${attrName}: { id: media.id, src: media.url, alt: media.alt || '' } } })`;
+        } else {
+          // Top-level image field
+          updateExpr = `setAttributes({ ${attrName}: { id: media.id, src: media.url, alt: media.alt || '' } })`;
+        }
+        
+        imageFields.push({
+          label,
+          attrPath: currentPath,
+          valueExpr: currentValuePath,
+          updateExpr
+        });
+      }
+      
+      // Recurse into object properties
+      if (prop.type === 'object' && prop.properties) {
+        collectImageFields(prop.properties, currentPath, currentValuePath);
+      }
+    }
+  };
+  
+  collectImageFields(properties);
+  
+  // Generate BlockControls with MediaReplaceFlow for each image field
+  const blockControlsJsx = imageFields.length > 0 ? `
+        <BlockControls group="other">
+${imageFields.map(field => `          <MediaReplaceFlow
+            mediaId={${field.valueExpr}?.id}
+            mediaUrl={${field.valueExpr}?.src}
+            allowedTypes={['image']}
+            accept="image/*"
+            onSelect={(media) => ${field.updateExpr}}
+            name={__('${field.label}', 'handoff')}
+          />`).join('\n')}
+        </BlockControls>` : '';
+
   return `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
@@ -651,6 +711,7 @@ ${validationCode}
         <InspectorControls>
 ${panels.join('\n\n')}
         </InspectorControls>
+${blockControlsJsx}
 
         {/* Editor Preview */}
         <div {...blockProps}>
