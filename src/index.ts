@@ -154,7 +154,9 @@ import {
   validateComponent,
   updateManifest,
   formatValidationResult,
-  ValidationResult
+  ValidationResult,
+  validateTemplateVariables,
+  formatTemplateValidationResult
 } from './validators';
 
 // Load PHP plugin for Prettier (using require for compatibility)
@@ -370,6 +372,17 @@ const compile = async (options: CompilerOptions): Promise<void> => {
     const component = await fetchComponent(options.apiUrl, options.componentName, options.auth);
     console.log(`   Found: ${component.title} (${component.id})\n`);
     
+    // Validate template variables before generating
+    console.log(`🔍 Validating template variables...`);
+    const templateValidation = validateTemplateVariables(component);
+    console.log(formatTemplateValidationResult(templateValidation));
+    console.log('');
+    
+    if (!templateValidation.isValid) {
+      console.error(`\n❌ Template validation failed! Fix the undefined variables before compiling.\n`);
+      process.exit(1);
+    }
+    
     // Generate block files
     console.log(`⚙️  Generating Gutenberg block...`);
     const block = generateBlock(component, options.apiUrl);
@@ -449,6 +462,16 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     for (const componentId of componentIds) {
       try {
         const component = await fetchComponent(apiUrl, componentId, auth);
+        
+        // Validate template variables
+        const templateValidation = validateTemplateVariables(component);
+        if (!templateValidation.isValid) {
+          console.log(formatTemplateValidationResult(templateValidation));
+          console.error(`   ⚠️  Skipping ${componentId} due to template variable errors`);
+          failed++;
+          continue;
+        }
+        
         const block = generateBlock(component, apiUrl);
         await writeBlockFiles(outputDir, component.id, block, auth);
         success++;

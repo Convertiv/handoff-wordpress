@@ -14,3 +14,10 @@ export {
   PropertyChange,
   ValidationResult
 } from './property-manifest';
+
+export {
+  validateTemplateVariables,
+  formatTemplateValidationResult,
+  TemplateVariableError,
+  TemplateValidationResult
+} from './template-variables';
