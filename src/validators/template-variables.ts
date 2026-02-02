@@ -39,8 +39,10 @@ interface ScopeContext {
 const extractVariableFromExpression = (expr: string): string | null => {
   const trimmed = expr.trim();
   
-  // Skip Handlebars built-ins and special variables
-  if (trimmed.startsWith('@') || trimmed === 'this' || trimmed === 'else') {
+  // Skip Handlebars built-ins, special variables, and global compiler variables
+  if (trimmed.startsWith('@') || trimmed === 'this' || trimmed === 'else' || 
+      trimmed === 'style' || trimmed === 'script' ||
+      trimmed.startsWith('style.') || trimmed.startsWith('script.')) {
     return null;
   }
   
@@ -190,6 +192,14 @@ const resolveVariablePath = (
         }
       }
       
+      // Video has implicit src, poster, type, width, height properties
+      if (prop.type === 'video') {
+        const videoProps = ['src', 'url', 'poster', 'type', 'width', 'height', 'id', 'mime', 'mimeType'];
+        if (rest.length === 1 && videoProps.includes(rest[0])) {
+          return { found: true, resolvedAt: `${actualKey}.${rest[0]}` };
+        }
+      }
+      
       // Link has implicit properties
       if (prop.type === 'link') {
         const linkProps = ['label', 'url', 'text', 'opensInNewTab', 'href', 'target', 'title'];
@@ -200,7 +210,7 @@ const resolveVariablePath = (
       
       // Button has implicit properties
       if (prop.type === 'button') {
-        const buttonProps = ['url', 'text', 'label', 'href', 'target', 'opensInNewTab', 'title', 'type', 'disabled'];
+        const buttonProps = ['url', 'text', 'label', 'href', 'target', 'opensInNewTab', 'title', 'type', 'disabled', 'style', 'rel'];
         if (rest.length === 1 && buttonProps.includes(rest[0])) {
           return { found: true, resolvedAt: `${actualKey}.${rest[0]}` };
         }
@@ -251,6 +261,14 @@ const resolveVariablePath = (
     }
   }
   
+  // Video has implicit src, poster, type, width, height properties
+  if (prop.type === 'video') {
+    const videoProps = ['src', 'url', 'poster', 'type', 'width', 'height', 'id', 'mime', 'mimeType'];
+    if (rest.length === 1 && videoProps.includes(rest[0])) {
+      return { found: true, resolvedAt: `${actualKey}.${rest[0]}` };
+    }
+  }
+  
   // Link has implicit label, url, text, opensInNewTab properties
   if (prop.type === 'link') {
     const linkProps = ['label', 'url', 'text', 'opensInNewTab', 'href', 'target', 'title'];
@@ -261,7 +279,7 @@ const resolveVariablePath = (
   
   // Button has implicit url, text, label properties (similar to link)
   if (prop.type === 'button') {
-    const buttonProps = ['url', 'text', 'label', 'href', 'target', 'opensInNewTab', 'title', 'type', 'disabled'];
+    const buttonProps = ['url', 'text', 'label', 'href', 'target', 'opensInNewTab', 'title', 'type', 'disabled', 'style', 'rel'];
     if (rest.length === 1 && buttonProps.includes(rest[0])) {
       return { found: true, resolvedAt: `${actualKey}.${rest[0]}` };
     }
@@ -521,7 +539,10 @@ export const validateTemplateVariables = (
         } else if (blockType === 'if' || blockType === 'unless') {
           // Validate the condition variable exists (unless it's a complex expression)
           const condVar = blockArg.split(/\s+/)[0]; // Get first word
-          if (condVar && !condVar.includes('(') && !condVar.startsWith('@')) {
+          // Skip validation for @-prefixed variables and global compiler variables (style, script)
+          if (condVar && !condVar.includes('(') && !condVar.startsWith('@') && 
+              condVar !== 'style' && condVar !== 'script' &&
+              !condVar.startsWith('style.') && !condVar.startsWith('script.')) {
             const condPath = parseVariablePath(condVar);
             const currentContext = contextStack[contextStack.length - 1];
             const resolved = resolveVariablePath(condPath, properties, currentContext.itemProperties);
@@ -550,6 +571,11 @@ export const validateTemplateVariables = (
       }
       
     } else {
+      // Skip else/else if constructs - these are part of if/unless blocks
+      if (content === 'else' || content.startsWith('else ')) {
+        continue;
+      }
+      
       // Expression: {{variable}}, {{obj.prop}}, etc.
       const varName = extractVariableFromExpression(content);
       if (varName) {

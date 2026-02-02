@@ -5,7 +5,7 @@
 export interface HandoffProperty {
   id: string;
   name: string;
-  type: 'text' | 'image' | 'array' | 'object' | 'link' | 'boolean' | 'number' | 'select' | 'richtext' | 'button';
+  type: 'text' | 'image' | 'video' | 'array' | 'object' | 'link' | 'boolean' | 'number' | 'select' | 'richtext' | 'button';
   description?: string;
   default?: any;
   rules?: {
