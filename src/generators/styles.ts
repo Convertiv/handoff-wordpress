@@ -290,6 +290,28 @@ const generateEditorScss = (component: HandoffComponent): string => {
     margin-left: 2px;
     margin-top: 4px;
 }
+
+// Add button wrapper - spacing and alignment
+.repeater-add-button-wrapper {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 16px;
+    margin-top: 8px;
+}
+
+// Custom add button styling
+.repeater-add-button {
+    color: #1e1e1e !important;
+    background: transparent !important;
+    
+    &:hover {
+        color: #0073aa !important;
+    }
+    
+    svg {
+        fill: currentColor;
+    }
+}
 `;
 
   return scss;

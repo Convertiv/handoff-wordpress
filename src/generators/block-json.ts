@@ -22,6 +22,8 @@ const getDefaultForType = (type: string): any => {
       return { src: '', alt: '' };
     case 'link':
       return { label: '', url: '', opensInNewTab: false };
+    case 'button':
+      return { label: '', href: '#', target: '', rel: '', disabled: false };
     case 'object':
       return {};
     case 'array':
@@ -67,6 +69,12 @@ const mapPropertyType = (property: HandoffProperty, previewValue?: any): Gutenbe
         default: getDefault({ label: '', url: '', opensInNewTab: false })
       };
     
+    case 'button':
+      return { 
+        type: 'object', 
+        default: getDefault({ label: '', href: '#', target: '', rel: '', disabled: false })
+      };
+    
     case 'object':
       // For objects, create default from nested properties or use preview value
       const objectDefault: Record<string, any> = {};
@@ -82,10 +90,17 @@ const mapPropertyType = (property: HandoffProperty, previewValue?: any): Gutenbe
       };
     
     case 'array':
-      // For arrays, use property default, preview value, or empty array
+      // For arrays, only include the first item in default (full defaults go in example.attributes)
+      // This prevents issues with the 10up Repeater not assigning IDs to initial items
+      // Check property.default first, then preview value
+      const arraySource = property.default !== undefined 
+        ? property.default 
+        : (Array.isArray(previewValue) ? previewValue : []);
+      const fullArray = Array.isArray(arraySource) ? arraySource : [];
+      const singleItemDefault = fullArray.length > 0 ? [fullArray[0]] : [];
       return { 
         type: 'array', 
-        default: getDefault([])
+        default: singleItemDefault
       };
     
     case 'select':
@@ -196,14 +211,22 @@ const generateBlockJson = (component: HandoffComponent, hasScreenshot: boolean =
     }
   };
   
-  // Add example with preview image if screenshot is available
-  // This makes the block inserter show a preview image instead of rendering the block
-  if (hasScreenshot) {
+  // Build example attributes from the full preview values
+  // This provides realistic sample data for the block preview
+  const exampleAttributes: Record<string, any> = {};
+  for (const [key, property] of Object.entries(component.properties)) {
+    const attrName = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    const previewValue = genericPreviewValues[key];
+    if (previewValue !== undefined) {
+      exampleAttributes[attrName] = previewValue;
+    }
+  }
+  
+  // Add example with preview image if screenshot is available, or with full preview data
+  if (hasScreenshot || Object.keys(exampleAttributes).length > 0) {
     blockJson.example = {
       viewportWidth: 1200,
-      attributes: {
-        // Empty attributes to trigger the preview image display
-      }
+      attributes: exampleAttributes
     };
   }
   

@@ -121,6 +121,7 @@ ${indent}</MediaUploadCheck>`;
 ${indent}  <label className="components-base-control__label">{__('${label}', 'handoff')}</label>
 ${indent}  <TextControl
 ${indent}    label={__('Link Text', 'handoff')}
+${indent}    hideLabelFromVision={true}
 ${indent}    value={${valueAccessor}?.label || ''}
 ${indent}    onChange={(value) => ${onChangeHandler(`{ ...${valueAccessor}, label: value }`)}}
 ${indent}  />
@@ -139,6 +140,45 @@ ${indent}      showSuggestions={true}
 ${indent}      suggestionsQuery={{ type: 'post', subtype: 'any' }}
 ${indent}    />
 ${indent}  </div>
+${indent}</div>`;
+
+    case 'button':
+      // For buttons, provide label field and href field with link picker
+      // Button properties: label, href, target, rel, disabled
+      const buttonHandler = onChangeHandler(`{ 
+        ...${valueAccessor}, 
+        href: value.url || '#', 
+        target: value.opensInNewTab ? '_blank' : '',
+        rel: value.opensInNewTab ? 'noopener noreferrer' : ''
+      }`);
+      return `${indent}<div className="components-base-control">
+${indent}  <label className="components-base-control__label">{__('${label}', 'handoff')}</label>
+${indent}  <TextControl
+${indent}    label={__('Button Label', 'handoff')}
+${indent}    hideLabelFromVision={true}
+${indent}    value={${valueAccessor}?.label || ''}
+${indent}    onChange={(value) => ${onChangeHandler(`{ ...${valueAccessor}, label: value }`)}}
+${indent}  />
+${indent}  <div style={{ marginTop: '8px' }}>
+${indent}    <LinkControl
+${indent}      value={{ 
+${indent}        url: ${valueAccessor}?.href || '#', 
+${indent}        title: ${valueAccessor}?.label || '',
+${indent}        opensInNewTab: ${valueAccessor}?.target === '_blank'
+${indent}      }}
+${indent}      onChange={(value) => ${buttonHandler}}
+${indent}      settings={[
+${indent}        { id: 'opensInNewTab', title: __('Open in new tab', 'handoff') }
+${indent}      ]}
+${indent}      showSuggestions={true}
+${indent}      suggestionsQuery={{ type: 'post', subtype: 'any' }}
+${indent}    />
+${indent}  </div>
+${indent}  <ToggleControl
+${indent}    label={__('Disabled', 'handoff')}
+${indent}    checked={${valueAccessor}?.disabled || false}
+${indent}    onChange={(value) => ${onChangeHandler(`{ ...${valueAccessor}, disabled: value }`)}}
+${indent}  />
 ${indent}</div>`;
 
     case 'select':
@@ -216,7 +256,7 @@ ${indent}      onClick={() => {
 ${indent}        const newList = [...(${valueAccessor} || []), ''];
 ${indent}        ${onChangeHandler('newList')};
 ${indent}      }}
-${indent}      variant="secondary"
+${indent}      variant="tertiary"
 ${indent}      size="small"
 ${indent}    >
 ${indent}      {__('Add Item', 'handoff')}
@@ -270,16 +310,40 @@ const generateArrayControl = (key: string, property: HandoffProperty, attrName: 
     return generateFieldControl(fieldKey, fieldProp, fieldContext);
   }).join('\n');
 
-  // Get a display title from the first text field if available
+  // Get a display title from the first text field if available, fallback to field label
   const firstTextField = Object.entries(itemProps).find(([, prop]) => prop.type === 'text');
   const titleAccessor = firstTextField ? `item.${firstTextField[0]} || ` : '';
   
-  return `${indent}<Repeater attribute="${attrName}" allowReordering={true}>
+  // Custom add button with tertiary styling, plus icon, right aligned
+  // addButton is a function that receives addItem and returns a React element
+  const addButtonJsx = `(addItem) => (
+${indent}    <div className="repeater-add-button-wrapper">
+${indent}      <Button
+${indent}        variant="tertiary"
+${indent}        onClick={addItem}
+${indent}        icon={
+${indent}          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+${indent}            <path d="M11 12.5V17.5H12.5V12.5H17.5V11H12.5V6H11V11H6V12.5H11Z"/>
+${indent}          </svg>
+${indent}        }
+${indent}        className="repeater-add-button"
+${indent}      >
+${indent}        {__('Add ${label}', 'handoff')}
+${indent}      </Button>
+${indent}    </div>
+${indent}  )`;
+
+  return `${indent}<Repeater 
+${indent}  attribute="${attrName}" 
+${indent}  allowReordering={true} 
+${indent}  defaultValue={{}}
+${indent}  addButton={${addButtonJsx}}
+${indent}>
 ${indent}  {(item, index, setItem, removeItem) => (
 ${indent}    <div className="repeater-item">
 ${indent}      <details className="repeater-item__collapse">
 ${indent}        <summary className="repeater-item__header">
-${indent}          <span className="repeater-item__title">{${titleAccessor}\`Item \${index + 1}\`}</span>
+${indent}          <span className="repeater-item__title">{${titleAccessor}'${label}'}</span>
 ${indent}          <span className="repeater-item__actions" onClick={(e) => e.stopPropagation()}>
 ${indent}            <Button
 ${indent}              onClick={removeItem}
@@ -336,6 +400,8 @@ const getDefaultValue = (fieldProp: HandoffProperty): any => {
   switch (fieldProp.type) {
     case 'link':
       return { label: '', url: '', opensInNewTab: false };
+    case 'button':
+      return { label: '', href: '#', target: '', rel: '', disabled: false };
     case 'image':
       return { src: '', alt: '' };
     case 'object':
@@ -464,7 +530,7 @@ const generateIndexJs = (component: HandoffComponent): string => {
   // Determine which components we need to import
   const needsMediaUpload = hasPropertyType('image');
   const needsRangeControl = hasPropertyType('number') || hasOverlay;
-  const needsToggleControl = hasPropertyType('boolean');
+  const needsToggleControl = hasPropertyType('boolean') || hasPropertyType('button');
   const needsSelectControl = hasPropertyType('select');
   const needsRichText = hasPropertyType('richtext');
   const hasArrayProps = Object.values(properties).some(p => p.type === 'array');
@@ -478,8 +544,8 @@ const generateIndexJs = (component: HandoffComponent): string => {
   if (needsRichText) {
     blockEditorImports.push('RichText');
   }
-  // Add LinkControl for link fields (internal page search + URL validation)
-  const needsLinkControl = hasPropertyType('link');
+  // Add LinkControl for link and button fields (internal page search + URL validation)
+  const needsLinkControl = hasPropertyType('link') || hasPropertyType('button');
   if (needsLinkControl) {
     blockEditorImports.push('__experimentalLinkControl as LinkControl');
   }
