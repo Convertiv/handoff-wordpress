@@ -85,13 +85,17 @@ const stripQuotes = (str: string): string => {
 /**
  * Parse a variable path like "leftCard.image.src" into segments
  * Also handles quoted paths like "leftCard.image"
- * Strips special prefixes like "this." and "properties."
+ * Strips special prefixes like "this.", "properties.", and "../"
  */
 const parseVariablePath = (varPath: string): string[] => {
   // Strip quotes first
   const unquoted = stripQuotes(varPath);
+  // Handle "../" parent context references by stripping them
+  // In Handlebars, ../ goes up to parent context - for validation purposes,
+  // we evaluate from root properties
+  let path = unquoted.replace(/^(\.\.\/)+/, '');
   // Handle "this.property" by removing "this."
-  let path = unquoted.replace(/^this\./, '');
+  path = path.replace(/^this\./, '');
   // Handle "properties.xxx" by removing "properties." prefix
   // This is a common Handlebars pattern to access component properties
   path = path.replace(/^properties\./, '');
@@ -423,7 +427,36 @@ export const validateTemplateVariables = (
           // Validate the array variable exists
           const arrayPath = parseVariablePath(arrayArg);
           const currentContext = contextStack[contextStack.length - 1];
-          const resolved = resolveVariablePath(arrayPath, properties, currentContext.itemProperties);
+          
+          // Check if the first part of the path is a block parameter from a parent context
+          // e.g., in {{#each posts as |post|}}, then {{#each post.tags as |tag|}}
+          // "post" is a block param that refers to an array item
+          const firstPart = arrayPath[0];
+          let resolved: { found: boolean; property?: HandoffProperty; resolvedAt?: string };
+          let blockParamContext: ScopeContext | undefined;
+          
+          for (let i = contextStack.length - 1; i >= 0; i--) {
+            const ctx = contextStack[i];
+            if (ctx.blockParams?.includes(firstPart)) {
+              blockParamContext = ctx;
+              break;
+            }
+          }
+          
+          if (blockParamContext && blockParamContext.itemProperties) {
+            // The first part is a block parameter, resolve the rest against item properties
+            if (arrayPath.length === 1) {
+              // Just the block param itself - this would be weird for #each but handle it
+              resolved = { found: true, resolvedAt: firstPart };
+            } else {
+              // Resolve the rest of the path against item properties (e.g., post.tags -> tags)
+              const restPath = arrayPath.slice(1);
+              resolved = resolveVariablePath(restPath, properties, blockParamContext.itemProperties);
+            }
+          } else {
+            // Normal resolution
+            resolved = resolveVariablePath(arrayPath, properties, currentContext.itemProperties);
+          }
           
           if (!resolved.found) {
             result.isValid = false;
@@ -443,8 +476,15 @@ export const validateTemplateVariables = (
             });
           }
           
-          // Push array item context - pass full path and current context
-          const itemProps = getArrayItemProperties(arrayPath, properties, currentContext.itemProperties);
+          // Push array item context - get item properties from the resolved array
+          // For block param references, we need to resolve from the correct context
+          let itemProps: Record<string, HandoffProperty> | undefined;
+          if (blockParamContext && blockParamContext.itemProperties && arrayPath.length > 1) {
+            const restPath = arrayPath.slice(1);
+            itemProps = getArrayItemProperties(restPath, properties, blockParamContext.itemProperties) || undefined;
+          } else {
+            itemProps = getArrayItemProperties(arrayPath, properties, currentContext.itemProperties) || undefined;
+          }
           
           // Check if this is a simple type array (string, number, etc.) - no warning needed
           // Simple arrays use {{this}} to reference the current item
