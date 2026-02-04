@@ -204,42 +204,47 @@ const processIfBlock = (condition: string, inner: string, startPos: number, full
 export const preprocessBlocks = (template: string): string => {
   let result = template;
   
-  // Process {{#each properties.xxx as |alias|}} or {{#each properties.xxx as |alias index|}} blocks with named alias FIRST
+  // Process {{#each properties.xxx.yyy as |alias|}} or {{#each properties.xxx as |alias index|}} blocks with named alias FIRST
+  // Now handles nested paths like properties.jumpNav.links
   let eachMatch;
-  // Updated regex to handle both |alias| and |alias index| patterns
-  const eachAliasRegex = /\{\{#each\s+properties\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g;
+  // Updated regex to capture nested paths (e.g., jumpNav.links) and handle both |alias| and |alias index| patterns
+  const eachAliasRegex = /\{\{#each\s+properties\.([\w.]+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g;
   while ((eachMatch = eachAliasRegex.exec(result)) !== null) {
     const startPos = eachMatch.index;
     const openTagEnd = startPos + eachMatch[0].length;
     const closePos = findMatchingClose(result, '{{#each', '{{/each}}', openTagEnd);
     
     if (closePos !== -1) {
-      const propName = eachMatch[1];
+      const propPath = eachMatch[1]; // e.g., "jumpNav.links" or just "items"
       const aliasName = eachMatch[2];
       const inner = result.substring(openTagEnd, closePos);
-      const camelProp = toCamelCase(propName);
+      // Convert the path to camelCase for each segment
+      const camelPath = propPath.split('.').map(segment => toCamelCase(segment)).join('.');
       const escaped = Buffer.from(inner).toString('base64');
       // Include alias in the marker for later reference replacement
-      const replacement = `<loop-marker data-prop="${camelProp}" data-type="properties" data-alias="${aliasName}" data-content="${escaped}"></loop-marker>`;
+      // data-prop now contains the full path (e.g., "jumpNav.links")
+      const replacement = `<loop-marker data-prop="${camelPath}" data-type="properties" data-alias="${aliasName}" data-content="${escaped}"></loop-marker>`;
       
       result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/each}}'.length);
       eachAliasRegex.lastIndex = startPos + replacement.length;
     }
   }
   
-  // Process {{#each properties.xxx}} blocks without alias
-  const eachPropsRegex = /\{\{#each\s+properties\.(\w+)[^}]*\}\}/g;
+  // Process {{#each properties.xxx}} or {{#each properties.xxx.yyy}} blocks without alias
+  // Now handles nested paths like properties.jumpNav.links
+  const eachPropsRegex = /\{\{#each\s+properties\.([\w.]+)\s*\}\}/g;
   while ((eachMatch = eachPropsRegex.exec(result)) !== null) {
     const startPos = eachMatch.index;
     const openTagEnd = startPos + eachMatch[0].length;
     const closePos = findMatchingClose(result, '{{#each', '{{/each}}', openTagEnd);
     
     if (closePos !== -1) {
-      const propName = eachMatch[1];
+      const propPath = eachMatch[1]; // e.g., "jumpNav.links" or just "items"
       const inner = result.substring(openTagEnd, closePos);
-      const camelProp = toCamelCase(propName);
+      // Convert the path to camelCase for each segment
+      const camelPath = propPath.split('.').map(segment => toCamelCase(segment)).join('.');
       const escaped = Buffer.from(inner).toString('base64');
-      const replacement = `<loop-marker data-prop="${camelProp}" data-type="properties" data-content="${escaped}"></loop-marker>`;
+      const replacement = `<loop-marker data-prop="${camelPath}" data-type="properties" data-content="${escaped}"></loop-marker>`;
       
       result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/each}}'.length);
       eachPropsRegex.lastIndex = startPos + replacement.length;

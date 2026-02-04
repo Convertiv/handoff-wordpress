@@ -25,11 +25,12 @@ export const postprocessTemplateLiterals = (jsx: string): string => {
 export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLoopVar: string = 'item'): string => {
   let result = jsx;
   
-  // Convert top-level loop markers WITH alias (properties.xxx as |alias|) to JSX map expressions
+  // Convert top-level loop markers WITH alias (properties.xxx or properties.xxx.yyy as |alias|) to JSX map expressions
   // Handle both hyphenated (data-prop) and camelCase (dataProp) attribute names
+  // data-prop now contains paths like "jumpNav.links" for nested property access
   result = result.replace(
-    /<loop-marker\s+(?:data-prop|dataProp)="(\w+)"\s+(?:data-type|dataType)="properties"\s+(?:data-alias|dataAlias)="(\w+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/loop-marker>)/gi,
-    (_, propName, aliasName, encodedContent) => {
+    /<loop-marker\s+(?:data-prop|dataProp)="([\w.]+)"\s+(?:data-type|dataType)="properties"\s+(?:data-alias|dataAlias)="(\w+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/loop-marker>)/gi,
+    (_, propPath, aliasName, encodedContent) => {
       let innerContent = Buffer.from(encodedContent, 'base64').toString();
       
       // Replace {{alias.field}} and {{ alias.field.subfield }} references with {{this.field}} before processing
@@ -65,7 +66,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         ...context,
         loopVariable: loopVarName,
         loopIndex: 'index',
-        loopArray: propName,
+        loopArray: propPath,
         inLoop: true
       };
       
@@ -76,7 +77,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       let innerJsx = nodeToJsx(root, loopContext);
       innerJsx = postprocessJsx(innerJsx, loopContext, loopVarName);
       
-      return `{${propName} && ${propName}.map((${loopVarName}, index) => (
+      // propPath can be "items" or "jumpNav.links" - use as-is for the map expression
+      return `{${propPath} && ${propPath}.map((${loopVarName}, index) => (
         <Fragment key={index}>
           ${innerJsx.trim()}
         </Fragment>
@@ -84,17 +86,18 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
     }
   );
   
-  // Convert top-level loop markers WITHOUT alias (properties.xxx) to JSX map expressions
+  // Convert top-level loop markers WITHOUT alias (properties.xxx or properties.xxx.yyy) to JSX map expressions
   // Handle both hyphenated and camelCase attribute names
+  // data-prop now contains paths like "jumpNav.links" for nested property access
   result = result.replace(
-    /<loop-marker\s+(?:data-prop|dataProp)="(\w+)"\s+(?:data-type|dataType)="properties"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/loop-marker>)/gi,
-    (_, propName, encodedContent) => {
+    /<loop-marker\s+(?:data-prop|dataProp)="([\w.]+)"\s+(?:data-type|dataType)="properties"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/loop-marker>)/gi,
+    (_, propPath, encodedContent) => {
       const innerContent = Buffer.from(encodedContent, 'base64').toString();
       const loopContext: TranspilerContext = {
         ...context,
         loopVariable: 'item',
         loopIndex: 'index',
-        loopArray: propName,
+        loopArray: propPath,
         inLoop: true
       };
       
@@ -105,7 +108,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       let innerJsx = nodeToJsx(root, loopContext);
       innerJsx = postprocessJsx(innerJsx, loopContext, 'item');
       
-      return `{${propName} && ${propName}.map((item, index) => (
+      // propPath can be "items" or "jumpNav.links" - use as-is for the map expression
+      return `{${propPath} && ${propPath}.map((item, index) => (
         <Fragment key={index}>
           ${innerJsx.trim()}
         </Fragment>
