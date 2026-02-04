@@ -254,10 +254,11 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     }
   }
   
-  // Convert {{#each properties.xxx as |alias|}} loops with named alias
+  // Convert {{#each properties.xxx as |alias|}} or {{#each properties.xxx as |alias index|}} loops with named alias
+  // The second parameter (index) is optional and ignored since we use $index in PHP
   // Also set $_loop_count for @last checking
   php = php.replace(
-    /\{\{#each\s+properties\.(\w+)\s+as\s+\|(\w+)\|\s*\}\}/g,
+    /\{\{#each\s+properties\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g,
     (_, prop, alias) => {
       const camelProp = toCamelCase(prop);
       loopAliases[alias] = camelProp;
@@ -275,9 +276,10 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     }
   );
   
-  // Convert {{#each this.xxx as |alias|}} nested loops with alias
+  // Convert {{#each this.xxx as |alias|}} or {{#each this.xxx as |alias index|}} nested loops with alias
+  // The second parameter (index) is optional and ignored since we use $subIndex in PHP
   php = php.replace(
-    /\{\{#each\s+this\.(\w+)\s+as\s+\|(\w+)\|\s*\}\}/g,
+    /\{\{#each\s+this\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g,
     (_, prop, alias) => {
       nestedLoopAliases[alias] = prop;
       return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
@@ -293,10 +295,11 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     }
   );
   
-  // Convert {{#each alias.xxx as |nestedAlias|}} - nested loops referencing outer loop alias
+  // Convert {{#each alias.xxx as |nestedAlias|}} or {{#each alias.xxx as |nestedAlias index|}} - nested loops referencing outer loop alias
   // e.g., {{#each article.tags as |tag|}} where 'article' is from outer {{#each articles as |article|}}
+  // The second parameter (index) is optional and ignored since we use $subIndex in PHP
   php = php.replace(
-    /\{\{#each\s+(\w+)\.(\w+)\s+as\s+\|(\w+)\|\s*\}\}/g,
+    /\{\{#each\s+(\w+)\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g,
     (match, parentAlias, prop, nestedAlias) => {
       // Skip if it's properties.xxx or this.xxx (already handled)
       if (parentAlias === 'properties' || parentAlias === 'this') {
