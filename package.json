@@ -9,6 +9,9 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "bin": {
+    "handoff-wordpress": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "fetch": "node dist/index.js",
@@ -20,7 +23,8 @@
     "wp:clean": "wp-env clean",
     "wp:logs": "wp-env logs",
     "wp:cli": "wp-env run cli",
-    "build:plugin": "cd demo/plugin && npm run build"
+    "build:plugin": "cd demo/plugin && npm run build",
+    "dev:plugin": "cd demo/plugin && npm run dev"
   },
   "dependencies": {
     "@10up/block-components": "^1.22.1",

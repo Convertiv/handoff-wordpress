@@ -18,6 +18,11 @@ define('HANDOFF_BLOCKS_VERSION', '1.0.0');
 define('HANDOFF_BLOCKS_PATH', plugin_dir_path(__FILE__));
 define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
 
+// Include the auto-generated categories file if it exists
+if (file_exists(HANDOFF_BLOCKS_PATH . 'handoff-categories.php')) {
+  require_once HANDOFF_BLOCKS_PATH . 'handoff-categories.php';
+}
+
 /**
  * Register all Handoff blocks
  */
@@ -45,19 +50,25 @@ function handoff_blocks_register_blocks() {
 add_action('init', 'handoff_blocks_register_blocks');
 
 /**
- * Register block category
+ * Register block categories
+ * Uses the auto-generated categories from handoff-categories.php if available
  */
 function handoff_blocks_block_category($categories, $post) {
-  return array_merge(
-    $categories,
-    [
+  // Use auto-generated categories if available, otherwise fall back to default
+  if (function_exists('handoff_get_block_categories')) {
+    $handoff_categories = handoff_get_block_categories();
+  } else {
+    // Fallback to default category
+    $handoff_categories = [
       [
         'slug'  => 'handoff',
         'title' => __('Handoff Blocks', 'handoff'),
         'icon'  => 'admin-customizer',
       ],
-    ]
-  );
+    ];
+  }
+  
+  return array_merge($categories, $handoff_categories);
 }
 add_filter('block_categories_all', 'handoff_blocks_block_category', 10, 2);
 

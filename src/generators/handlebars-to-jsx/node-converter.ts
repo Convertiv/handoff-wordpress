@@ -51,18 +51,21 @@ export const processTextContent = (text: string, context: TranspilerContext, loo
 /**
  * Convert an HTML node to JSX
  */
-export const nodeToJsx = (node: Node, context: TranspilerContext, loopVar: string = 'item'): string => {
+export const nodeToJsx = (node: Node, context: TranspilerContext, loopVar?: string): string => {
+  // Use provided loopVar, then context.loopVariable, then default to 'item'
+  const effectiveLoopVar = loopVar || context.loopVariable || 'item';
+  
   if (node instanceof TextNode) {
     const text = node.text;
     if (!text.trim()) return '';
-    return processTextContent(text, context, loopVar);
+    return processTextContent(text, context, effectiveLoopVar);
   }
   
   if (node instanceof HTMLElement) {
     const tagName = node.tagName?.toLowerCase();
     
     if (!tagName) {
-      return node.childNodes.map(child => nodeToJsx(child, context, loopVar)).join('\n');
+      return node.childNodes.map(child => nodeToJsx(child, context, effectiveLoopVar)).join('\n');
     }
     
     // Skip script and style tags
@@ -88,7 +91,7 @@ export const nodeToJsx = (node: Node, context: TranspilerContext, loopVar: strin
     
     // Process children
     const children = node.childNodes
-      .map(child => nodeToJsx(child, context, loopVar))
+      .map(child => nodeToJsx(child, context, effectiveLoopVar))
       .filter(Boolean)
       .join('\n');
     

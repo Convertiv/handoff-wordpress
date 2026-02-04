@@ -54,9 +54,15 @@ const copyPatterns = blockFolders.flatMap(block => {
   return patterns;
 });
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 module.exports = {
   ...defaultConfig,
   entry,
+  // Use high-quality source maps for better debugging
+  // 'source-map' gives full original source with accurate line numbers
+  // 'eval-source-map' is faster for development but slightly less accurate
+  devtool: isProduction ? 'source-map' : 'eval-source-map',
   output: {
     ...defaultConfig.output,
     path: path.resolve(__dirname, 'build'),

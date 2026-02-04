@@ -17,7 +17,6 @@ import { HandoffComponent } from '../types';
  * .about-editor-preview {
  *   position: relative;
  *   min-height: 200px;
- *   color: #fff;
  * }
  * ```
  */
@@ -29,8 +28,7 @@ const generateEditorScss = (component: HandoffComponent): string => {
   let scss = `// Editor-specific styles for ${component.title} block
 .${className}-editor-preview {
   position: relative;
-  min-height: 200px;
-  color: #fff;`;
+  min-height: 200px;`;
 
   // TODO: consider removing this because the native styles should handle this
   if (hasBackgroundImage) {

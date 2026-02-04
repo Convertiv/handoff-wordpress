@@ -59,9 +59,11 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const aliasEachNoAliasRegex = new RegExp(`\\{\\{#each\\s+${aliasName}\\.(\\w+(?:\\.\\w+)*)\\s*\\}\\}`, 'g');
       innerContent = innerContent.replace(aliasEachNoAliasRegex, '{{#each this.$1}}');
       
+      // Use the alias name from the Handlebars template as the loop variable
+      const loopVarName = aliasName || 'item';
       const loopContext: TranspilerContext = {
         ...context,
-        loopVariable: 'item',
+        loopVariable: loopVarName,
         loopIndex: 'index',
         loopArray: propName,
         inLoop: true
@@ -72,9 +74,9 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const preprocessed = preprocessBlocks(cleanedInner);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, loopContext);
-      innerJsx = postprocessJsx(innerJsx, loopContext, 'item');
+      innerJsx = postprocessJsx(innerJsx, loopContext, loopVarName);
       
-      return `{${propName} && ${propName}.map((item, index) => (
+      return `{${propName} && ${propName}.map((${loopVarName}, index) => (
         <Fragment key={index}>
           ${innerJsx.trim()}
         </Fragment>
@@ -126,9 +128,9 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const aliasRegex = new RegExp(`\\{\\{\\s*${aliasName}\\.(\\w+)\\s*\\}\\}`, 'g');
       innerContent = innerContent.replace(aliasRegex, '{{this.$1}}');
       
-      // Use a different variable name for nested loops to avoid shadowing
-      const nestedVar = 'subItem';
-      const nestedIndex = 'subIndex';
+      // Use the alias name from the Handlebars template as the nested loop variable
+      const nestedVar = aliasName || 'subItem';
+      const nestedIndex = `${nestedVar}Index`;
       const arrayRef = `${parentLoopVar}.${propName}`;
       
       const nestedContext: TranspilerContext = {

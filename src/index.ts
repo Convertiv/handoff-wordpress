@@ -146,7 +146,8 @@ import {
   toBlockName,
   generateHeaderPhp,
   generateFooterPhp,
-  generateTemplatePartPhp
+  generateTemplatePartPhp,
+  generateCategoriesPhp
 } from './generators';
 import {
   loadManifest,
@@ -458,6 +459,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     
     let success = 0;
     let failed = 0;
+    const compiledComponents: HandoffComponent[] = [];
     
     for (const componentId of componentIds) {
       try {
@@ -474,11 +476,25 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
         
         const block = generateBlock(component, apiUrl);
         await writeBlockFiles(outputDir, component.id, block, auth);
+        compiledComponents.push(component);
         success++;
       } catch (error) {
         console.error(`❌ Failed to compile ${componentId}: ${error instanceof Error ? error.message : error}`);
         failed++;
       }
+    }
+    
+    // Generate categories PHP file based on all compiled components
+    if (compiledComponents.length > 0) {
+      console.log(`\n⚙️  Generating block categories...`);
+      const categoriesPhp = generateCategoriesPhp(compiledComponents);
+      const formattedCategoriesPhp = await formatCode(categoriesPhp, 'php');
+      
+      // Write to the plugin directory (parent of blocks directory)
+      const pluginDir = path.dirname(outputDir);
+      const categoriesPath = path.join(pluginDir, 'handoff-categories.php');
+      fs.writeFileSync(categoriesPath, formattedCategoriesPhp);
+      console.log(`✅ Generated: ${categoriesPath}`);
     }
     
     console.log(`\n✨ Compilation complete!`);

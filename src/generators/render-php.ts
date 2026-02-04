@@ -123,6 +123,137 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
   // Format: {{#each properties.xxx as |aliasName|}}
   const loopAliases: Record<string, string> = {};
   
+  // Track nested loop aliases separately (these use $subItem instead of $item)
+  const nestedLoopAliases: Record<string, string> = {};
+  
+  // Track nested loop depth for proper variable naming
+  let nestedLoopDepth = 0;
+  
+  // Helper to get the loop item variable name based on depth
+  const getLoopItemVar = (depth: number): string => {
+    if (depth === 0) return '$item';
+    if (depth === 1) return '$subItem';
+    return `$nested${depth}Item`;
+  };
+  
+  const getLoopIndexVar = (depth: number): string => {
+    if (depth === 0) return '$index';
+    if (depth === 1) return '$subIndex';
+    return `$nested${depth}Index`;
+  };
+  
+  const getLoopCountVar = (depth: number): string => {
+    if (depth === 0) return '$_loop_count';
+    if (depth === 1) return '$_nested_loop_count';
+    return `$_nested${depth}_loop_count`;
+  };
+  
+  // First pass: identify all nested loop patterns and their aliases
+  // We need to process loops in order to properly track nesting
+  const eachPatterns: Array<{
+    match: string;
+    type: 'properties' | 'this' | 'alias';
+    arrayPath: string;
+    alias?: string;
+    parentAlias?: string;
+    index: number;
+  }> = [];
+  
+  // Find all {{#each ...}} patterns
+  const eachRegex = /\{\{#each\s+([^\}]+)\}\}/g;
+  let eachMatch;
+  while ((eachMatch = eachRegex.exec(php)) !== null) {
+    const content = eachMatch[1].trim();
+    let type: 'properties' | 'this' | 'alias';
+    let arrayPath: string;
+    let alias: string | undefined;
+    let parentAlias: string | undefined;
+    
+    // Check for "as |alias|" syntax
+    const asAliasMatch = content.match(/^(.+?)\s+as\s+\|(\w+)\|$/);
+    if (asAliasMatch) {
+      const pathPart = asAliasMatch[1].trim();
+      alias = asAliasMatch[2];
+      
+      if (pathPart.startsWith('properties.')) {
+        type = 'properties';
+        arrayPath = pathPart.replace('properties.', '');
+      } else if (pathPart.startsWith('this.')) {
+        type = 'this';
+        arrayPath = pathPart.replace('this.', '');
+      } else if (pathPart.includes('.')) {
+        // e.g., article.tags - first part is an alias from outer loop
+        const parts = pathPart.split('.');
+        parentAlias = parts[0];
+        arrayPath = parts.slice(1).join('.');
+        type = 'alias';
+      } else {
+        // Just a variable name, treat as alias reference
+        type = 'alias';
+        arrayPath = pathPart;
+      }
+    } else {
+      // No alias syntax
+      if (content.startsWith('properties.')) {
+        type = 'properties';
+        arrayPath = content.replace('properties.', '').split(/\s/)[0];
+      } else if (content.startsWith('this.')) {
+        type = 'this';
+        arrayPath = content.replace('this.', '').split(/\s/)[0];
+      } else if (content.includes('.')) {
+        const parts = content.split('.');
+        parentAlias = parts[0];
+        arrayPath = parts.slice(1).join('.').split(/\s/)[0];
+        type = 'alias';
+      } else {
+        type = 'alias';
+        arrayPath = content.split(/\s/)[0];
+      }
+    }
+    
+    eachPatterns.push({
+      match: eachMatch[0],
+      type,
+      arrayPath,
+      alias,
+      parentAlias,
+      index: eachMatch.index
+    });
+  }
+  
+  // Track which aliases map to which nested depth
+  const aliasToDepth: Record<string, number> = {};
+  
+  // Process loops from first to last (maintaining order)
+  // Sort by index to process in order
+  eachPatterns.sort((a, b) => a.index - b.index);
+  
+  // Track current nesting level as we process
+  let currentDepth = -1;
+  const openLoops: Array<{ depth: number; alias?: string }> = [];
+  
+  // Find {{/each}} positions
+  const closeEachPositions: number[] = [];
+  const closeEachRegex = /\{\{\/each\}\}/g;
+  let closeMatch;
+  while ((closeMatch = closeEachRegex.exec(php)) !== null) {
+    closeEachPositions.push(closeMatch.index);
+  }
+  
+  // Assign depth to each pattern based on position relative to other patterns and closes
+  for (const pattern of eachPatterns) {
+    // Count how many opens before this position
+    const opensBefore = eachPatterns.filter(p => p.index < pattern.index).length;
+    // Count how many closes before this position
+    const closesBefore = closeEachPositions.filter(pos => pos < pattern.index).length;
+    const depth = opensBefore - closesBefore;
+    
+    if (pattern.alias) {
+      aliasToDepth[pattern.alias] = depth;
+      loopAliases[pattern.alias] = pattern.arrayPath;
+    }
+  }
+  
   // Convert {{#each properties.xxx as |alias|}} loops with named alias
   // Also set $_loop_count for @last checking
   php = php.replace(
@@ -137,18 +268,55 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
   // Convert {{#each properties.xxx}} loops without alias
   // Also set $_loop_count for @last checking
   php = php.replace(
-    /\{\{#each\s+properties\.(\w+)[^}]*\}\}/g,
+    /\{\{#each\s+properties\.(\w+)\s*\}\}/g,
     (_, prop) => {
       const camelProp = toCamelCase(prop);
       return `<?php if (!empty($${camelProp})) : $_loop_count = count($${camelProp}); foreach ($${camelProp} as $index => $item) : ?>`;
     }
   );
   
-  // Convert {{#each this.xxx}} nested loops
+  // Convert {{#each this.xxx as |alias|}} nested loops with alias
+  php = php.replace(
+    /\{\{#each\s+this\.(\w+)\s+as\s+\|(\w+)\|\s*\}\}/g,
+    (_, prop, alias) => {
+      nestedLoopAliases[alias] = prop;
+      return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+    }
+  );
+  
+  // Convert {{#each this.xxx}} nested loops without alias
   // Use $_nested_loop_count for nested @last checking
   php = php.replace(
-    /\{\{#each\s+this\.(\w+)[^}]*\}\}/g,
+    /\{\{#each\s+this\.(\w+)\s*\}\}/g,
     (_, prop) => {
+      return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+    }
+  );
+  
+  // Convert {{#each alias.xxx as |nestedAlias|}} - nested loops referencing outer loop alias
+  // e.g., {{#each article.tags as |tag|}} where 'article' is from outer {{#each articles as |article|}}
+  php = php.replace(
+    /\{\{#each\s+(\w+)\.(\w+)\s+as\s+\|(\w+)\|\s*\}\}/g,
+    (match, parentAlias, prop, nestedAlias) => {
+      // Skip if it's properties.xxx or this.xxx (already handled)
+      if (parentAlias === 'properties' || parentAlias === 'this') {
+        return match;
+      }
+      // This is a nested loop referencing an outer loop alias
+      nestedLoopAliases[nestedAlias] = prop;
+      return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+    }
+  );
+  
+  // Convert {{#each alias.xxx}} - nested loops referencing outer loop alias without nested alias
+  php = php.replace(
+    /\{\{#each\s+(\w+)\.(\w+)\s*\}\}/g,
+    (match, parentAlias, prop) => {
+      // Skip if it's properties.xxx or this.xxx (already handled)
+      if (parentAlias === 'properties' || parentAlias === 'this') {
+        return match;
+      }
+      // This is a nested loop referencing an outer loop alias
       return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
     }
   );
@@ -195,7 +363,9 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       if (alias === 'properties' || alias === 'this' || match.includes('<?php')) {
         return match;
       }
-      return `src="<?php echo esc_url($item['${field1}']['${field2}'] ?? ''); ?>"`;
+      // Use $subItem for nested loop aliases, $item for top-level
+      const itemVar = nestedLoopAliases[alias] ? '$subItem' : '$item';
+      return `src="<?php echo esc_url(${itemVar}['${field1}']['${field2}'] ?? ''); ?>"`;
     }
   );
   
@@ -206,7 +376,9 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       if (alias === 'properties' || alias === 'this' || match.includes('<?php')) {
         return match;
       }
-      return `alt="<?php echo esc_attr($item['${field1}']['${field2}'] ?? ''); ?>"`;
+      // Use $subItem for nested loop aliases, $item for top-level
+      const itemVar = nestedLoopAliases[alias] ? '$subItem' : '$item';
+      return `alt="<?php echo esc_attr(${itemVar}['${field1}']['${field2}'] ?? ''); ?>"`;
     }
   );
   
@@ -217,13 +389,46 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       if (alias === 'properties' || alias === 'this' || match.includes('<?php')) {
         return match;
       }
-      return `href="<?php echo esc_url($item['${field1}']['${field2}'] ?? ''); ?>"`;
+      // Use $subItem for nested loop aliases, $item for top-level
+      const itemVar = nestedLoopAliases[alias] ? '$subItem' : '$item';
+      return `href="<?php echo esc_url(${itemVar}['${field1}']['${field2}'] ?? ''); ?>"`;
     }
   );
   
   // Convert {{alias.field.subfield}} and {{alias.field}} references from named loop variables
   // Must handle deeper nesting first (alias.field.subfield before alias.field)
   // IMPORTANT: Handle triple-brace (rich text) BEFORE double-brace patterns
+  
+  // Process nested loop aliases FIRST (they use $subItem)
+  for (const [alias] of Object.entries(nestedLoopAliases)) {
+    // Handle {{{ alias.field }}} triple-brace patterns (rich text/HTML in nested loops)
+    const aliasTripleRegex = new RegExp(`\\{\\{\\{\\s*${alias}\\.(\\w+)\\s*\\}\\}\\}`, 'g');
+    php = php.replace(aliasTripleRegex, (_, field) => {
+      return `<?php echo wp_kses_post($subItem['${field}'] ?? ''); ?>`;
+    });
+    
+    // Handle {{#if alias.field}} conditionals in nested loops
+    const aliasIfRegex = new RegExp(`\\{\\{#if\\s+${alias}\\.(\\w+)\\s*\\}\\}`, 'g');
+    php = php.replace(aliasIfRegex, (_, field) => {
+      return `<?php if (!empty($subItem['${field}'])) : ?>`;
+    });
+    
+    // Handle {{ alias.field.subfield }} patterns in nested loops (e.g., {{ tag.icon.src }})
+    const aliasDeepRegex = new RegExp(`\\{\\{\\s*${alias}\\.(\\w+)\\.(\\w+)\\s*\\}\\}`, 'g');
+    php = php.replace(aliasDeepRegex, (_, field1, field2) => {
+      const escFunc = field2 === 'url' || field2 === 'src' || field2 === 'href' ? 'esc_url' : 'esc_html';
+      return `<?php echo ${escFunc}($subItem['${field1}']['${field2}'] ?? ''); ?>`;
+    });
+    
+    // Handle {{ alias.field }} patterns in nested loops (e.g., {{ tag.label }})
+    const aliasRegex = new RegExp(`\\{\\{\\s*${alias}\\.(\\w+)\\s*\\}\\}`, 'g');
+    php = php.replace(aliasRegex, (_, field) => {
+      const escFunc = field === 'url' || field === 'src' || field === 'href' ? 'esc_url' : 'esc_html';
+      return `<?php echo ${escFunc}($subItem['${field}'] ?? ''); ?>`;
+    });
+  }
+  
+  // Then process top-level loop aliases (they use $item)
   for (const [alias] of Object.entries(loopAliases)) {
     // Handle {{{ alias.field }}} triple-brace patterns (rich text/HTML in loops)
     const aliasTripleRegex = new RegExp(`\\{\\{\\{\\s*${alias}\\.(\\w+)\\s*\\}\\}\\}`, 'g');
@@ -295,31 +500,65 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       if (alias === 'properties' || alias === 'this') {
         return match;
       }
-      return `<?php if (!empty($item['${field}'])) : ?>`;
+      // Use $subItem for nested loop aliases, $item for top-level
+      const itemVar = nestedLoopAliases[alias] ? '$subItem' : '$item';
+      return `<?php if (!empty(${itemVar}['${field}'])) : ?>`;
     }
   );
   
   // Helper to parse Handlebars helper expressions like (eq properties.layout "layout-1")
   // and convert to PHP comparison expressions
   const parseHelperToPhp = (expr: string): string | null => {
+    // Helper to convert a variable path to PHP expression
+    // Handles properties.xxx, this.xxx, and alias.xxx patterns
+    const varToPhp = (varPath: string): string => {
+      if (varPath.startsWith('properties.')) {
+        const parts = varPath.replace('properties.', '').split('.');
+        const camelProp = toCamelCase(parts[0]);
+        if (parts.length > 1) {
+          return `$${camelProp}['${parts.slice(1).join("']['")}']`;
+        }
+        return `$${camelProp}`;
+      } else if (varPath.startsWith('this.')) {
+        const field = varPath.replace('this.', '');
+        if (field.includes('.')) {
+          return `$item['${field.split('.').join("']['")}']`;
+        }
+        return `$item['${field}']`;
+      } else {
+        // Check if the first part is a known loop alias (e.g., card.type -> type)
+        const parts = varPath.split('.');
+        if (parts.length > 1) {
+          // Check nested aliases first (use $subItem)
+          if (nestedLoopAliases[parts[0]]) {
+            const fieldPath = parts.slice(1);
+            if (fieldPath.length > 1) {
+              return `$subItem['${fieldPath.join("']['")}']`;
+            }
+            return `$subItem['${fieldPath[0]}']`;
+          }
+          // Then check top-level aliases (use $item)
+          if (loopAliases[parts[0]]) {
+            const fieldPath = parts.slice(1);
+            if (fieldPath.length > 1) {
+              return `$item['${fieldPath.join("']['")}']`;
+            }
+            return `$item['${fieldPath[0]}']`;
+          }
+        }
+        // Fallback - use as-is (might be a plain field name)
+        if (varPath.includes('.')) {
+          return `$item['${varPath.split('.').join("']['")}']`;
+        }
+        return `$item['${varPath}']`;
+      }
+    };
+    
     // Match (eq left "right") - equals with quoted string
     const eqMatch = expr.match(/^\(\s*eq\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
     if (eqMatch) {
       const [, left, right] = eqMatch;
-      let leftExpr: string;
-      if (left.startsWith('properties.')) {
-        const parts = left.replace('properties.', '').split('.');
-        const camelProp = toCamelCase(parts[0]);
-        if (parts.length > 1) {
-          leftExpr = `$${camelProp}['${parts.slice(1).join("']['")}']`;
-        } else {
-          leftExpr = `$${camelProp}`;
-        }
-      } else if (left.startsWith('this.')) {
-        leftExpr = `$item['${left.replace('this.', '')}']`;
-      } else {
-        leftExpr = `$item['${left}']`;
-      }
+      const leftExpr = varToPhp(left);
       return `(${leftExpr} ?? '') === '${right}'`;
     }
     
@@ -327,28 +566,8 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     const eqVarMatch = expr.match(/^\(\s*eq\s+([^\s]+)\s+([^\s)"]+)\s*\)$/);
     if (eqVarMatch) {
       const [, left, right] = eqVarMatch;
-      let leftExpr: string, rightExpr: string;
-      
-      if (left.startsWith('properties.')) {
-        const parts = left.replace('properties.', '').split('.');
-        const camelProp = toCamelCase(parts[0]);
-        leftExpr = parts.length > 1 ? `$${camelProp}['${parts.slice(1).join("']['")}']` : `$${camelProp}`;
-      } else if (left.startsWith('this.')) {
-        leftExpr = `$item['${left.replace('this.', '')}']`;
-      } else {
-        leftExpr = `$item['${left}']`;
-      }
-      
-      if (right.startsWith('properties.')) {
-        const parts = right.replace('properties.', '').split('.');
-        const camelProp = toCamelCase(parts[0]);
-        rightExpr = parts.length > 1 ? `$${camelProp}['${parts.slice(1).join("']['")}']` : `$${camelProp}`;
-      } else if (right.startsWith('this.')) {
-        rightExpr = `$item['${right.replace('this.', '')}']`;
-      } else {
-        rightExpr = `$item['${right}']`;
-      }
-      
+      const leftExpr = varToPhp(left);
+      const rightExpr = varToPhp(right);
       return `(${leftExpr} ?? '') === (${rightExpr} ?? '')`;
     }
     
@@ -356,16 +575,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     const neMatch = expr.match(/^\(\s*ne\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
     if (neMatch) {
       const [, left, right] = neMatch;
-      let leftExpr: string;
-      if (left.startsWith('properties.')) {
-        const parts = left.replace('properties.', '').split('.');
-        const camelProp = toCamelCase(parts[0]);
-        leftExpr = parts.length > 1 ? `$${camelProp}['${parts.slice(1).join("']['")}']` : `$${camelProp}`;
-      } else if (left.startsWith('this.')) {
-        leftExpr = `$item['${left.replace('this.', '')}']`;
-      } else {
-        leftExpr = `$item['${left}']`;
-      }
+      const leftExpr = varToPhp(left);
       return `(${leftExpr} ?? '') !== '${right}'`;
     }
     
@@ -373,13 +583,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     const gtMatch = expr.match(/^\(\s*gt\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
     if (gtMatch) {
       const [, left, right] = gtMatch;
-      let leftExpr: string;
-      if (left.startsWith('properties.')) {
-        const camelProp = toCamelCase(left.replace('properties.', ''));
-        leftExpr = `$${camelProp}`;
-      } else {
-        leftExpr = `$item['${left}']`;
-      }
+      const leftExpr = varToPhp(left);
       return `(${leftExpr} ?? 0) > ${right}`;
     }
     
@@ -387,13 +591,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     const ltMatch = expr.match(/^\(\s*lt\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
     if (ltMatch) {
       const [, left, right] = ltMatch;
-      let leftExpr: string;
-      if (left.startsWith('properties.')) {
-        const camelProp = toCamelCase(left.replace('properties.', ''));
-        leftExpr = `$${camelProp}`;
-      } else {
-        leftExpr = `$item['${left}']`;
-      }
+      const leftExpr = varToPhp(left);
       return `(${leftExpr} ?? 0) < ${right}`;
     }
     
@@ -401,13 +599,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     const gteMatch = expr.match(/^\(\s*gte\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
     if (gteMatch) {
       const [, left, right] = gteMatch;
-      let leftExpr: string;
-      if (left.startsWith('properties.')) {
-        const camelProp = toCamelCase(left.replace('properties.', ''));
-        leftExpr = `$${camelProp}`;
-      } else {
-        leftExpr = `$item['${left}']`;
-      }
+      const leftExpr = varToPhp(left);
       return `(${leftExpr} ?? 0) >= ${right}`;
     }
     
@@ -415,13 +607,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     const lteMatch = expr.match(/^\(\s*lte\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
     if (lteMatch) {
       const [, left, right] = lteMatch;
-      let leftExpr: string;
-      if (left.startsWith('properties.')) {
-        const camelProp = toCamelCase(left.replace('properties.', ''));
-        leftExpr = `$${camelProp}`;
-      } else {
-        leftExpr = `$item['${left}']`;
-      }
+      const leftExpr = varToPhp(left);
       return `(${leftExpr} ?? 0) <= ${right}`;
     }
     
@@ -504,7 +690,9 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       if (alias === 'properties' || alias === 'this') {
         return match;
       }
-      return `<?php echo wp_kses_post($item['${field}'] ?? ''); ?>`;
+      // Use $subItem for nested loop aliases, $item for top-level
+      const itemVar = nestedLoopAliases[alias] ? '$subItem' : '$item';
+      return `<?php echo wp_kses_post(${itemVar}['${field}'] ?? ''); ?>`;
     }
   );
   
@@ -575,7 +763,9 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       if (obj.includes('$') || obj.includes('php')) return `{{${obj}.${field}}}`;
       const escFunc = field === 'url' || field === 'src' || field === 'href' || field === 'label' ? 
         (field === 'url' || field === 'src' || field === 'href' ? 'esc_url' : 'esc_html') : 'esc_html';
-      return `<?php echo ${escFunc}($item['${field}'] ?? ''); ?>`;
+      // Use $subItem for nested loop aliases, $item for top-level
+      const itemVar = nestedLoopAliases[obj] ? '$subItem' : '$item';
+      return `<?php echo ${escFunc}(${itemVar}['${field}'] ?? ''); ?>`;
     }
   );
   
