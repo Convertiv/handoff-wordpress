@@ -595,6 +595,40 @@ ${generatePropertyControl(key, property)}
           </PanelBody>`);
   }
 
+  // Add Handoff design system links panel
+  // This panel will be shown if __handoff metadata exists in block.json
+  panels.push(`          {/* Design System Links */}
+          {(metadata.__handoff?.handoffUrl || metadata.__handoff?.figmaUrl) && (
+            <PanelBody title={__('Design System', 'handoff')} initialOpen={false}>
+              <VStack spacing={3}>
+                {metadata.__handoff?.handoffUrl && (
+                  <Button
+                    variant="secondary"
+                    href={metadata.__handoff.handoffUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    icon="visibility"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                  >
+                    {__('View in Handoff', 'handoff')}
+                  </Button>
+                )}
+                {metadata.__handoff?.figmaUrl && (
+                  <Button
+                    variant="secondary"
+                    href={metadata.__handoff.figmaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    icon="art"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                  >
+                    {__('Open in Figma', 'handoff')}
+                  </Button>
+                )}
+              </VStack>
+            </PanelBody>
+          )}`);
+
   // Generate array helpers
   const arrayHelpers = generateArrayHelpers(properties);
 

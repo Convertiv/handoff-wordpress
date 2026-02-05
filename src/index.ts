@@ -296,7 +296,7 @@ const generateBlock = (component: HandoffComponent, apiUrl: string): GeneratedBl
   }
   
   return {
-    blockJson: generateBlockJson(component, hasScreenshot),
+    blockJson: generateBlockJson(component, hasScreenshot, apiUrl),
     indexJs: generateIndexJs(component),
     renderPhp: generateRenderPhp(component),
     editorScss: generateEditorScss(component),

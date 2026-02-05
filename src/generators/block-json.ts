@@ -2,7 +2,7 @@
  * Generates block.json for a Gutenberg block
  */
 
-import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute } from '../types';
+import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata } from '../types';
 import { sanitizeReservedName } from './handlebars-to-jsx/utils';
 
 /**
@@ -254,8 +254,9 @@ const toBlockName = (id: string): string => {
  * Generate block.json content
  * @param component - The Handoff component data
  * @param hasScreenshot - Whether a screenshot image is available for this block
+ * @param apiUrl - Optional base API URL to construct Handoff component page URL
  */
-const generateBlockJson = (component: HandoffComponent, hasScreenshot: boolean = false): string => {
+const generateBlockJson = (component: HandoffComponent, hasScreenshot: boolean = false, apiUrl?: string): string => {
   const blockName = toBlockName(component.id);
   
   // Get generic preview values to use as defaults when property.default is not set
@@ -319,6 +320,29 @@ const generateBlockJson = (component: HandoffComponent, hasScreenshot: boolean =
       viewportWidth: 1200,
       attributes: exampleAttributes
     };
+  }
+  
+  // Add Handoff metadata for linking to design system
+  const handoffMetadata: HandoffMetadata = {};
+  
+  // Construct Handoff component page URL from API URL
+  if (apiUrl) {
+    // Remove /api suffix if present and construct component page URL
+    const baseUrl = apiUrl.replace(/\/api\/?$/, '');
+    handoffMetadata.handoffUrl = `${baseUrl}/components/${component.id}`;
+  } else if (component.preview) {
+    // Fall back to component's preview URL if available
+    handoffMetadata.handoffUrl = component.preview;
+  }
+  
+  // Add Figma URL if available
+  if (component.figma) {
+    handoffMetadata.figmaUrl = component.figma;
+  }
+  
+  // Only add __handoff if we have at least one URL
+  if (handoffMetadata.handoffUrl || handoffMetadata.figmaUrl) {
+    blockJson.__handoff = handoffMetadata;
   }
   
   return JSON.stringify(blockJson, null, 2);

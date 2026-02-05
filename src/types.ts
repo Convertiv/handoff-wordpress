@@ -59,6 +59,11 @@ export interface GutenbergAttribute {
   default?: any;
 }
 
+export interface HandoffMetadata {
+  handoffUrl?: string;
+  figmaUrl?: string;
+}
+
 export interface BlockJsonOutput {
   $schema: string;
   apiVersion: number;
@@ -77,6 +82,7 @@ export interface BlockJsonOutput {
   attributes: Record<string, GutenbergAttribute>;
   supports?: Record<string, any>;
   example?: Record<string, any>;
+  __handoff?: HandoffMetadata;
 }
 
 export interface GeneratedBlock {
