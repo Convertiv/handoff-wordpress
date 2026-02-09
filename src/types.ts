@@ -104,3 +104,104 @@ export interface CompilerOptions {
     password?: string;
   };
 }
+
+/**
+ * Field mapping value types for dynamic array post-to-template mapping
+ */
+export type FieldMappingValue =
+  | string                                              // Simple field reference: "post_title", "featured_image"
+  | { type: 'static'; value: string }                   // Static value: { type: 'static', value: 'Read More' }
+  | { type: 'meta'; key: string }                       // Post meta: { type: 'meta', key: 'custom_field' }
+  | { type: 'taxonomy'; taxonomy: string; format?: 'first' | 'all' }  // Taxonomy terms
+  | { type: 'custom'; callback: string };               // PHP callback function name
+
+/**
+ * Taxonomy query structure for WP_Query
+ */
+export interface TaxonomyQuery {
+  taxonomy: string;
+  field: 'term_id' | 'slug' | 'name';
+  terms: (number | string)[];
+  operator?: 'IN' | 'NOT IN' | 'AND';
+}
+
+/**
+ * Query arguments for dynamic post queries
+ */
+export interface DynamicQueryArgs {
+  /** Post type to query */
+  post_type?: string;
+  
+  /** Number of posts per page */
+  posts_per_page?: number;
+  
+  /** Order by field */
+  orderby?: 'date' | 'title' | 'modified' | 'menu_order' | 'rand' | 'comment_count' | 'ID';
+  
+  /** Order direction */
+  order?: 'ASC' | 'DESC';
+  
+  /** Taxonomy queries */
+  tax_query?: TaxonomyQuery[];
+  
+  /** Offset for pagination */
+  offset?: number;
+}
+
+/**
+ * Configuration for dynamic array fields that can be populated from WordPress posts
+ */
+export interface DynamicArrayConfig {
+  /** Enable dynamic post selection for this array field */
+  enabled: boolean;
+  
+  /** Allowed post types for selection */
+  postTypes: string[];
+  
+  /** Default post type when first enabled */
+  defaultPostType?: string;
+  
+  /** Selection mode: 'manual' = user picks posts, 'query' = query builder */
+  selectionMode: 'manual' | 'query';
+  
+  /** Maximum number of items */
+  maxItems?: number;
+  
+  /** Rendering mode: 'mapped' = use field mapping, 'template' = use PHP template */
+  renderMode: 'mapped' | 'template';
+  
+  /** Field mapping configuration (for 'mapped' mode) */
+  fieldMapping?: Record<string, FieldMappingValue>;
+  
+  /** Template path relative to theme/plugin (for 'template' mode) */
+  templatePath?: string;
+  
+  /** Available taxonomy filters for the query builder */
+  taxonomyFilters?: string[];
+  
+  /** Default query arguments */
+  defaultQueryArgs?: DynamicQueryArgs;
+}
+
+/**
+ * Configuration file structure for handoff-wp.config.json
+ */
+export interface HandoffWpConfig {
+  /** Handoff API base URL */
+  apiUrl?: string;
+  
+  /** Output directory for generated blocks */
+  output?: string;
+  
+  /** Theme directory for header/footer templates */
+  themeDir?: string;
+  
+  /** Basic auth username */
+  username?: string;
+  
+  /** Basic auth password */
+  password?: string;
+  
+  /** Dynamic array configurations keyed by "componentId.fieldName" */
+  dynamicArrays?: Record<string, DynamicArrayConfig>;
+}

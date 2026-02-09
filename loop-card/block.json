@@ -1,0 +1,140 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "ridebalkans/loop-card",
+	"version": "1.1.0",
+	"title": "Loop Card",
+	"category": "ridebalkans-blocks",
+	"icon": "excerpt-view",
+	"description": "A post card block for use within Query Loop or standalone.",
+	"keywords": ["card", "post", "loop", "query"],
+	"usesContext": ["postId", "postType", "queryId"],
+	"supports": {
+		"html": false,
+		"align": false,
+		"spacing": {
+			"margin": true,
+			"padding": true
+		},
+		"color": {
+			"background": true,
+			"text": true
+		},
+		"__experimentalBorder": {
+			"radius": true,
+			"width": true,
+			"color": true
+		}
+	},
+	"attributes": {
+		"postId": {
+			"type": "number",
+			"default": 0
+		},
+		"postType": {
+			"type": "string",
+			"default": "post"
+		},
+		"useTemplate": {
+			"type": "boolean",
+			"default": false
+		},
+		"templateName": {
+			"type": "string",
+			"default": ""
+		},
+		"cardStyle": {
+			"type": "string",
+			"enum": ["default", "minimal", "overlay", "horizontal"],
+			"default": "default"
+		},
+		"cardElementOrder": {
+			"type": "array",
+			"default": ["image", "badge", "categories", "meta", "title", "excerpt", "customFields", "readMore"]
+		},
+		"visibility": {
+			"type": "object",
+			"default": {
+				"image": true,
+				"badge": false,
+				"categories": false,
+				"meta": true,
+				"title": true,
+				"excerpt": true,
+				"readMore": false,
+				"customFields": true,
+				"date": true,
+				"author": false
+			}
+		},
+		"imageSize": {
+			"type": "string",
+			"default": "large"
+		},
+		"imageAspectRatio": {
+			"type": "string",
+			"enum": ["auto", "1/1", "4/3", "16/9", "3/2", "2/3"],
+			"default": "16/9"
+		},
+		"badgeText": {
+			"type": "string",
+			"default": ""
+		},
+		"badgeStyle": {
+			"type": "string",
+			"enum": ["primary", "secondary", "success", "warning", "danger", "dark", "light"],
+			"default": "primary"
+		},
+		"badgePosition": {
+			"type": "string",
+			"enum": ["top-left", "top-right", "bottom-left", "bottom-right"],
+			"default": "top-left"
+		},
+		"titleTag": {
+			"type": "string",
+			"enum": ["h2", "h3", "h4", "p"],
+			"default": "h3"
+		},
+		"excerptLength": {
+			"type": "number",
+			"default": 20
+		},
+		"readMoreText": {
+			"type": "string",
+			"default": "Read More"
+		},
+		"customFields": {
+			"type": "array",
+			"default": [],
+			"items": {
+				"type": "object"
+			}
+		},
+		"customFieldsLayout": {
+			"type": "string",
+			"enum": ["block", "inline"],
+			"default": "block"
+		},
+		"customFieldsColumns": {
+			"type": "number",
+			"default": 2
+		},
+		"linkEntireCard": {
+			"type": "boolean",
+			"default": false
+		},
+		"hoverTransitionDuration": {
+			"type": "number",
+			"default": 200
+		},
+		"hoverTransitionTiming": {
+			"type": "string",
+			"default": "ease"
+		}
+	},
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"style": "file:./style-index.css",
+	"render": "file:./render.php",
+	"textdomain": "ridebalkans"
+}

@@ -31,18 +31,7 @@ import * as https from 'https';
 import * as http from 'http';
 import * as prettier from 'prettier';
 
-import { HandoffComponent, CompilerOptions, GeneratedBlock } from './types';
-
-/**
- * Configuration file structure
- */
-interface HandoffWpConfig {
-  apiUrl?: string;
-  output?: string;
-  themeDir?: string;
-  username?: string;
-  password?: string;
-}
+import { HandoffComponent, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig } from './types';
 
 /**
  * Auth credentials for HTTP requests
@@ -61,6 +50,7 @@ interface ResolvedConfig {
   themeDir: string;
   username?: string;
   password?: string;
+  dynamicArrays?: Record<string, DynamicArrayConfig>;
 }
 
 /**
@@ -72,6 +62,7 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   themeDir: './theme',
   username: undefined,
   password: undefined,
+  dynamicArrays: undefined,
 };
 
 /**
@@ -107,7 +98,24 @@ const getConfig = (): ResolvedConfig => {
     themeDir: fileConfig.themeDir ?? DEFAULT_CONFIG.themeDir,
     username: fileConfig.username ?? DEFAULT_CONFIG.username,
     password: fileConfig.password ?? DEFAULT_CONFIG.password,
+    dynamicArrays: fileConfig.dynamicArrays ?? DEFAULT_CONFIG.dynamicArrays,
   };
+};
+
+/**
+ * Get dynamic array configuration for a specific component field
+ * @param componentId - The component ID (e.g., 'hero-carousel')
+ * @param fieldName - The field name (e.g., 'slides')
+ * @returns The dynamic array config if enabled, undefined otherwise
+ */
+const getDynamicArrayConfig = (
+  componentId: string,
+  fieldName: string,
+  config: ResolvedConfig
+): DynamicArrayConfig | undefined => {
+  const key = `${componentId}.${fieldName}`;
+  const dynamicConfig = config.dynamicArrays?.[key];
+  return dynamicConfig?.enabled ? dynamicConfig : undefined;
 };
 
 /**
@@ -147,7 +155,8 @@ import {
   generateHeaderPhp,
   generateFooterPhp,
   generateTemplatePartPhp,
-  generateCategoriesPhp
+  generateCategoriesPhp,
+  generateSharedComponents
 } from './generators';
 import {
   loadManifest,
@@ -279,8 +288,9 @@ const fetchComponent = async (apiUrl: string, componentName: string, auth?: Auth
  * Generate all block files from a component
  * @param component - The Handoff component data
  * @param apiUrl - The base API URL for fetching screenshots
+ * @param resolvedConfig - The resolved configuration including dynamic array settings
  */
-const generateBlock = (component: HandoffComponent, apiUrl: string): GeneratedBlock => {
+const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConfig: ResolvedConfig): GeneratedBlock => {
   const hasScreenshot = !!component.image;
   
   // Construct full screenshot URL if image path is available
@@ -295,10 +305,21 @@ const generateBlock = (component: HandoffComponent, apiUrl: string): GeneratedBl
     }
   }
   
+  // Build dynamic array configs for this component
+  const componentDynamicArrays: Record<string, DynamicArrayConfig> = {};
+  if (resolvedConfig.dynamicArrays) {
+    for (const [key, config] of Object.entries(resolvedConfig.dynamicArrays)) {
+      if (key.startsWith(`${component.id}.`) && config.enabled) {
+        const fieldName = key.substring(component.id.length + 1);
+        componentDynamicArrays[fieldName] = config;
+      }
+    }
+  }
+  
   return {
-    blockJson: generateBlockJson(component, hasScreenshot, apiUrl),
-    indexJs: generateIndexJs(component),
-    renderPhp: generateRenderPhp(component),
+    blockJson: generateBlockJson(component, hasScreenshot, apiUrl, componentDynamicArrays),
+    indexJs: generateIndexJs(component, componentDynamicArrays),
+    renderPhp: generateRenderPhp(component, componentDynamicArrays),
     editorScss: generateEditorScss(component),
     styleScss: generateStyleScss(component),
     readme: generateReadme(component),
@@ -386,7 +407,7 @@ const compile = async (options: CompilerOptions): Promise<void> => {
     
     // Generate block files
     console.log(`⚙️  Generating Gutenberg block...`);
-    const block = generateBlock(component, options.apiUrl);
+    const block = generateBlock(component, options.apiUrl, config);
     
     // Write files (with Prettier formatting)
     await writeBlockFiles(options.outputDir, component.id, block, options.auth);
@@ -474,7 +495,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
           continue;
         }
         
-        const block = generateBlock(component, apiUrl);
+        const block = generateBlock(component, apiUrl, config);
         await writeBlockFiles(outputDir, component.id, block, auth);
         compiledComponents.push(component);
         success++;
@@ -495,6 +516,28 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
       const categoriesPath = path.join(pluginDir, 'handoff-categories.php');
       fs.writeFileSync(categoriesPath, formattedCategoriesPhp);
       console.log(`✅ Generated: ${categoriesPath}`);
+    }
+    
+    // Generate shared components if dynamic arrays are configured
+    if (config.dynamicArrays && Object.keys(config.dynamicArrays).length > 0) {
+      console.log(`\n⚙️  Generating shared components...`);
+      const sharedComponents = generateSharedComponents();
+      
+      for (const [relativePath, content] of Object.entries(sharedComponents)) {
+        const fullPath = path.join(outputDir, '..', relativePath);
+        const dirPath = path.dirname(fullPath);
+        
+        // Ensure directory exists
+        if (!fs.existsSync(dirPath)) {
+          fs.mkdirSync(dirPath, { recursive: true });
+        }
+        
+        // Format and write the file
+        const formattedContent = await formatCode(content, 'babel');
+        fs.writeFileSync(fullPath, formattedContent);
+        console.log(`   📄 ${relativePath}`);
+      }
+      console.log(`✅ Shared components generated`);
     }
     
     console.log(`\n✨ Compilation complete!`);

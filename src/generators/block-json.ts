@@ -2,7 +2,7 @@
  * Generates block.json for a Gutenberg block
  */
 
-import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata } from '../types';
+import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata, DynamicArrayConfig } from '../types';
 import { sanitizeReservedName } from './handlebars-to-jsx/utils';
 
 /**
@@ -255,8 +255,14 @@ const toBlockName = (id: string): string => {
  * @param component - The Handoff component data
  * @param hasScreenshot - Whether a screenshot image is available for this block
  * @param apiUrl - Optional base API URL to construct Handoff component page URL
+ * @param dynamicArrayConfigs - Optional dynamic array configurations keyed by field name
  */
-const generateBlockJson = (component: HandoffComponent, hasScreenshot: boolean = false, apiUrl?: string): string => {
+const generateBlockJson = (
+  component: HandoffComponent, 
+  hasScreenshot: boolean = false, 
+  apiUrl?: string,
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>
+): string => {
   const blockName = toBlockName(component.id);
   
   // Get generic preview values to use as defaults when property.default is not set
@@ -271,6 +277,56 @@ const generateBlockJson = (component: HandoffComponent, hasScreenshot: boolean =
     // Pass preview value for this property to use as fallback default
     const previewValue = genericPreviewValues[key];
     attributes[attrName] = mapPropertyType(property, previewValue);
+    
+    // Add dynamic array control attributes if this field has a dynamic config
+    const dynamicConfig = dynamicArrayConfigs?.[key];
+    if (property.type === 'array' && dynamicConfig) {
+      // Source toggle: 'static' (manual items) or 'query' (WordPress posts)
+      attributes[`${attrName}Source`] = { 
+        type: 'string', 
+        default: 'static' 
+      };
+      // Selected post type for query mode
+      attributes[`${attrName}PostType`] = { 
+        type: 'string', 
+        default: dynamicConfig.defaultPostType || dynamicConfig.postTypes[0] || 'post' 
+      };
+      // Selected posts array: [{id: number, type: string}]
+      attributes[`${attrName}SelectedPosts`] = { 
+        type: 'array', 
+        default: [] 
+      };
+      // Query arguments for query builder mode
+      const defaultQueryArgs = {
+        post_type: dynamicConfig.defaultPostType || dynamicConfig.postTypes[0] || 'post',
+        posts_per_page: dynamicConfig.maxItems || 6,
+        orderby: 'date',
+        order: 'DESC',
+        tax_query: [],
+        ...(dynamicConfig.defaultQueryArgs || {})
+      };
+      attributes[`${attrName}QueryArgs`] = { 
+        type: 'object', 
+        default: defaultQueryArgs
+      };
+      // Field mapping configuration
+      attributes[`${attrName}FieldMapping`] = {
+        type: 'object',
+        default: dynamicConfig.fieldMapping || {}
+      };
+      // Render mode: 'mapped' or 'template'
+      attributes[`${attrName}RenderMode`] = {
+        type: 'string',
+        default: dynamicConfig.renderMode || 'mapped'
+      };
+      // Template path for template mode
+      if (dynamicConfig.templatePath) {
+        attributes[`${attrName}TemplatePath`] = {
+          type: 'string',
+          default: dynamicConfig.templatePath
+        };
+      }
+    }
   }
   
   // Add overlay opacity if we detect a hero/subheader component

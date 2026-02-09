@@ -16,11 +16,22 @@ if (!defined('ABSPATH')) {
 
 define('HANDOFF_BLOCKS_VERSION', '1.0.0');
 define('HANDOFF_BLOCKS_PATH', plugin_dir_path(__FILE__));
+define('HANDOFF_BLOCKS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
 
 // Include the auto-generated categories file if it exists
 if (file_exists(HANDOFF_BLOCKS_PATH . 'handoff-categories.php')) {
   require_once HANDOFF_BLOCKS_PATH . 'handoff-categories.php';
+}
+
+// Include the field resolver for dynamic array mapping
+if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-field-resolver.php')) {
+  require_once HANDOFF_BLOCKS_PATH . 'includes/handoff-field-resolver.php';
+}
+
+// Include the REST API endpoints
+if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-rest-api.php')) {
+  require_once HANDOFF_BLOCKS_PATH . 'includes/handoff-rest-api.php';
 }
 
 /**

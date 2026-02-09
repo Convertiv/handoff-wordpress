@@ -1,0 +1,467 @@
+/**
+ * Loop Card Block - Frontend Styles
+ */
+
+// CSS Variables
+:root {
+	--rb-card-bg: #fff;
+	--rb-card-radius: 12px;
+	--rb-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+	--rb-card-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.12);
+	--rb-card-primary: var(--wp--preset--color--primary, #007cba);
+	--rb-card-text: #333;
+	--rb-card-text-muted: #888;
+	// Default hover transition values (can be overridden per-card)
+	--card-hover-duration: 200ms;
+	--card-hover-timing: ease;
+}
+
+.wp-block-ridebalkans-loop-card {
+	container-type: inline-size;
+}
+
+.rb-loop-card {
+	background: var(--rb-card-bg);
+	border-radius: var(--rb-card-radius);
+	overflow: hidden;
+	box-shadow: var(--rb-card-shadow);
+	transition: transform var(--card-hover-duration) var(--card-hover-timing),
+				box-shadow var(--card-hover-duration) var(--card-hover-timing);
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	text-decoration: none;
+	color: inherit;
+
+	&:hover {
+		transform: translateY(-4px);
+		box-shadow: var(--rb-card-shadow-hover);
+	}
+
+	// Image section
+	&__image {
+		position: relative;
+		aspect-ratio: var(--card-aspect-ratio, 16/9);
+		overflow: hidden;
+		flex-shrink: 0;
+
+		a {
+			display: block;
+			height: 100%;
+		}
+	}
+
+	&__img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		transition: transform calc(var(--card-hover-duration) * 1.5) var(--card-hover-timing);
+	}
+
+	&:hover &__img {
+		transform: scale(1.05);
+	}
+
+	&__overlay {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(
+			to top,
+			rgba(0, 0, 0, 0.85) 0%,
+			rgba(0, 0, 0, 0.4) 50%,
+			transparent 100%
+		);
+		transition: background calc(var(--card-hover-duration) * 1.5) var(--card-hover-timing);
+	}
+
+	&:hover &__overlay {
+		background: linear-gradient(
+			to top,
+			rgba(0, 0, 0, 0.9) 0%,
+			rgba(0, 0, 0, 0.5) 50%,
+			transparent 100%
+		);
+	}
+
+	&__categories {
+		position: absolute;
+		bottom: 12px;
+		left: 12px;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	&__category {
+		padding: 6px 12px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		background: var(--rb-card-primary);
+		color: white;
+		border-radius: 4px;
+	}
+
+	// Badge
+	&__badge {
+		position: absolute;
+		padding: 6px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		border-radius: 4px;
+		z-index: 2;
+		line-height: 1;
+
+		// Position variants
+		&--top-left {
+			top: 12px;
+			left: 12px;
+		}
+
+		&--top-right {
+			top: 12px;
+			right: 12px;
+		}
+
+		&--bottom-left {
+			bottom: 12px;
+			left: 12px;
+		}
+
+		&--bottom-right {
+			bottom: 12px;
+			right: 12px;
+		}
+
+		// Style variants
+		&--primary {
+			background: var(--rb-card-primary);
+			color: white;
+		}
+
+		&--secondary {
+			background: #6c757d;
+			color: white;
+		}
+
+		&--success {
+			background: #27ae60;
+			color: white;
+		}
+
+		&--warning {
+			background: #f39c12;
+			color: #212529;
+		}
+
+		&--danger {
+			background: #e74c3c;
+			color: white;
+		}
+
+		&--dark {
+			background: #212529;
+			color: white;
+		}
+
+		&--light {
+			background: rgba(255, 255, 255, 0.95);
+			color: #212529;
+			box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		}
+	}
+
+	// Badge-only image container (when no image)
+	&__image--badge-only {
+		position: relative;
+		min-height: 40px;
+		background: transparent;
+	}
+
+	// Content section
+	&__content {
+		padding: 20px;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+
+	&__meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 12px;
+		font-size: 13px;
+		color: var(--rb-card-text-muted);
+		margin-bottom: 12px;
+	}
+
+	&__author::before {
+		content: '·';
+		margin-right: 12px;
+	}
+
+	&__title {
+		margin: 0 0 12px;
+		font-size: 20px;
+		font-weight: 700;
+		line-height: 1.3;
+
+		a {
+			color: inherit;
+			text-decoration: none;
+			transition: color var(--card-hover-duration) var(--card-hover-timing);
+
+			&:hover {
+				color: var(--rb-card-primary);
+			}
+		}
+	}
+
+	&__excerpt {
+		margin: 0;
+		font-size: 15px;
+		color: #666;
+		line-height: 1.7;
+		flex: 1;
+	}
+
+	// Custom fields
+	&__fields {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 16px;
+		margin-top: 16px;
+		padding-top: 16px;
+		border-top: 1px solid #eee;
+
+		// Block layout (default) - stacked
+		&--block {
+			flex-direction: column;
+			gap: 8px;
+		}
+
+		// Inline layout - grid
+		&--inline {
+			display: grid;
+			grid-template-columns: repeat(var(--fields-columns, 2), 1fr);
+			gap: 12px 16px;
+		}
+	}
+
+	&__field {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+	}
+
+	// Block layout field - label and value inline
+	&__fields--block &__field {
+		flex-wrap: wrap;
+	}
+
+	// Inline layout field - icon/label above value
+	&__fields--inline &__field {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+	}
+
+	&__field-icon {
+		font-size: 16px;
+		width: 16px;
+		height: 16px;
+		color: var(--rb-card-primary);
+		flex-shrink: 0;
+	}
+
+	// When icon present, show inline with label
+	&__field-icon + &__field-label {
+		display: inline;
+	}
+
+	&__field-label {
+		color: var(--rb-card-text-muted);
+		font-size: 12px;
+	}
+
+	&__field-value {
+		font-weight: 500;
+		color: var(--rb-card-text);
+	}
+
+	// Inline layout - larger value text
+	&__fields--inline &__field-value {
+		font-size: 14px;
+	}
+
+	&__field--price &__field-value {
+		color: var(--rb-card-primary);
+		font-weight: 600;
+	}
+
+	// Read more link
+	&__readmore {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 16px;
+		font-size: 14px;
+		font-weight: 600;
+		color: var(--rb-card-primary);
+		text-decoration: none;
+		transition: gap var(--card-hover-duration) var(--card-hover-timing);
+
+		&:hover {
+			gap: 10px;
+		}
+	}
+
+	&__readmore-icon {
+		width: 16px;
+		height: 16px;
+		flex-shrink: 0;
+	}
+
+	// ===================
+	// STYLE VARIATIONS
+	// ===================
+
+	// Minimal style
+	&--minimal {
+		background: transparent;
+		box-shadow: none;
+		border-radius: 0;
+		border-bottom: 1px solid #eee;
+		padding-bottom: 24px;
+
+		&:hover {
+			transform: none;
+			box-shadow: none;
+		}
+
+		&:last-child {
+			border-bottom: none;
+			padding-bottom: 0;
+		}
+
+		.rb-loop-card__image {
+			border-radius: 8px;
+		}
+
+		.rb-loop-card__content {
+			padding: 16px 0 0;
+		}
+	}
+
+	// Overlay style
+	&--overlay {
+		position: relative;
+		min-height: 320px;
+
+		.rb-loop-card__image {
+			position: absolute;
+			inset: 0;
+			aspect-ratio: auto;
+		}
+
+		.rb-loop-card__content {
+			position: relative;
+			z-index: 1;
+			display: flex;
+			flex-direction: column;
+			justify-content: flex-end;
+			min-height: 320px;
+			color: white;
+			padding: 24px;
+		}
+
+		.rb-loop-card__meta {
+			color: rgba(255, 255, 255, 0.75);
+		}
+
+		.rb-loop-card__author::before {
+			color: rgba(255, 255, 255, 0.5);
+		}
+
+		.rb-loop-card__title,
+		.rb-loop-card__title a {
+			color: white;
+
+			&:hover {
+				color: rgba(255, 255, 255, 0.9);
+			}
+		}
+
+		.rb-loop-card__excerpt {
+			color: rgba(255, 255, 255, 0.85);
+		}
+
+		.rb-loop-card__readmore {
+			color: white;
+		}
+
+		.rb-loop-card__fields {
+			border-top-color: rgba(255, 255, 255, 0.2);
+		}
+
+		.rb-loop-card__field-label {
+			color: rgba(255, 255, 255, 0.7);
+		}
+
+		.rb-loop-card__field-value {
+			color: white;
+		}
+
+		&:hover {
+			transform: none;
+		}
+	}
+
+	// Horizontal style
+	&--horizontal {
+		flex-direction: row;
+		min-height: auto;
+
+		.rb-loop-card__image {
+			width: 280px;
+			aspect-ratio: 4/3;
+			flex-shrink: 0;
+		}
+
+		.rb-loop-card__content {
+			display: flex;
+			flex-direction: column;
+			justify-content: center;
+		}
+
+		@container (max-width: 500px) {
+			flex-direction: column;
+
+			.rb-loop-card__image {
+				width: 100%;
+				aspect-ratio: 16/9;
+			}
+		}
+	}
+}
+
+// Linked card (entire card is clickable)
+a.rb-loop-card {
+	cursor: pointer;
+
+	&:hover {
+		.rb-loop-card__title {
+			color: var(--rb-card-primary);
+		}
+	}
+
+	&.rb-loop-card--overlay:hover {
+		.rb-loop-card__title {
+			color: rgba(255, 255, 255, 0.9);
+		}
+	}
+}

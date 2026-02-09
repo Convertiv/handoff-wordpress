@@ -3,7 +3,7 @@
  * Converts Handlebars templates to PHP
  */
 
-import { HandoffComponent, HandoffProperty } from '../types';
+import { HandoffComponent, HandoffProperty, DynamicArrayConfig, FieldMappingValue } from '../types';
 import { toCamelCase } from './handlebars-to-jsx';
 
 /**
@@ -1072,12 +1072,231 @@ ${template}
 };
 
 /**
- * Generate complete render.php file
+ * Generate PHP code to convert field mapping value to PHP array syntax
  */
-const generateRenderPhp = (component: HandoffComponent): string => {
+const fieldMappingToPhp = (mapping: Record<string, FieldMappingValue>): string => {
+  const entries: string[] = [];
+  
+  for (const [key, value] of Object.entries(mapping)) {
+    if (typeof value === 'string') {
+      // Simple string mapping
+      entries.push(`    '${key}' => '${value}'`);
+    } else if (typeof value === 'object' && value.type) {
+      // Complex mapping
+      switch (value.type) {
+        case 'static':
+          entries.push(`    '${key}' => ['type' => 'static', 'value' => '${(value as any).value || ''}']`);
+          break;
+        case 'meta':
+          entries.push(`    '${key}' => ['type' => 'meta', 'key' => '${(value as any).key || ''}']`);
+          break;
+        case 'taxonomy':
+          const taxValue = value as { type: 'taxonomy'; taxonomy: string; format?: string };
+          entries.push(`    '${key}' => ['type' => 'taxonomy', 'taxonomy' => '${taxValue.taxonomy}', 'format' => '${taxValue.format || 'first'}']`);
+          break;
+        case 'custom':
+          entries.push(`    '${key}' => ['type' => 'custom', 'callback' => '${(value as any).callback || ''}']`);
+          break;
+      }
+    }
+  }
+  
+  return `[\n${entries.join(',\n')}\n  ]`;
+};
+
+/**
+ * Generate dynamic array extraction code for render.php
+ * Supports both manual post selection and query builder modes
+ */
+const generateDynamicArrayExtraction = (
+  fieldName: string,
+  attrName: string,
+  config: DynamicArrayConfig
+): string => {
+  const mappingPhp = config.fieldMapping 
+    ? fieldMappingToPhp(config.fieldMapping) 
+    : '[]';
+  
+  const isQueryMode = config.selectionMode === 'query';
+  
+  // Common code for loading the field resolver
+  const loadResolver = `
+  // Ensure field resolver is loaded
+  if (!function_exists('handoff_map_post_to_item')) {
+    $resolver_path = defined('HANDOFF_BLOCKS_PLUGIN_DIR') 
+      ? HANDOFF_BLOCKS_PLUGIN_DIR . 'includes/handoff-field-resolver.php'
+      : dirname(__FILE__) . '/../includes/handoff-field-resolver.php';
+    if (file_exists($resolver_path)) {
+      require_once $resolver_path;
+    }
+  }`;
+
+  if (config.renderMode === 'template') {
+    // Template mode - store posts for template rendering
+    const templatePath = config.templatePath || `template-parts/handoff/${fieldName}-item.php`;
+    
+    if (isQueryMode) {
+      // Query builder mode - use WP_Query with query args
+      return `
+// Dynamic array: ${fieldName} (query builder + template mode)
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
+$${attrName}_posts = [];
+
+if ($${attrName}_source === 'query') {
+  // Query builder mode - build WP_Query from saved args
+  $query_args = $attributes['${attrName}QueryArgs'] ?? [];
+  
+  // Build WP_Query arguments
+  $wp_query_args = [
+    'post_type'      => $query_args['post_type'] ?? '${config.defaultPostType || config.postTypes[0] || 'post'}',
+    'posts_per_page' => $query_args['posts_per_page'] ?? ${config.maxItems || 6},
+    'orderby'        => $query_args['orderby'] ?? 'date',
+    'order'          => $query_args['order'] ?? 'DESC',
+    'post_status'    => 'publish',
+  ];
+  
+  // Add taxonomy queries if present
+  if (!empty($query_args['tax_query'])) {
+    $wp_query_args['tax_query'] = array_map(function($tq) {
+      return [
+        'taxonomy' => $tq['taxonomy'] ?? '',
+        'field'    => $tq['field'] ?? 'term_id',
+        'terms'    => $tq['terms'] ?? [],
+        'operator' => $tq['operator'] ?? 'IN',
+      ];
+    }, $query_args['tax_query']);
+  }
+  
+  $query = new WP_Query($wp_query_args);
+  $${attrName}_posts = $query->posts;
+  wp_reset_postdata();
+}
+// For template mode, the template will iterate over $${attrName}_posts
+`;
+    } else {
+      // Manual selection mode - fetch specific posts
+      return `
+// Dynamic array: ${fieldName} (manual selection + template mode)
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
+$${attrName}_posts = [];
+
+if ($${attrName}_source === 'query') {
+  // Manual mode - fetch selected posts
+  $selected_posts = $attributes['${attrName}SelectedPosts'] ?? [];
+  
+  if (!empty($selected_posts)) {
+    $post_ids = array_filter(array_map(function($p) { 
+      return isset($p['id']) ? intval($p['id']) : 0; 
+    }, $selected_posts));
+    
+    if (!empty($post_ids)) {
+      $${attrName}_posts = get_posts([
+        'post__in'       => $post_ids,
+        'orderby'        => 'post__in',
+        'posts_per_page' => count($post_ids),
+        'post_status'    => 'publish',
+        'post_type'      => 'any',
+      ]);
+    }
+  }
+}
+// For template mode, the template will iterate over $${attrName}_posts
+`;
+    }
+  } else {
+    // Mapped mode - convert posts to item structure
+    if (isQueryMode) {
+      // Query builder mode with field mapping
+      return `
+// Dynamic array: ${fieldName} (query builder + mapped mode)
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
+
+if ($${attrName}_source === 'query') {
+  // Query builder mode - build WP_Query from saved args
+  $query_args = $attributes['${attrName}QueryArgs'] ?? [];
+  $field_mapping = $attributes['${attrName}FieldMapping'] ?? ${mappingPhp};
+${loadResolver}
+  
+  // Build WP_Query arguments
+  $wp_query_args = [
+    'post_type'      => $query_args['post_type'] ?? '${config.defaultPostType || config.postTypes[0] || 'post'}',
+    'posts_per_page' => $query_args['posts_per_page'] ?? ${config.maxItems || 6},
+    'orderby'        => $query_args['orderby'] ?? 'date',
+    'order'          => $query_args['order'] ?? 'DESC',
+    'post_status'    => 'publish',
+  ];
+  
+  // Add taxonomy queries if present
+  if (!empty($query_args['tax_query'])) {
+    $wp_query_args['tax_query'] = array_map(function($tq) {
+      return [
+        'taxonomy' => $tq['taxonomy'] ?? '',
+        'field'    => $tq['field'] ?? 'term_id',
+        'terms'    => $tq['terms'] ?? [],
+        'operator' => $tq['operator'] ?? 'IN',
+      ];
+    }, $query_args['tax_query']);
+  }
+  
+  $query = new WP_Query($wp_query_args);
+  
+  // Map posts to template structure
+  $${attrName} = [];
+  if ($query->have_posts() && function_exists('handoff_map_post_to_item')) {
+    foreach ($query->posts as $post) {
+      $${attrName}[] = handoff_map_post_to_item($post->ID, $field_mapping);
+    }
+  }
+  wp_reset_postdata();
+}
+// else: Static mode uses $${attrName} directly from attribute extraction
+`;
+    } else {
+      // Manual selection mode with field mapping
+      return `
+// Dynamic array: ${fieldName} (manual selection + mapped mode)
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
+
+if ($${attrName}_source === 'query') {
+  // Manual mode - fetch selected posts and map to template structure
+  $selected_posts = $attributes['${attrName}SelectedPosts'] ?? [];
+  $field_mapping = $attributes['${attrName}FieldMapping'] ?? ${mappingPhp};
+${loadResolver}
+  
+  if (!empty($selected_posts) && function_exists('handoff_query_and_map_posts')) {
+    $${attrName} = handoff_query_and_map_posts($selected_posts, $field_mapping);
+  } else {
+    $${attrName} = [];
+  }
+}
+// else: Static mode uses $${attrName} directly from attribute extraction
+`;
+    }
+  }
+};
+
+/**
+ * Generate complete render.php file
+ * @param component - The Handoff component data
+ * @param dynamicArrayConfigs - Optional dynamic array configurations keyed by field name
+ */
+const generateRenderPhp = (
+  component: HandoffComponent,
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>
+): string => {
   const hasOverlay = component.code.includes('overlay');
   const attributeExtraction = generateAttributeExtraction(component.properties, hasOverlay);
   const templatePhp = handlebarsToPhp(component.code, component.properties);
+  
+  // Generate dynamic array extraction code
+  const dynamicArrayExtractions: string[] = [];
+  if (dynamicArrayConfigs) {
+    for (const [fieldName, config] of Object.entries(dynamicArrayConfigs)) {
+      const attrName = toCamelCase(fieldName);
+      dynamicArrayExtractions.push(generateDynamicArrayExtraction(fieldName, attrName, config));
+    }
+  }
+  const dynamicArrayCode = dynamicArrayExtractions.join('\n');
   
   // Wrap the template with block wrapper for alignment support
   const wrappedTemplate = wrapWithBlockWrapper(templatePhp, component.id);
@@ -1102,7 +1321,7 @@ if (!isset($attributes)) {
 
 // Extract attributes with defaults
 ${attributeExtraction}
-
+${dynamicArrayCode}
 ?>
 ${wrappedTemplate}
 `;

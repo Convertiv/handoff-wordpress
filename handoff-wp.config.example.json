@@ -3,5 +3,50 @@
   "output": "./demo/plugin/blocks",
   "themeDir": "./demo/theme",
   "username": "",
-  "password": ""
+  "password": "",
+  "dynamicArrays": {
+    "hero-carousel.slides": {
+      "enabled": true,
+      "postTypes": ["post", "page"],
+      "defaultPostType": "post",
+      "selectionMode": "manual",
+      "maxItems": 10,
+      "renderMode": "mapped",
+      "fieldMapping": {
+        "image": "featured_image",
+        "title": "post_title",
+        "subtitle": "post_excerpt",
+        "link.url": "permalink",
+        "link.label": { "type": "static", "value": "Learn More" }
+      }
+    },
+    "posts-latest.posts": {
+      "enabled": true,
+      "postTypes": ["post", "page", "custom_post_type"],
+      "selectionMode": "query",
+      "maxItems": 20,
+      "renderMode": "mapped",
+      "fieldMapping": {
+        "image": "featured_image",
+        "title": "post_title",
+        "excerpt": "post_excerpt",
+        "date": "post_date",
+        "category": { "type": "taxonomy", "taxonomy": "category", "format": "first" },
+        "link.url": "permalink",
+        "link.text": { "type": "static", "value": "Read More" }
+      },
+      "defaultQueryArgs": {
+        "posts_per_page": 6,
+        "orderby": "date",
+        "order": "DESC"
+      }
+    },
+    "card-grid.cards": {
+      "enabled": true,
+      "postTypes": ["post"],
+      "selectionMode": "manual",
+      "renderMode": "template",
+      "templatePath": "template-parts/cards/post-card.php"
+    }
+  }
 }

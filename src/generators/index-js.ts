@@ -2,7 +2,7 @@
  * Generates index.js for Gutenberg block editor
  */
 
-import { HandoffComponent, HandoffProperty } from '../types';
+import { HandoffComponent, HandoffProperty, DynamicArrayConfig } from '../types';
 import { toBlockName } from './block-json';
 import { generateJsxPreview, toCamelCase } from './handlebars-to-jsx';
 
@@ -496,13 +496,34 @@ const generateValidationRules = (properties: Record<string, HandoffProperty>): {
 
 /**
  * Generate complete index.js file
+ * @param component - The Handoff component data
+ * @param dynamicArrayConfigs - Optional dynamic array configurations keyed by field name
  */
-const generateIndexJs = (component: HandoffComponent): string => {
+const generateIndexJs = (
+  component: HandoffComponent,
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>
+): string => {
   const blockName = toBlockName(component.id);
   const properties = component.properties;
 
+  // Check which fields have dynamic array configs
+  const hasDynamicArrays = dynamicArrayConfigs && Object.keys(dynamicArrayConfigs).length > 0;
+
   // Get all attribute names
   const attrNames = Object.keys(properties).map(toCamelCase);
+  
+  // Add dynamic array attribute names
+  if (dynamicArrayConfigs) {
+    for (const fieldName of Object.keys(dynamicArrayConfigs)) {
+      const attrName = toCamelCase(fieldName);
+      attrNames.push(`${attrName}Source`);
+      attrNames.push(`${attrName}PostType`);
+      attrNames.push(`${attrName}SelectedPosts`);
+      attrNames.push(`${attrName}QueryArgs`);
+      attrNames.push(`${attrName}FieldMapping`);
+      attrNames.push(`${attrName}RenderMode`);
+    }
+  }
 
   // Check for overlay in template
   const hasOverlay = component.code.includes('overlay');
@@ -552,8 +573,10 @@ const generateIndexJs = (component: HandoffComponent): string => {
 
   const componentImports = ['PanelBody', 'TextControl', 'Button'];
   if (needsRangeControl) componentImports.push('RangeControl');
-  if (needsToggleControl) componentImports.push('ToggleControl');
-  if (needsSelectControl) componentImports.push('SelectControl');
+  // ToggleControl is needed for boolean fields OR dynamic arrays (source toggle)
+  if (needsToggleControl || hasDynamicArrays) componentImports.push('ToggleControl');
+  // SelectControl is needed for select fields OR dynamic arrays (post type selector)
+  if (needsSelectControl || hasDynamicArrays) componentImports.push('SelectControl');
 
   componentImports.push('__experimentalVStack as VStack');
   // HStack is needed for nested objects or string arrays with reorder buttons
@@ -572,12 +595,66 @@ const generateIndexJs = (component: HandoffComponent): string => {
 
   for (const [key, property] of Object.entries(properties)) {
     const label = property.name || toTitleCase(key);
-    const isImageOrArray = property.type === 'image' || property.type === 'array';
-
-    panels.push(`          {/* ${label} Panel */}
+    const attrName = toCamelCase(key);
+    const dynamicConfig = dynamicArrayConfigs?.[key];
+    
+    // Check if this is a dynamic array field
+    if (property.type === 'array' && dynamicConfig) {
+      // Generate dynamic array panel with source toggle
+      panels.push(`          {/* ${label} Panel - Dynamic */}
+          <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
+            <ToggleControl
+              label={__('Use Dynamic Posts', 'handoff')}
+              checked={${attrName}Source === 'query'}
+              onChange={(value) => setAttributes({ 
+                ${attrName}Source: value ? 'query' : 'static' 
+              })}
+              help={__('Populate from WordPress posts instead of manual entries', 'handoff')}
+            />
+            
+            {${attrName}Source === 'query' ? (
+              <div className="handoff-dynamic-array-controls">
+                ${dynamicConfig.selectionMode === 'query' ? `<PostQueryBuilder
+                  postTypes={${JSON.stringify(dynamicConfig.postTypes)}}
+                  queryArgs={${attrName}QueryArgs || {}}
+                  onChange={(newArgs) => setAttributes({ ${attrName}QueryArgs: newArgs })}
+                  maxItems={${dynamicConfig.maxItems || 20}}
+                />` : `<>
+                  <SelectControl
+                    label={__('Post Type', 'handoff')}
+                    value={${attrName}PostType}
+                    options={[
+                      ${dynamicConfig.postTypes.map(pt => `{ label: '${toTitleCase(pt)}', value: '${pt}' }`).join(',\n                      ')}
+                    ]}
+                    onChange={(value) => setAttributes({ 
+                      ${attrName}PostType: value,
+                      ${attrName}SelectedPosts: []
+                    })}
+                  />
+                  
+                  <PostSelector
+                    postTypes={[${attrName}PostType]}
+                    selectedPosts={${attrName}SelectedPosts || []}
+                    onChange={(posts) => setAttributes({ ${attrName}SelectedPosts: posts })}
+                    mode="multiple"
+                    maxItems={${dynamicConfig.maxItems || 10}}
+                  />
+                </>`}
+              </div>
+            ) : (
+              /* Static Repeater */
+              <>
+${generatePropertyControl(key, property)}
+              </>
+            )}
+          </PanelBody>`);
+    } else {
+      // Standard panel (non-dynamic)
+      panels.push(`          {/* ${label} Panel */}
           <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
 ${generatePropertyControl(key, property)}
           </PanelBody>`);
+    }
   }
 
   // Add overlay opacity panel if detected
@@ -786,6 +863,12 @@ ${imageFields.map(field => `          <MediaReplaceFlow
           />`).join('\n')}
         </BlockControls>` : '';
 
+  // Shared component imports for dynamic arrays
+  // Path is relative from blocks/{block-name}/ to shared/components/
+  const sharedComponentImport = hasDynamicArrays 
+    ? `import { PostSelector, PostQueryBuilder } from '../../shared/components';\n` 
+    : '';
+
   return `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
@@ -795,7 +878,7 @@ import {
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import { Fragment } from '@wordpress/element';
-${tenUpImport}import metadata from './block.json';
+${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 import './style.scss';
 
