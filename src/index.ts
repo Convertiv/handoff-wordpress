@@ -31,7 +31,7 @@ import * as https from 'https';
 import * as http from 'http';
 import * as prettier from 'prettier';
 
-import { HandoffComponent, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig } from './types';
+import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig } from './types';
 
 /**
  * Auth credentials for HTTP requests
@@ -870,6 +870,436 @@ const initConfig = (opts: {
   }
   console.log(`\n💡 Edit this file to configure your Handoff API settings.\n`);
 };
+
+/**
+ * Interactive prompt helper
+ */
+const prompt = (question: string): Promise<string> => {
+  const readline = require('readline');
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  
+  return new Promise((resolve) => {
+    rl.question(question, (answer: string) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+};
+
+/**
+ * Interactive prompt for yes/no
+ */
+const promptYesNo = async (question: string, defaultValue: boolean = true): Promise<boolean> => {
+  const defaultStr = defaultValue ? 'Y/n' : 'y/N';
+  const answer = await prompt(`${question} [${defaultStr}]: `);
+  if (answer === '') return defaultValue;
+  return answer.toLowerCase().startsWith('y');
+};
+
+/**
+ * Interactive prompt with choices
+ */
+const promptChoice = async (question: string, choices: string[], defaultIndex: number = 0): Promise<string> => {
+  console.log(`\n${question}`);
+  choices.forEach((choice, i) => {
+    const marker = i === defaultIndex ? '>' : ' ';
+    console.log(`  ${marker} ${i + 1}. ${choice}`);
+  });
+  
+  const answer = await prompt(`Enter number [${defaultIndex + 1}]: `);
+  if (answer === '') return choices[defaultIndex];
+  
+  const index = parseInt(answer, 10) - 1;
+  if (index >= 0 && index < choices.length) {
+    return choices[index];
+  }
+  return choices[defaultIndex];
+};
+
+/**
+ * Interactive prompt for multiple choices
+ */
+const promptMultiChoice = async (question: string, choices: string[]): Promise<string[]> => {
+  console.log(`\n${question}`);
+  choices.forEach((choice, i) => {
+    console.log(`  ${i + 1}. ${choice}`);
+  });
+  
+  const answer = await prompt(`Enter numbers separated by commas (e.g., 1,2,3) or 'all': `);
+  if (answer.toLowerCase() === 'all') return choices;
+  if (answer === '') return [choices[0]];
+  
+  const indices = answer.split(',').map(s => parseInt(s.trim(), 10) - 1);
+  return indices
+    .filter(i => i >= 0 && i < choices.length)
+    .map(i => choices[i]);
+};
+
+/**
+ * Find all array properties in a component
+ */
+const findArrayProperties = (properties: Record<string, HandoffProperty>, prefix: string = ''): Array<{ path: string; property: HandoffProperty }> => {
+  const arrays: Array<{ path: string; property: HandoffProperty }> = [];
+  
+  for (const [key, property] of Object.entries(properties)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    
+    if (property.type === 'array') {
+      arrays.push({ path, property });
+    }
+    
+    // Recurse into objects
+    if (property.type === 'object' && property.properties) {
+      arrays.push(...findArrayProperties(property.properties, path));
+    }
+  }
+  
+  return arrays;
+};
+
+/**
+ * Generate field mapping suggestions based on array item properties
+ */
+const suggestFieldMappings = (itemProperties: Record<string, HandoffProperty>): Record<string, string> => {
+  const suggestions: Record<string, string> = {};
+  
+  const mapProperty = (props: Record<string, HandoffProperty>, prefix: string = '') => {
+    for (const [key, prop] of Object.entries(props)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      
+      // Suggest mappings based on common patterns
+      const lowerKey = key.toLowerCase();
+      
+      if (prop.type === 'image' || lowerKey.includes('image') || lowerKey.includes('photo') || lowerKey.includes('thumbnail')) {
+        suggestions[path] = 'featured_image';
+      } else if (lowerKey === 'title' || lowerKey.includes('heading') || lowerKey.includes('name')) {
+        suggestions[path] = 'post_title';
+      } else if (lowerKey.includes('excerpt') || lowerKey.includes('summary') || lowerKey.includes('description')) {
+        suggestions[path] = 'post_excerpt';
+      } else if (lowerKey.includes('content') || lowerKey.includes('body')) {
+        suggestions[path] = 'post_content';
+      } else if (lowerKey === 'url' || lowerKey === 'href' || lowerKey.includes('link')) {
+        suggestions[path] = 'permalink';
+      } else if (lowerKey.includes('date')) {
+        if (lowerKey.includes('day')) {
+          suggestions[path] = 'post_date:day_numeric';
+        } else if (lowerKey.includes('month')) {
+          suggestions[path] = 'post_date:month_short';
+        } else if (lowerKey.includes('year')) {
+          suggestions[path] = 'post_date:year';
+        } else {
+          suggestions[path] = 'post_date:full';
+        }
+      } else if (lowerKey.includes('author')) {
+        suggestions[path] = 'author.name';
+      } else if (lowerKey.includes('category') || lowerKey.includes('tag')) {
+        suggestions[path] = 'taxonomy:category';
+      }
+      
+      // Recurse into nested objects
+      if (prop.type === 'object' && prop.properties) {
+        mapProperty(prop.properties, path);
+      }
+    }
+  };
+  
+  mapProperty(itemProperties);
+  return suggestions;
+};
+
+/**
+ * Interactive wizard for configuring dynamic arrays
+ */
+const configureDynamicArrays = async (
+  apiUrl: string,
+  componentName: string,
+  auth?: AuthCredentials
+): Promise<void> => {
+  console.log(`\n🧙 Dynamic Array Configuration Wizard`);
+  console.log(`   Component: ${componentName}`);
+  console.log(`   API: ${apiUrl}\n`);
+  
+  // Fetch component
+  console.log(`📡 Fetching component structure...`);
+  let component: HandoffComponent;
+  try {
+    component = await fetchComponent(apiUrl, componentName, auth);
+    console.log(`   Found: ${component.title} (${component.id})\n`);
+  } catch (error) {
+    console.error(`\n❌ Error: ${error instanceof Error ? error.message : error}\n`);
+    process.exit(1);
+  }
+  
+  // Find array properties
+  const arrayProps = findArrayProperties(component.properties);
+  
+  if (arrayProps.length === 0) {
+    console.log(`\n⚠️  No array properties found in this component.`);
+    console.log(`   Dynamic arrays are only available for array-type properties.\n`);
+    process.exit(0);
+  }
+  
+  console.log(`📋 Found ${arrayProps.length} array field(s):`);
+  arrayProps.forEach((arr, i) => {
+    const itemCount = arr.property.items?.properties ? Object.keys(arr.property.items.properties).length : 0;
+    console.log(`   ${i + 1}. ${arr.path} (${itemCount} item properties)`);
+  });
+  
+  // Select which arrays to configure
+  const selectedArrays = arrayProps.length === 1 
+    ? [arrayProps[0]]
+    : await (async () => {
+        const choices = arrayProps.map(a => a.path);
+        const selected = await promptMultiChoice('Which array(s) do you want to configure?', choices);
+        return arrayProps.filter(a => selected.includes(a.path));
+      })();
+  
+  // Load existing config
+  const configPath = path.join(process.cwd(), 'handoff-wp.config.json');
+  let existingConfig: HandoffWpConfig = {};
+  if (fs.existsSync(configPath)) {
+    try {
+      existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    } catch {
+      // Ignore parse errors
+    }
+  }
+  
+  const dynamicArrays: Record<string, DynamicArrayConfig> = existingConfig.dynamicArrays || {};
+  
+  // Configure each selected array
+  for (const arrayProp of selectedArrays) {
+    console.log(`\n${'─'.repeat(60)}`);
+    console.log(`\n⚙️  Configuring: ${component.id}.${arrayProp.path}\n`);
+    
+    const configKey = `${component.id}.${arrayProp.path}`;
+    
+    // Selection mode
+    const selectionMode = await promptChoice(
+      'How should users select posts?',
+      ['Query Builder (filter by taxonomy, order, etc.)', 'Manual Selection (hand-pick specific posts)'],
+      0
+    );
+    const isQueryMode = selectionMode.includes('Query');
+    
+    // Post types
+    console.log(`\nEnter allowed post types (comma-separated):`);
+    const postTypesInput = await prompt(`Post types [post]: `);
+    const postTypes = postTypesInput 
+      ? postTypesInput.split(',').map(s => s.trim()).filter(Boolean)
+      : ['post'];
+    
+    // Max items
+    const maxItemsInput = await prompt(`Maximum items [12]: `);
+    const maxItems = maxItemsInput ? parseInt(maxItemsInput, 10) : 12;
+    
+    // Render mode
+    const renderMode = await promptChoice(
+      'How should posts be rendered?',
+      ['Mapped (convert post fields to template structure)', 'Template (use a PHP template file)'],
+      0
+    );
+    const isMappedMode = renderMode.includes('Mapped');
+    
+    let fieldMapping: Record<string, any> = {};
+    let templatePath: string | undefined;
+    
+    if (isMappedMode) {
+      // Field mapping
+      console.log(`\n📊 Field Mapping Configuration`);
+      
+      const itemProps = arrayProp.property.items?.properties;
+      if (itemProps) {
+        const suggestions = suggestFieldMappings(itemProps);
+        
+        console.log(`\nI'll suggest mappings based on field names. Press Enter to accept or type a new value.`);
+        console.log(`\nAvailable sources:`);
+        console.log(`  - post_title, post_excerpt, post_content, permalink, post_id`);
+        console.log(`  - featured_image`);
+        console.log(`  - post_date:day, post_date:month_short, post_date:year, post_date:full`);
+        console.log(`  - author.name, author.url, author.avatar`);
+        console.log(`  - taxonomy:category, taxonomy:post_tag`);
+        console.log(`  - meta:field_name`);
+        console.log(`  - (leave empty to skip)\n`);
+        
+        // Flatten item properties for mapping
+        const flattenProps = (props: Record<string, HandoffProperty>, prefix: string = ''): string[] => {
+          const paths: string[] = [];
+          for (const [key, prop] of Object.entries(props)) {
+            const path = prefix ? `${prefix}.${key}` : key;
+            if (prop.type === 'object' && prop.properties) {
+              paths.push(...flattenProps(prop.properties, path));
+            } else {
+              paths.push(path);
+            }
+          }
+          return paths;
+        };
+        
+        const allPaths = flattenProps(itemProps);
+        
+        for (const fieldPath of allPaths) {
+          const suggestion = suggestions[fieldPath] || '';
+          const defaultStr = suggestion ? ` [${suggestion}]` : '';
+          const mapping = await prompt(`  ${fieldPath}${defaultStr}: `);
+          
+          const finalMapping = mapping || suggestion;
+          if (finalMapping) {
+            // Check if it should be a complex mapping
+            if (finalMapping.startsWith('{')) {
+              try {
+                fieldMapping[fieldPath] = JSON.parse(finalMapping);
+              } catch {
+                fieldMapping[fieldPath] = finalMapping;
+              }
+            } else {
+              fieldMapping[fieldPath] = finalMapping;
+            }
+          }
+        }
+      }
+    } else {
+      // Template mode
+      const defaultTemplate = `template-parts/handoff/${arrayProp.path}-item.php`;
+      templatePath = await prompt(`Template path [${defaultTemplate}]: `) || defaultTemplate;
+    }
+    
+    // Build config
+    const arrayConfig: DynamicArrayConfig = {
+      enabled: true,
+      postTypes,
+      selectionMode: isQueryMode ? 'query' : 'manual',
+      maxItems,
+      renderMode: isMappedMode ? 'mapped' : 'template',
+    };
+    
+    if (isMappedMode && Object.keys(fieldMapping).length > 0) {
+      arrayConfig.fieldMapping = fieldMapping;
+    }
+    
+    if (!isMappedMode && templatePath) {
+      arrayConfig.templatePath = templatePath;
+    }
+    
+    if (isQueryMode) {
+      arrayConfig.defaultQueryArgs = {
+        posts_per_page: Math.min(maxItems, 6),
+        orderby: 'date',
+        order: 'DESC',
+      };
+    }
+    
+    dynamicArrays[configKey] = arrayConfig;
+    
+    console.log(`\n✅ Configured: ${configKey}`);
+  }
+  
+  // Update config file
+  const newConfig: HandoffWpConfig = {
+    ...existingConfig,
+    dynamicArrays,
+  };
+  
+  console.log(`\n${'─'.repeat(60)}`);
+  console.log(`\n📄 Configuration Preview:\n`);
+  console.log(JSON.stringify({ dynamicArrays: dynamicArrays }, null, 2));
+  
+  const shouldSave = await promptYesNo('\nSave to handoff-wp.config.json?', true);
+  
+  if (shouldSave) {
+    fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2) + '\n');
+    console.log(`\n✅ Saved to ${configPath}`);
+    console.log(`\n💡 Next steps:`);
+    console.log(`   1. Run: npm run dev -- ${componentName} --force`);
+    console.log(`   2. Build your blocks: cd demo/plugin && npm run build`);
+    console.log(`   3. Test the block in WordPress\n`);
+  } else {
+    console.log(`\n⚠️  Configuration not saved. Copy the JSON above manually if needed.\n`);
+  }
+};
+
+// Configure dynamic arrays command
+program
+  .command('configure-dynamic [component]')
+  .alias('wizard')
+  .description('Interactive wizard to configure dynamic arrays for a component')
+  .option('-a, --api-url <url>', 'Handoff API base URL')
+  .option('-u, --username <username>', 'Basic auth username')
+  .option('-p, --password <password>', 'Basic auth password')
+  .option('-l, --list', 'List available components with array fields')
+  .action(async (componentName: string | undefined, opts: {
+    apiUrl?: string;
+    username?: string;
+    password?: string;
+    list?: boolean;
+  }) => {
+    const apiUrl = opts.apiUrl ?? config.apiUrl;
+    const auth: AuthCredentials = {
+      username: opts.username ?? config.username,
+      password: opts.password ?? config.password,
+    };
+    
+    // If listing components, show components with array fields
+    if (opts.list || !componentName) {
+      console.log(`\n🔍 Fetching component list from ${apiUrl}...\n`);
+      
+      try {
+        const componentIds = await fetchComponentList(apiUrl, auth);
+        
+        // Fetch each component to find ones with array fields
+        console.log(`📋 Found ${componentIds.length} components. Checking for array fields...\n`);
+        
+        const componentsWithArrays: Array<{ id: string; title: string; arrays: string[] }> = [];
+        
+        for (const id of componentIds) {
+          try {
+            const component = await fetchComponent(apiUrl, id, auth);
+            const arrays = findArrayProperties(component.properties);
+            if (arrays.length > 0) {
+              componentsWithArrays.push({
+                id,
+                title: component.title,
+                arrays: arrays.map(a => a.path),
+              });
+            }
+          } catch {
+            // Skip failed components
+          }
+        }
+        
+        if (componentsWithArrays.length === 0) {
+          console.log(`⚠️  No components with array fields found.\n`);
+          process.exit(0);
+        }
+        
+        console.log(`🧩 Components with array fields:\n`);
+        componentsWithArrays.forEach((c, i) => {
+          console.log(`   ${i + 1}. ${c.title} (${c.id})`);
+          c.arrays.forEach(a => console.log(`      └─ ${a}`));
+        });
+        
+        if (opts.list) {
+          console.log(`\n💡 Run: npm run dev -- wizard <component-id>\n`);
+          process.exit(0);
+        }
+        
+        // Interactive selection
+        const choices = componentsWithArrays.map(c => `${c.title} (${c.id})`);
+        const selected = await promptChoice('\nSelect a component to configure:', choices, 0);
+        const selectedIndex = choices.indexOf(selected);
+        componentName = componentsWithArrays[selectedIndex].id;
+        
+      } catch (error) {
+        console.error(`\n❌ Error: ${error instanceof Error ? error.message : error}\n`);
+        process.exit(1);
+      }
+    }
+    
+    await configureDynamicArrays(apiUrl, componentName, auth);
+  });
 
 // Init command
 program

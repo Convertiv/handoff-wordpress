@@ -135,6 +135,320 @@ CLI options always override config file values. If no config file exists, defaul
 
 See `handoff-wp.config.example.json` for a template.
 
+### Dynamic Arrays
+
+Dynamic arrays allow you to populate Handoff array fields with WordPress posts instead of static content. This is useful for blog grids, featured posts, testimonials, team members, or any repeating content pulled from WordPress.
+
+Add a `dynamicArrays` property to your config file:
+
+```json
+{
+  "apiUrl": "https://demo.handoff.com",
+  "output": "./demo/plugin/blocks",
+  "dynamicArrays": {
+    "posts-latest.posts": {
+      "enabled": true,
+      "postTypes": ["post", "page"],
+      "selectionMode": "query",
+      "maxItems": 12,
+      "renderMode": "mapped",
+      "fieldMapping": {
+        "image": "featured_image",
+        "title": "post_title",
+        "summary": "post_excerpt",
+        "date.day": "post_date:day_numeric",
+        "date.month": "post_date:month_short",
+        "date.year": "post_date:year",
+        "url": "permalink"
+      }
+    }
+  }
+}
+```
+
+#### Configuration Key
+
+The key format is `{componentId}.{propertyName}` where the property name matches the array field in the Handoff component (e.g., `posts-latest.posts`, `hero-carousel.slides`).
+
+#### Dynamic Array Options
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `enabled` | boolean | Enable dynamic post selection for this field |
+| `postTypes` | string[] | Allowed WordPress post types |
+| `defaultPostType` | string | Default post type when first enabled |
+| `selectionMode` | `"manual"` \| `"query"` | How posts are selected (see below) |
+| `maxItems` | number | Maximum number of items |
+| `renderMode` | `"mapped"` \| `"template"` | How posts are rendered |
+| `fieldMapping` | object | Maps post data to template fields (for mapped mode) |
+| `templatePath` | string | PHP template path (for template mode) |
+| `defaultQueryArgs` | object | Default query settings for query mode |
+
+#### Selection Modes
+
+**Manual Mode** (`selectionMode: "manual"`): Users search and hand-pick specific posts in the editor. Posts are ordered as selected.
+
+**Query Mode** (`selectionMode: "query"`): Users build a query with filters. The editor shows:
+- Post type selector
+- Posts per page slider
+- Order by / direction controls
+- Taxonomy filters (categories, tags, custom taxonomies)
+
+#### Render Modes
+
+**Mapped Mode** (`renderMode: "mapped"`): Posts are converted to the Handoff template structure using the `fieldMapping` configuration. Best for most use cases.
+
+**Template Mode** (`renderMode: "template"`): Posts are passed to a PHP template file specified by `templatePath`. Useful when you need custom PHP logic.
+
+### Field Mapping
+
+Field mapping defines how WordPress post data maps to your Handoff template structure. Keys are dot-notation paths in the template (e.g., `link.url`), values are data sources.
+
+#### Simple Field Sources
+
+| Source | Description | Example Output |
+|--------|-------------|----------------|
+| `post_title` | Post title | `"My Blog Post"` |
+| `post_content` | Post content (with wpautop) | `"<p>Content here...</p>"` |
+| `post_excerpt` | Post excerpt | `"Brief summary..."` |
+| `post_date` | Formatted date | `"January 15, 2024"` |
+| `post_name` | Post slug | `"my-blog-post"` |
+| `permalink` | Full URL | `"https://site.com/my-blog-post/"` |
+| `post_id` | Post ID | `123` |
+| `featured_image` | Featured image object | `{ src, alt, srcset, sizes }` |
+
+#### Date Part Extraction
+
+Extract specific parts of the post date using `post_date:{part}`:
+
+| Source | Description | Example |
+|--------|-------------|---------|
+| `post_date:day` | Day with leading zero | `"05"` |
+| `post_date:day_numeric` | Day without leading zero | `"5"` |
+| `post_date:day_name` | Full day name | `"Monday"` |
+| `post_date:day_short` | Short day name | `"Mon"` |
+| `post_date:month` | Month with leading zero | `"01"` |
+| `post_date:month_numeric` | Month without leading zero | `"1"` |
+| `post_date:month_name` | Full month name | `"January"` |
+| `post_date:month_short` | Short month name | `"Jan"` |
+| `post_date:year` | Full year | `"2024"` |
+| `post_date:year_short` | Two-digit year | `"24"` |
+| `post_date:time` | 12-hour time | `"2:30 PM"` |
+| `post_date:time_24` | 24-hour time | `"14:30"` |
+| `post_date:full` | Full formatted | `"January 15, 2024"` |
+| `post_date:format:X` | Custom PHP format | `post_date:format:F j, Y` |
+
+#### Author Fields
+
+Access author data using `author.{field}`:
+
+| Source | Description |
+|--------|-------------|
+| `author.name` | Display name |
+| `author.url` | Author archive URL |
+| `author.avatar` | Avatar image URL |
+| `author.bio` | Author biography |
+| `author.email` | Author email |
+
+#### Taxonomy Fields
+
+Access taxonomy terms using `taxonomy:{taxonomy_name}`:
+
+| Source | Description |
+|--------|-------------|
+| `taxonomy:category` | First category name |
+| `taxonomy:post_tag` | First tag name |
+| `taxonomy:custom_taxonomy` | First term from custom taxonomy |
+
+#### Post Meta
+
+Access custom fields using `meta:{field_key}`:
+
+```json
+{
+  "fieldMapping": {
+    "customField": "meta:my_custom_field",
+    "price": "meta:product_price"
+  }
+}
+```
+
+#### Complex Field Sources
+
+For more control, use object syntax:
+
+**Static Value**
+```json
+{
+  "link.label": { "type": "static", "value": "Read More" }
+}
+```
+
+**Post Meta**
+```json
+{
+  "price": { "type": "meta", "key": "product_price" }
+}
+```
+
+**Taxonomy with Format**
+```json
+{
+  "category": { 
+    "type": "taxonomy", 
+    "taxonomy": "category",
+    "format": "first"
+  }
+}
+```
+
+Format options: `"first"` (single term name), `"all"` (array of term objects), `"links"` (comma-separated linked terms), `"names"` (comma-separated names)
+
+**Custom Callback**
+```json
+{
+  "customData": { "type": "custom", "callback": "my_custom_resolver" }
+}
+```
+
+The callback receives `($post_id, $source_config)` and should return the resolved value.
+
+### Example Configurations
+
+#### Blog Post Grid
+
+```json
+{
+  "dynamicArrays": {
+    "posts-latest.posts": {
+      "enabled": true,
+      "postTypes": ["post"],
+      "selectionMode": "query",
+      "maxItems": 12,
+      "renderMode": "mapped",
+      "fieldMapping": {
+        "image": "featured_image",
+        "title": "post_title",
+        "excerpt": "post_excerpt",
+        "date.day": "post_date:day_numeric",
+        "date.month": "post_date:month_short",
+        "date.year": "post_date:year",
+        "category": "taxonomy:category",
+        "author": "author.name",
+        "link.url": "permalink",
+        "link.text": { "type": "static", "value": "Read More" }
+      },
+      "defaultQueryArgs": {
+        "posts_per_page": 6,
+        "orderby": "date",
+        "order": "DESC"
+      }
+    }
+  }
+}
+```
+
+#### Team Members (Manual Selection)
+
+```json
+{
+  "dynamicArrays": {
+    "team-grid.members": {
+      "enabled": true,
+      "postTypes": ["team_member"],
+      "selectionMode": "manual",
+      "maxItems": 20,
+      "renderMode": "mapped",
+      "fieldMapping": {
+        "photo": "featured_image",
+        "name": "post_title",
+        "bio": "post_excerpt",
+        "role": "meta:job_title",
+        "email": "meta:email_address",
+        "linkedin": "meta:linkedin_url"
+      }
+    }
+  }
+}
+```
+
+#### Testimonials with Template
+
+```json
+{
+  "dynamicArrays": {
+    "testimonials.items": {
+      "enabled": true,
+      "postTypes": ["testimonial"],
+      "selectionMode": "query",
+      "renderMode": "template",
+      "templatePath": "template-parts/testimonial-item.php"
+    }
+  }
+}
+```
+
+#### Dynamic Array Wizard
+
+Instead of manually editing the config file, use the interactive wizard to configure dynamic arrays:
+
+```bash
+# Start the wizard and select a component interactively
+npm run dev -- wizard
+
+# Configure a specific component
+npm run dev -- wizard posts-latest
+
+# List all components with array fields
+npm run dev -- wizard --list
+```
+
+The wizard will:
+
+1. Fetch the component structure from the Handoff API
+2. Show all array fields in the component
+3. Walk you through configuring each array:
+   - Selection mode (Query Builder or Manual Selection)
+   - Allowed post types
+   - Maximum items
+   - Render mode (Mapped or Template)
+   - Field mappings with smart suggestions based on field names
+
+Example session:
+
+```
+🧙 Dynamic Array Configuration Wizard
+   Component: posts-latest
+   API: https://demo.handoff.com
+
+📡 Fetching component structure...
+   Found: Posts Latest (posts-latest)
+
+📋 Found 1 array field(s):
+   1. posts (5 item properties)
+
+⚙️  Configuring: posts-latest.posts
+
+How should users select posts?
+  > 1. Query Builder (filter by taxonomy, order, etc.)
+    2. Manual Selection (hand-pick specific posts)
+Enter number [1]: 
+
+Post types [post]: post
+
+Maximum items [12]: 6
+
+📊 Field Mapping Configuration
+  image [featured_image]: 
+  title [post_title]: 
+  summary [post_excerpt]: 
+  date.day [post_date:day_numeric]: 
+  date.month [post_date:month_short]: 
+  url [permalink]: 
+
+✅ Saved to handoff-wp.config.json
+```
+
 ## Usage
 
 ### Development Mode
@@ -159,7 +473,20 @@ Or use node directly:
 node dist/index.js <component-name> [options]
 ```
 
-## CLI Options
+## CLI Commands
+
+### Main Commands
+
+| Command | Description |
+|---------|-------------|
+| `<component-name>` | Compile a single component to a Gutenberg block |
+| `--all` | Compile all available components |
+| `--theme` | Compile theme templates (header, footer) |
+| `init` | Create a new `handoff-wp.config.json` file |
+| `wizard [component]` | Interactive wizard to configure dynamic arrays |
+| `configure-dynamic [component]` | Alias for `wizard` |
+
+### CLI Options
 
 | Option | Alias | Description | Default |
 |--------|-------|-------------|---------|
@@ -168,11 +495,18 @@ node dist/index.js <component-name> [options]
 | `--theme-dir <dir>` | `-t` | Theme directory for header/footer templates | `./demo/theme` |
 | `--username <user>` | `-u` | Basic auth username for Handoff API | |
 | `--password <pass>` | `-p` | Basic auth password for Handoff API | |
-| `--all` | | Compile all available components | |
-| `--theme` | | Compile theme templates (header, footer) | |
 | `--validate` | | Validate a component for breaking property changes | |
 | `--validate-all` | | Validate all components for breaking property changes | |
 | `--force` | | Force compilation even with breaking changes | |
+
+### Wizard Options
+
+| Option | Alias | Description |
+|--------|-------|-------------|
+| `--list` | `-l` | List all components with array fields |
+| `--api-url <url>` | `-a` | Handoff API base URL |
+| `--username <user>` | `-u` | Basic auth username |
+| `--password <pass>` | `-p` | Basic auth password |
 
 ## Examples
 
