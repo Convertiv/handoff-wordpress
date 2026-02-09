@@ -1155,6 +1155,12 @@ if ($${attrName}_source === 'query') {
     'post_status'    => 'publish',
   ];
   
+  // Exclude the current post to prevent self-reference
+  $current_post_id = get_the_ID();
+  if ($current_post_id) {
+    $wp_query_args['post__not_in'] = [$current_post_id];
+  }
+  
   // Add taxonomy queries if present
   if (!empty($query_args['tax_query'])) {
     $wp_query_args['tax_query'] = array_map(function($tq) {
@@ -1225,6 +1231,12 @@ ${loadResolver}
     'order'          => $query_args['order'] ?? 'DESC',
     'post_status'    => 'publish',
   ];
+  
+  // Exclude the current post to prevent self-reference
+  $current_post_id = get_the_ID();
+  if ($current_post_id) {
+    $wp_query_args['post__not_in'] = [$current_post_id];
+  }
   
   // Add taxonomy queries if present
   if (!empty($query_args['tax_query'])) {
