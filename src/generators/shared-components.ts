@@ -323,7 +323,7 @@ import { useSelect } from '@wordpress/data';
 import { store as coreDataStore } from '@wordpress/core-data';
 import {
   SelectControl,
-  RangeControl,
+  TextControl,
   Button,
   Card,
   CardBody,
@@ -382,15 +382,17 @@ function TaxonomyFilter({ taxonomy, selectedTerms, onChange, onRemove }) {
 
   return (
     <Card size="small" className="handoff-taxonomy-filter">
-      <CardHeader>
-        <HStack alignment="center">
+      <CardHeader className="handoff-taxonomy-filter__header">
+        <HStack alignment="center" style={{ justifyContent: 'space-between', width: '100%' }}>
           <Text weight={500}>{taxonomy.label}</Text>
           <Button
             icon={closeSmall}
             size="small"
+            variant="tertiary"
             isDestructive
             onClick={onRemove}
             label={__('Remove filter', 'handoff')}
+            style={{ marginLeft: 'auto' }}
           />
         </HStack>
       </CardHeader>
@@ -511,6 +513,7 @@ export function PostQueryBuilder({
 
   return (
     <VStack spacing={4} className="handoff-query-builder">
+      {/* Post Type Selection */}
       {postTypes.length > 1 && (
         <SelectControl
           label={__('Post Type', 'handoff')}
@@ -523,40 +526,9 @@ export function PostQueryBuilder({
         />
       )}
 
-      <RangeControl
-        label={__('Posts Per Page', 'handoff')}
-        value={currentPerPage}
-        onChange={(value) => updateQueryArg('posts_per_page', value)}
-        min={1}
-        max={maxItems}
-        help={__('Number of posts to display', 'handoff')}
-      />
-
-      <Divider />
-
-      <HStack alignment="top" spacing={3}>
-        <div style={{ flex: 1 }}>
-          <SelectControl
-            label={__('Order By', 'handoff')}
-            value={currentOrderBy}
-            options={orderByOptions}
-            onChange={(value) => updateQueryArg('orderby', value)}
-          />
-        </div>
-        <div style={{ flex: 1 }}>
-          <SelectControl
-            label={__('Order', 'handoff')}
-            value={currentOrder}
-            options={orderOptions}
-            onChange={(value) => updateQueryArg('order', value)}
-          />
-        </div>
-      </HStack>
-
-      <Divider />
-
+      {/* Taxonomy Filters - Moved to top */}
       <div className="handoff-query-builder__filters">
-        <Text weight={600} size="12px" upperCase>
+        <Text weight={600} size="12px" style={{ textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
           {__('Filters', 'handoff')}
         </Text>
 
@@ -579,24 +551,22 @@ export function PostQueryBuilder({
           })}
 
           {unusedTaxonomies.length > 0 && (
-            <HStack>
-              <SelectControl
-                label={__('Add Filter', 'handoff')}
-                value=""
-                options={[
-                  { label: __('Select taxonomy...', 'handoff'), value: '' },
-                  ...unusedTaxonomies.map((tax) => ({
-                    label: tax.labels?.singular_name || tax.name,
-                    value: tax.slug,
-                  })),
-                ]}
-                onChange={(value) => {
-                  if (value) {
-                    addTaxonomyFilter(value);
-                  }
-                }}
-              />
-            </HStack>
+            <SelectControl
+              label={__('Add Filter', 'handoff')}
+              value=""
+              options={[
+                { label: __('Select taxonomy...', 'handoff'), value: '' },
+                ...unusedTaxonomies.map((tax) => ({
+                  label: tax.labels?.singular_name || tax.name,
+                  value: tax.slug,
+                })),
+              ]}
+              onChange={(value) => {
+                if (value) {
+                  addTaxonomyFilter(value);
+                }
+              }}
+            />
           )}
 
           {unusedTaxonomies.length === 0 && currentTaxQueries.length === 0 && (
@@ -607,11 +577,55 @@ export function PostQueryBuilder({
         </VStack>
       </div>
 
-      <div className="handoff-query-builder__preview">
+      <Divider />
+
+      {/* Ordering Options */}
+      <HStack alignment="top" spacing={3}>
+        <div style={{ flex: 1 }}>
+          <SelectControl
+            label={__('Order By', 'handoff')}
+            value={currentOrderBy}
+            options={orderByOptions}
+            onChange={(value) => updateQueryArg('orderby', value)}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <SelectControl
+            label={__('Order', 'handoff')}
+            value={currentOrder}
+            options={orderOptions}
+            onChange={(value) => updateQueryArg('order', value)}
+          />
+        </div>
+      </HStack>
+
+      {/* Posts Per Page - Now a simple number input */}
+      <TextControl
+        label={__('Posts Per Page', 'handoff')}
+        type="number"
+        value={String(currentPerPage)}
+        onChange={(value) => {
+          const num = parseInt(value, 10);
+          if (!isNaN(num) && num >= 1 && num <= maxItems) {
+            updateQueryArg('posts_per_page', num);
+          }
+        }}
+        min={1}
+        max={maxItems}
+        help={__(\`Maximum: \${maxItems}\`, 'handoff')}
+      />
+
+      {/* Query Preview */}
+      <div className="handoff-query-builder__preview" style={{ 
+        padding: '12px', 
+        backgroundColor: '#f0f0f0', 
+        borderRadius: '4px',
+        marginTop: '8px'
+      }}>
         <Text variant="muted" size="small">
-          {__('Showing', 'handoff')} {currentPerPage} {currentPostType}
+          {__('Showing', 'handoff')} <strong>{currentPerPage}</strong> {currentPostType}
           {currentPerPage !== 1 ? 's' : ''} {__('ordered by', 'handoff')}{' '}
-          {currentOrderBy} ({currentOrder})
+          <strong>{currentOrderBy}</strong> ({currentOrder})
           {currentTaxQueries.length > 0 &&
             \` \${__('with', 'handoff')} \${currentTaxQueries.length} \${
               currentTaxQueries.length === 1 ? __('filter', 'handoff') : __('filters', 'handoff')
