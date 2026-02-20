@@ -363,6 +363,9 @@ export const preprocessBlocks = (template: string): string => {
     }
   }
   
+  // Normalize {{#if ../properties.xxx}} to {{#if properties.xxx}} (parent context in loops)
+  result = result.replace(/\{\{#if\s+\.\.\/+(properties\.[^}]+)\}\}/g, '{{#if $1}}');
+
   // Process {{#if properties.xxx}} blocks (conditionals on top-level properties)
   const ifPropsRegex = /\{\{#if\s+(properties\.[^}]+)\}\}/g;
   let ifPropsMatch;

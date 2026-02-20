@@ -1186,8 +1186,7 @@ if ($${attrName}_source === 'query') {
 $${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
 $${attrName}_posts = [];
 
-if ($${attrName}_source === 'query') {
-  // Manual mode - fetch selected posts
+if ($${attrName}_source === 'manual') {
   $selected_posts = $attributes['${attrName}SelectedPosts'] ?? [];
   
   if (!empty($selected_posts)) {
@@ -1259,6 +1258,13 @@ ${loadResolver}
       $${attrName}[] = handoff_map_post_to_item($post->ID, $field_mapping);
     }
   }
+  // Apply item overrides (e.g. card type for all items) from Advanced options
+  $item_overrides = $attributes['${attrName}ItemOverrides'] ?? [];
+  if (!empty($item_overrides) && function_exists('handoff_apply_item_overrides')) {
+    foreach ($${attrName} as $i => $item) {
+      $${attrName}[$i] = handoff_apply_item_overrides($item, $item_overrides);
+    }
+  }
   wp_reset_postdata();
 }
 // else: Static mode uses $${attrName} directly from attribute extraction
@@ -1269,8 +1275,7 @@ ${loadResolver}
 // Dynamic array: ${fieldName} (manual selection + mapped mode)
 $${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
 
-if ($${attrName}_source === 'query') {
-  // Manual mode - fetch selected posts and map to template structure
+if ($${attrName}_source === 'manual') {
   $selected_posts = $attributes['${attrName}SelectedPosts'] ?? [];
   $field_mapping = $attributes['${attrName}FieldMapping'] ?? ${mappingPhp};
 ${loadResolver}
@@ -1279,6 +1284,12 @@ ${loadResolver}
     $${attrName} = handoff_query_and_map_posts($selected_posts, $field_mapping);
   } else {
     $${attrName} = [];
+  }
+  $item_overrides = $attributes['${attrName}ItemOverrides'] ?? [];
+  if (!empty($item_overrides) && function_exists('handoff_apply_item_overrides')) {
+    foreach ($${attrName} as $i => $item) {
+      $${attrName}[$i] = handoff_apply_item_overrides($item, $item_overrides);
+    }
   }
 }
 // else: Static mode uses $${attrName} directly from attribute extraction

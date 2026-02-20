@@ -5,7 +5,7 @@
 import { HTMLElement } from 'node-html-parser';
 import { TranspilerContext, ConvertedAttributeValue } from './types';
 import { toCamelCase, toJsxAttrName, normalizeWhitespace } from './utils';
-import { transpileExpression } from './expression-parser';
+import { transpileExpression, resolveParentPropertiesInExpression } from './expression-parser';
 import { parseStyleToObject } from './styles';
 
 /**
@@ -48,6 +48,8 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
   
   // Helper to convert property reference or helper expression to JSX expression
   const propToExpr = (prop: string): string => {
+    // Resolve ../properties.xxx (parent context in loops) to top-level camelCase
+    prop = resolveParentPropertiesInExpression(prop);
     // Check if it's a helper expression like (eq ...)
     if (prop.startsWith('(')) {
       const parsed = parseHelper(prop);

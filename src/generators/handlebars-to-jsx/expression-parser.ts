@@ -8,11 +8,31 @@ import { toCamelCase } from './utils';
 /**
  * Transpile a Handlebars path expression to JSX
  */
+/**
+ * Replace every occurrence of ../properties.xxx (parent context) in an expression
+ * with the JSX form (camelCase). Used for compound expressions like
+ * {{../properties.columnCount === "three" ? 'a' : 'b'}} inside loops.
+ * Exported for use in attribute conversion.
+ */
+export const resolveParentPropertiesInExpression = (expr: string): string => {
+  return expr.replace(
+    /\.\.\/+properties\.([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g,
+    (_match, path: string) => {
+      const parts = path.split('.');
+      const first = toCamelCase(parts[0]);
+      return parts.length > 1 ? `${first}?.${parts.slice(1).join('?.')}` : first;
+    }
+  );
+};
+
 export const transpileExpression = (expr: string, context: TranspilerContext, loopVar: string = 'item'): string => {
   expr = expr.trim();
   
   // Handle triple braces (unescaped) - strip the extra brace
   expr = expr.replace(/^\{+|\}+$/g, '');
+  
+  // Resolve ALL ../properties.xxx in the expression (for compound expressions like ternaries)
+  expr = resolveParentPropertiesInExpression(expr);
   
   // Handle ../ parent context references - strip the ../ prefix(es) and process as top-level
   // This allows accessing parent context from inside loops: ../properties.xxx -> properties.xxx
@@ -67,6 +87,8 @@ export const transpileExpression = (expr: string, context: TranspilerContext, lo
  * and convert to JavaScript comparison expressions
  */
 export const parseHelperExpression = (expr: string): string => {
+  // Normalize ../properties.xxx in the expression first
+  expr = resolveParentPropertiesInExpression(expr);
   // Match (eq left right) or (eq left "string")
   const eqMatch = expr.match(/^\(\s*eq\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
   if (eqMatch) {

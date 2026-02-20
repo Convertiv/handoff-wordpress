@@ -2,7 +2,7 @@
  * Generates index.js for Gutenberg block editor
  */
 
-import { HandoffComponent, HandoffProperty, DynamicArrayConfig } from '../types';
+import { HandoffComponent, HandoffProperty, DynamicArrayConfig, ItemOverrideFieldConfig } from '../types';
 import { toBlockName } from './block-json';
 import { generateJsxPreview, toCamelCase } from './handlebars-to-jsx';
 
@@ -521,6 +521,7 @@ const generateIndexJs = (
       attrNames.push(`${attrName}SelectedPosts`);
       attrNames.push(`${attrName}QueryArgs`);
       attrNames.push(`${attrName}FieldMapping`);
+      attrNames.push(`${attrName}ItemOverrides`);
       attrNames.push(`${attrName}RenderMode`);
     }
   }
@@ -577,6 +578,8 @@ const generateIndexJs = (
   if (needsToggleControl || hasDynamicArrays) componentImports.push('ToggleControl');
   // SelectControl is needed for select fields OR dynamic arrays (post type selector)
   if (needsSelectControl || hasDynamicArrays) componentImports.push('SelectControl');
+  // Spinner for dynamic array loading state in editor preview
+  if (hasDynamicArrays) componentImports.push('Spinner');
 
   componentImports.push('__experimentalVStack as VStack');
   // HStack is needed for nested objects or string arrays with reorder buttons
@@ -600,47 +603,52 @@ const generateIndexJs = (
     
     // Check if this is a dynamic array field
     if (property.type === 'array' && dynamicConfig) {
-      // Generate dynamic array panel with source toggle
+      const defaultMode = dynamicConfig.selectionMode === 'manual' ? 'manual' : 'query';
+      const itemOverridesConfig = dynamicConfig.itemOverridesConfig || {};
+      const advancedFields = Object.entries(itemOverridesConfig)
+        .filter(([, c]: [string, ItemOverrideFieldConfig]) => c.mode === 'ui')
+        .map(([name, c]: [string, ItemOverrideFieldConfig]) =>
+          c.mode === 'ui'
+            ? { name, label: c.label, type: 'select' as const, options: c.options, default: c.default }
+            : null
+        )
+        .filter(Boolean) as Array<{ name: string; label: string; type: 'select'; options: Array<{ label: string; value: string }>; default?: string }>;
       panels.push(`          {/* ${label} Panel - Dynamic */}
           <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
             <ToggleControl
               label={__('Use Dynamic Posts', 'handoff')}
-              checked={${attrName}Source === 'query'}
+              checked={${attrName}Source !== 'static'}
               onChange={(value) => setAttributes({ 
-                ${attrName}Source: value ? 'query' : 'static' 
+                ${attrName}Source: value ? '${defaultMode}' : 'static'
               })}
               help={__('Populate from WordPress posts instead of manual entries', 'handoff')}
             />
             
-            {${attrName}Source === 'query' ? (
-              <div className="handoff-dynamic-array-controls">
-                ${dynamicConfig.selectionMode === 'query' ? `<PostQueryBuilder
-                  postTypes={${JSON.stringify(dynamicConfig.postTypes)}}
-                  queryArgs={${attrName}QueryArgs || {}}
-                  onChange={(newArgs) => setAttributes({ ${attrName}QueryArgs: newArgs })}
-                  maxItems={${dynamicConfig.maxItems || 20}}
-                />` : `<>
-                  <SelectControl
-                    label={__('Post Type', 'handoff')}
-                    value={${attrName}PostType}
-                    options={[
-                      ${dynamicConfig.postTypes.map(pt => `{ label: '${toTitleCase(pt)}', value: '${pt}' }`).join(',\n                      ')}
-                    ]}
-                    onChange={(value) => setAttributes({ 
-                      ${attrName}PostType: value,
-                      ${attrName}SelectedPosts: []
-                    })}
-                  />
-                  
-                  <PostSelector
-                    postTypes={[${attrName}PostType]}
-                    selectedPosts={${attrName}SelectedPosts || []}
-                    onChange={(posts) => setAttributes({ ${attrName}SelectedPosts: posts })}
-                    mode="multiple"
-                    maxItems={${dynamicConfig.maxItems || 10}}
-                  />
-                </>`}
-              </div>
+            {${attrName}Source !== 'static' ? (
+              <DynamicPostSelector
+                value={{
+                  source: ${attrName}Source,
+                  postType: ${attrName}PostType,
+                  queryArgs: ${attrName}QueryArgs || {},
+                  selectedPosts: ${attrName}SelectedPosts || [],
+                  itemOverrides: ${attrName}ItemOverrides || {}
+                }}
+                onChange={(nextValue) => setAttributes({
+                  ${attrName}Source: nextValue.source,
+                  ${attrName}PostType: nextValue.postType,
+                  ${attrName}QueryArgs: { ...nextValue.queryArgs, post_type: nextValue.postType },
+                  ${attrName}SelectedPosts: nextValue.selectedPosts || [],
+                  ${attrName}ItemOverrides: nextValue.itemOverrides ?? {}
+                })}
+                options={{
+                  postTypes: ${JSON.stringify(dynamicConfig.postTypes)},
+                  maxItems: ${dynamicConfig.maxItems ?? 20},
+                  textDomain: 'handoff',
+                  showDateFilter: ${(dynamicConfig as any).showDateFilter === true ? 'true' : 'false'},
+                  showExcludeCurrent: true,
+                  advancedFields: ${JSON.stringify(advancedFields)}
+                }}
+              />
             ) : (
               /* Static Repeater */
               <>
@@ -710,12 +718,103 @@ ${generatePropertyControl(key, property)}
   const arrayHelpers = generateArrayHelpers(properties);
 
   // Generate JSX preview from handlebars template
-  const previewJsx = generateJsxPreview(
+  let previewJsx = generateJsxPreview(
     component.code,
     properties,
     component.id,
     component.title
   );
+
+  // Dynamic array resolution for editor preview (query/manual → fetch + map)
+  let dynamicArrayResolutionCode = '';
+  const resolvingFlags: string[] = [];
+  if (dynamicArrayConfigs) {
+    for (const [fieldKey, config] of Object.entries(dynamicArrayConfigs)) {
+      const attrName = toCamelCase(fieldKey);
+      const cap = attrName.charAt(0).toUpperCase() + attrName.slice(1);
+      const previewVarName = `preview${cap}`;
+      const resolvedVarName = `resolved${cap}`;
+      const resolvingVarName = `isResolving${cap}`;
+      resolvingFlags.push(resolvingVarName);
+      const sourceAttr = `${attrName}Source`;
+      const queryArgsAttr = `${attrName}QueryArgs`;
+      const postTypeAttr = `${attrName}PostType`;
+      const selectedPostsAttr = `${attrName}SelectedPosts`;
+      const fieldMappingAttr = `${attrName}FieldMapping`;
+      const itemOverridesAttr = `${attrName}ItemOverrides`;
+      dynamicArrayResolutionCode += `
+    const ${resolvedVarName} = useSelect(
+      (select) => {
+        if (${sourceAttr} === 'static') return undefined;
+        const store = select(coreDataStore);
+        if (${sourceAttr} === 'query') {
+          const queryArgs = ${queryArgsAttr} || {};
+          const postType = ${postTypeAttr} || 'post';
+          const args = {
+            per_page: queryArgs.posts_per_page || ${config.maxItems ?? 6},
+            orderby: queryArgs.orderby || 'date',
+            order: (queryArgs.order || 'DESC').toLowerCase(),
+            _embed: true,
+            status: 'publish',
+          };
+          if (queryArgs.tax_query && queryArgs.tax_query.length) {
+            queryArgs.tax_query.forEach((tq) => {
+              if (!tq.taxonomy || !tq.terms || !tq.terms.length) return;
+              const param = tq.taxonomy === 'category' ? 'categories' : tq.taxonomy === 'post_tag' ? 'tags' : tq.taxonomy;
+              args[param] = tq.terms.join(',');
+            });
+          }
+          const records = store.getEntityRecords('postType', postType, args);
+          if (records === null || records === undefined) return undefined;
+          if (!Array.isArray(records)) return [];
+          const mapping = ${fieldMappingAttr} || {};
+          const overrides = ${itemOverridesAttr} || {};
+          return records.map((rec) =>
+            mapPostEntityToItem(rec, mapping, overrides, rec._embedded || {})
+          );
+        }
+        if (${sourceAttr} === 'manual') {
+          const selected = ${selectedPostsAttr} || [];
+          if (!selected.length) return [];
+          const mapping = ${fieldMappingAttr} || {};
+          const overrides = ${itemOverridesAttr} || {};
+          return selected
+            .map((sel) => {
+              const rec = store.getEntityRecord('postType', sel.type || 'post', sel.id);
+              return rec ? mapPostEntityToItem(rec, mapping, overrides, rec._embedded || {}) : null;
+            })
+            .filter(Boolean);
+        }
+        return [];
+      },
+      [${sourceAttr}, ${postTypeAttr}, JSON.stringify(${queryArgsAttr} || {}), JSON.stringify(${selectedPostsAttr} || []), JSON.stringify(${fieldMappingAttr} || {}), JSON.stringify(${itemOverridesAttr} || {})]
+    );
+    const ${previewVarName} = ${sourceAttr} !== 'static' ? (${resolvedVarName} ?? []) : (${attrName} ?? []);
+    const ${resolvingVarName} = ${sourceAttr} !== 'static' && ${resolvedVarName} === undefined;
+`;
+      // Use preview variable in the generated preview JSX so the editor shows query/manual results
+      const arrayVarRegex = new RegExp(`\\b${attrName}\\b`, 'g');
+      previewJsx = previewJsx.replace(arrayVarRegex, previewVarName);
+    }
+    if (resolvingFlags.length > 0) {
+      dynamicArrayResolutionCode += `
+    const isPreviewLoading = ${resolvingFlags.join(' || ')};
+`;
+    }
+  }
+
+  // When using dynamic posts, wrap preview in loading state
+  const className = component.id.replace(/_/g, '-');
+  const previewContent = resolvingFlags.length > 0
+    ? `{isPreviewLoading ? (
+          <div className="${className}-editor-preview is-loading" style={{ minHeight: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            <Spinner />
+            <span style={{ color: 'var(--wp-admin-theme-color-darker, #1e1e1e)' }}>{__('Loading posts…', 'handoff')}</span>
+          </div>
+        ) : (
+${previewJsx}
+        )}`
+    : previewJsx;
 
   // Check the generated preview for components that need to be imported
   // This catches components added by the handlebars-to-jsx transpiler (e.g., from {{#field}} markers)
@@ -863,10 +962,9 @@ ${imageFields.map(field => `          <MediaReplaceFlow
           />`).join('\n')}
         </BlockControls>` : '';
 
-  // Shared component imports for dynamic arrays
-  // Path is relative from blocks/{block-name}/ to shared/components/
+  // Shared component imports for dynamic arrays (selector UI + editor preview mapping)
   const sharedComponentImport = hasDynamicArrays 
-    ? `import { PostSelector, PostQueryBuilder } from '../../shared/components';\n` 
+    ? `import { DynamicPostSelector, mapPostEntityToItem } from '../../shared';\nimport { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n` 
     : '';
 
   return `import { registerBlockType } from '@wordpress/blocks';
@@ -880,13 +978,14 @@ import { __ } from '@wordpress/i18n';
 import { Fragment } from '@wordpress/element';
 ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
-import './style.scss';
+${hasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
 
 registerBlockType(metadata.name, {
   ...metadata,
   edit: ({ attributes, setAttributes }) => {
     const blockProps = useBlockProps();
     const { ${attrNames.join(', ')} } = attributes;
+${dynamicArrayResolutionCode}
 ${arrayHelpers}
 ${validationCode}
     return (
@@ -898,7 +997,7 @@ ${blockControlsJsx}
 
         {/* Editor Preview */}
         <div {...blockProps}>
-${previewJsx}
+${previewContent}
         </div>
       </Fragment>
     );

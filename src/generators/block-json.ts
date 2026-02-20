@@ -281,10 +281,11 @@ const generateBlockJson = (
     // Add dynamic array control attributes if this field has a dynamic config
     const dynamicConfig = dynamicArrayConfigs?.[key];
     if (property.type === 'array' && dynamicConfig) {
-      // Source toggle: 'static' (manual items) or 'query' (WordPress posts)
+      // Source: 'static' (manual items), 'query' (query builder), or 'manual' (hand-pick posts)
       attributes[`${attrName}Source`] = { 
         type: 'string', 
-        default: 'static' 
+        default: 'static',
+        enum: ['static', 'query', 'manual']
       };
       // Selected post type for query mode
       attributes[`${attrName}PostType`] = { 
@@ -313,6 +314,11 @@ const generateBlockJson = (
       attributes[`${attrName}FieldMapping`] = {
         type: 'object',
         default: dynamicConfig.fieldMapping || {}
+      };
+      // Item overrides (apply to all items in query mode, e.g. card type)
+      attributes[`${attrName}ItemOverrides`] = {
+        type: 'object',
+        default: {}
       };
       // Render mode: 'mapped' or 'template'
       attributes[`${attrName}RenderMode`] = {
@@ -385,7 +391,7 @@ const generateBlockJson = (
   if (apiUrl) {
     // Remove /api suffix if present and construct component page URL
     const baseUrl = apiUrl.replace(/\/api\/?$/, '');
-    handoffMetadata.handoffUrl = `${baseUrl}/components/${component.id}`;
+    handoffMetadata.handoffUrl = `${baseUrl}/system/components/${component.id}`;
   } else if (component.preview) {
     // Fall back to component's preview URL if available
     handoffMetadata.handoffUrl = component.preview;

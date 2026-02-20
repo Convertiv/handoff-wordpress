@@ -352,6 +352,25 @@ function handoff_set_nested_value(&$array, $path, $value) {
 }
 
 /**
+ * Apply item overrides to a single mapped item (e.g. card type for all cards in query mode).
+ *
+ * @param array $item     Mapped item array (e.g. from handoff_map_post_to_item).
+ * @param array $overrides Associative array of dot-notation paths to values (e.g. ['card.type' => 'product']).
+ * @return array Modified item with overrides applied.
+ */
+function handoff_apply_item_overrides($item, $overrides) {
+    if (empty($overrides) || !is_array($overrides)) {
+        return $item;
+    }
+    foreach ($overrides as $path => $value) {
+        if ($path !== '' && $value !== null) {
+            handoff_set_nested_value($item, $path, $value);
+        }
+    }
+    return $item;
+}
+
+/**
  * Get nested value from an array using dot notation.
  *
  * @param array  $array Array to get value from.

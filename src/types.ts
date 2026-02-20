@@ -57,6 +57,7 @@ export interface HandoffComponent {
 export interface GutenbergAttribute {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   default?: any;
+  enum?: string[];
 }
 
 export interface HandoffMetadata {
@@ -149,6 +150,19 @@ export interface DynamicQueryArgs {
 }
 
 /**
+ * Config for a single "apply to all items" field in dynamic query mode.
+ * Use for fields like card.type that should be one value for all cards (not per-post).
+ */
+export type ItemOverrideFieldConfig =
+  | { mode: 'static'; value: string }
+  | {
+      mode: 'ui';
+      label: string;
+      options: Array<{ label: string; value: string }>;
+      default?: string;
+    };
+
+/**
  * Configuration for dynamic array fields that can be populated from WordPress posts
  */
 export interface DynamicArrayConfig {
@@ -172,6 +186,13 @@ export interface DynamicArrayConfig {
   
   /** Field mapping configuration (for 'mapped' mode) */
   fieldMapping?: Record<string, FieldMappingValue>;
+  
+  /**
+   * Fields that apply to every item in query/dynamic mode (e.g. card style).
+   * - static: fixed value for all items (no UI).
+   * - ui: show a control in Advanced Options; value stored in itemOverrides attribute.
+   */
+  itemOverridesConfig?: Record<string, ItemOverrideFieldConfig>;
   
   /** Template path relative to theme/plugin (for 'template' mode) */
   templatePath?: string;
