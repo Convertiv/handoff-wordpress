@@ -574,10 +574,12 @@ const generateIndexJs = (
 
   const componentImports = ['PanelBody', 'TextControl', 'Button'];
   if (needsRangeControl) componentImports.push('RangeControl');
-  // ToggleControl is needed for boolean fields OR dynamic arrays (source toggle)
-  if (needsToggleControl || hasDynamicArrays) componentImports.push('ToggleControl');
+  // ToggleControl is needed for boolean fields
+  if (needsToggleControl) componentImports.push('ToggleControl');
   // SelectControl is needed for select fields OR dynamic arrays (post type selector)
   if (needsSelectControl || hasDynamicArrays) componentImports.push('SelectControl');
+  // TabPanel for dynamic array source switching
+  if (hasDynamicArrays) componentImports.push('TabPanel');
   // Spinner for dynamic array loading state in editor preview
   if (hasDynamicArrays) componentImports.push('Spinner');
 
@@ -615,46 +617,53 @@ const generateIndexJs = (
         .filter(Boolean) as Array<{ name: string; label: string; type: 'select'; options: Array<{ label: string; value: string }>; default?: string }>;
       panels.push(`          {/* ${label} Panel - Dynamic */}
           <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
-            <ToggleControl
-              label={__('Use Dynamic Posts', 'handoff')}
-              checked={${attrName}Source !== 'static'}
-              onChange={(value) => setAttributes({ 
-                ${attrName}Source: value ? '${defaultMode}' : 'static'
-              })}
-              help={__('Populate from WordPress posts instead of manual entries', 'handoff')}
-            />
-            
-            {${attrName}Source !== 'static' ? (
-              <DynamicPostSelector
-                value={{
-                  source: ${attrName}Source,
-                  postType: ${attrName}PostType,
-                  queryArgs: ${attrName}QueryArgs || {},
-                  selectedPosts: ${attrName}SelectedPosts || [],
-                  itemOverrides: ${attrName}ItemOverrides || {}
-                }}
-                onChange={(nextValue) => setAttributes({
-                  ${attrName}Source: nextValue.source,
-                  ${attrName}PostType: nextValue.postType,
-                  ${attrName}QueryArgs: { ...nextValue.queryArgs, post_type: nextValue.postType },
-                  ${attrName}SelectedPosts: nextValue.selectedPosts || [],
-                  ${attrName}ItemOverrides: nextValue.itemOverrides ?? {}
-                })}
-                options={{
-                  postTypes: ${JSON.stringify(dynamicConfig.postTypes)},
-                  maxItems: ${dynamicConfig.maxItems ?? 20},
-                  textDomain: 'handoff',
-                  showDateFilter: ${(dynamicConfig as any).showDateFilter === true ? 'true' : 'false'},
-                  showExcludeCurrent: true,
-                  advancedFields: ${JSON.stringify(advancedFields)}
-                }}
-              />
-            ) : (
-              /* Static Repeater */
-              <>
+            <TabPanel
+              className="handoff-source-tabs"
+              activeClass="is-active"
+              initialTabName={${attrName}Source === 'static' ? 'manual' : 'dynamic'}
+              onSelect={(tabName) => {
+                if (tabName === 'manual') {
+                  setAttributes({ ${attrName}Source: 'static' });
+                } else if (${attrName}Source === 'static') {
+                  setAttributes({ ${attrName}Source: '${defaultMode}' });
+                }
+              }}
+              tabs={[
+                { name: 'manual', title: __('Manual Content', 'handoff') },
+                { name: 'dynamic', title: __('Build Post', 'handoff') },
+              ]}
+            >
+              {(tab) => tab.name === 'dynamic' ? (
+                <DynamicPostSelector
+                  value={{
+                    source: ${attrName}Source === 'static' ? '${defaultMode}' : ${attrName}Source,
+                    postType: ${attrName}PostType,
+                    queryArgs: ${attrName}QueryArgs || {},
+                    selectedPosts: ${attrName}SelectedPosts || [],
+                    itemOverrides: ${attrName}ItemOverrides || {}
+                  }}
+                  onChange={(nextValue) => setAttributes({
+                    ${attrName}Source: nextValue.source,
+                    ${attrName}PostType: nextValue.postType,
+                    ${attrName}QueryArgs: { ...nextValue.queryArgs, post_type: nextValue.postType },
+                    ${attrName}SelectedPosts: nextValue.selectedPosts || [],
+                    ${attrName}ItemOverrides: nextValue.itemOverrides ?? {}
+                  })}
+                  options={{
+                    postTypes: ${JSON.stringify(dynamicConfig.postTypes)},
+                    maxItems: ${dynamicConfig.maxItems ?? 20},
+                    textDomain: 'handoff',
+                    showDateFilter: ${(dynamicConfig as any).showDateFilter === true ? 'true' : 'false'},
+                    showExcludeCurrent: true,
+                    advancedFields: ${JSON.stringify(advancedFields)}
+                  }}
+                />
+              ) : (
+                <>
 ${generatePropertyControl(key, property)}
-              </>
-            )}
+                </>
+              )}
+            </TabPanel>
           </PanelBody>`);
     } else {
       // Standard panel (non-dynamic)
