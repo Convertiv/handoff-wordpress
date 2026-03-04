@@ -502,8 +502,23 @@ const generateIndexJs = (
   // Check which fields have dynamic array configs
   const hasDynamicArrays = dynamicArrayConfigs && Object.keys(dynamicArrayConfigs).length > 0;
 
-  // Detect richtext properties (they use InnerBlocks, not attributes)
-  const hasRichtext = Object.values(properties).some(p => p.type === 'richtext');
+  // Helper to check for a type in properties, including nested in arrays/objects
+  const hasPropertyType = (type: string): boolean => {
+    const checkProperty = (prop: HandoffProperty): boolean => {
+      if (prop.type === type) return true;
+      if (prop.type === 'object' && prop.properties) {
+        return Object.values(prop.properties).some(checkProperty);
+      }
+      if (prop.type === 'array' && prop.items?.properties) {
+        return Object.values(prop.items.properties).some(checkProperty);
+      }
+      return false;
+    };
+    return Object.values(properties).some(checkProperty);
+  };
+
+  // Detect richtext properties (they use InnerBlocks, not attributes) — check recursively
+  const hasRichtext = hasPropertyType('richtext');
 
   // Get all attribute names – exclude richtext and pagination (no attributes; content generated dynamically)
   const attrNames = Object.keys(properties)
@@ -532,23 +547,6 @@ const generateIndexJs = (
   if (hasOverlay && !attrNames.includes('overlayOpacity')) {
     attrNames.push('overlayOpacity');
   }
-
-  // Helper to check for a type in properties, including nested in arrays/objects
-  const hasPropertyType = (type: string): boolean => {
-    const checkProperty = (prop: HandoffProperty): boolean => {
-      if (prop.type === type) return true;
-      // Check nested properties in objects
-      if (prop.type === 'object' && prop.properties) {
-        return Object.values(prop.properties).some(checkProperty);
-      }
-      // Check item properties in arrays
-      if (prop.type === 'array' && prop.items?.properties) {
-        return Object.values(prop.items.properties).some(checkProperty);
-      }
-      return false;
-    };
-    return Object.values(properties).some(checkProperty);
-  };
 
   // Determine which components we need to import
   const needsMediaUpload = hasPropertyType('image');
@@ -825,6 +823,16 @@ ${generatePropertyControl(key, property)}
     const isPreviewLoading = ${resolvingFlags.join(' || ')};
 `;
     }
+    // When preview JSX references pagination (from HBS) but pagination is only built server-side,
+    // define it in the edit so the editor doesn't throw ReferenceError.
+    const previewUsesPagination = /\bpagination\b/.test(previewJsx);
+    const anyConfigHasPagination = dynamicArrayConfigs
+      ? Object.values(dynamicArrayConfigs).some((c: DynamicArrayConfig) => !!c.pagination)
+      : false;
+    if (previewUsesPagination && anyConfigHasPagination && !dynamicArrayResolutionCode.includes('const pagination')) {
+      dynamicArrayResolutionCode = `    const pagination = []; // Editor: pagination is built server-side in render.php
+` + dynamicArrayResolutionCode;
+    }
   }
 
   // When using dynamic posts, wrap preview in loading state
@@ -848,6 +856,12 @@ ${previewJsx}
   // Add RichText to imports if used in preview (and not already included from property types)
   if (previewUsesRichText && !blockEditorImports.includes('RichText')) {
     blockEditorImports.push('RichText');
+  }
+
+  // Add InnerBlocks if used in preview but not already imported
+  const previewUsesInnerBlocks = previewJsx.includes('<InnerBlocks');
+  if (previewUsesInnerBlocks && !blockEditorImports.includes('InnerBlocks')) {
+    blockEditorImports.push('InnerBlocks');
   }
 
   // Generate validation rules from properties
@@ -1008,7 +1022,7 @@ registerBlockType(metadata.name, {
   ...metadata,
   edit: ({ attributes, setAttributes }) => {
     const blockProps = useBlockProps();
-${hasRichtext ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
+${hasRichtext || previewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
     const { ${attrNames.join(', ')} } = attributes;
 ${dynamicArrayResolutionCode}
 ${arrayHelpers}
@@ -1028,7 +1042,7 @@ ${previewContent}
     );
   },
   save: () => {
-${hasRichtext ? '    // InnerBlocks content must be saved so it is persisted in post content\n    return <InnerBlocks.Content />;' : '    // Server-side rendering via render.php\n    return null;'}
+${hasRichtext || previewUsesInnerBlocks ? '    // InnerBlocks content must be saved so it is persisted in post content\n    return <InnerBlocks.Content />;' : '    // Server-side rendering via render.php\n    return null;'}
   },
 });
 `;
