@@ -5,7 +5,7 @@
 export interface HandoffProperty {
   id: string;
   name: string;
-  type: 'text' | 'image' | 'video' | 'array' | 'object' | 'link' | 'boolean' | 'number' | 'select' | 'richtext' | 'button';
+  type: 'text' | 'image' | 'video' | 'array' | 'object' | 'link' | 'boolean' | 'number' | 'select' | 'richtext' | 'button' | 'pagination';
   description?: string;
   default?: any;
   rules?: {
@@ -23,6 +23,8 @@ export interface HandoffProperty {
   };
   properties?: Record<string, HandoffProperty>;
   options?: Array<{ label: string; value: string }>;
+  /** Pagination sub-property for array fields (type: "pagination", with items defining label/url/active) */
+  pagination?: HandoffProperty;
 }
 
 export interface HandoffPreview {
@@ -202,6 +204,15 @@ export interface DynamicArrayConfig {
   
   /** Default query arguments */
   defaultQueryArgs?: DynamicQueryArgs;
+
+  /**
+   * Auto-detected pagination metadata.
+   * Set at compile time when the array property has a pagination sub-property.
+   */
+  pagination?: {
+    /** The property name used in the Handlebars template (e.g., "pagination") */
+    propertyName: string;
+  };
 }
 
 /**

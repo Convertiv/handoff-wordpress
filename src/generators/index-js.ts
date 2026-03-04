@@ -505,14 +505,14 @@ const generateIndexJs = (
   // Detect richtext properties (they use InnerBlocks, not attributes)
   const hasRichtext = Object.values(properties).some(p => p.type === 'richtext');
 
-  // Get all attribute names – exclude richtext (no attribute; stored via InnerBlocks)
+  // Get all attribute names – exclude richtext and pagination (no attributes; content generated dynamically)
   const attrNames = Object.keys(properties)
-    .filter(k => properties[k].type !== 'richtext')
+    .filter(k => properties[k].type !== 'richtext' && properties[k].type !== 'pagination')
     .map(toCamelCase);
   
   // Add dynamic array attribute names
   if (dynamicArrayConfigs) {
-    for (const fieldName of Object.keys(dynamicArrayConfigs)) {
+    for (const [fieldName, dynConfig] of Object.entries(dynamicArrayConfigs)) {
       const attrName = toCamelCase(fieldName);
       attrNames.push(`${attrName}Source`);
       attrNames.push(`${attrName}PostType`);
@@ -521,6 +521,9 @@ const generateIndexJs = (
       attrNames.push(`${attrName}FieldMapping`);
       attrNames.push(`${attrName}ItemOverrides`);
       attrNames.push(`${attrName}RenderMode`);
+      if (dynConfig.pagination) {
+        attrNames.push(`${attrName}PaginationEnabled`);
+      }
     }
   }
 
@@ -598,7 +601,8 @@ const generateIndexJs = (
 
   for (const [key, property] of Object.entries(properties)) {
     // richtext uses InnerBlocks on the canvas – no sidebar panel needed
-    if (property.type === 'richtext') continue;
+    // pagination is auto-generated from query results – no sidebar panel needed
+    if (property.type === 'richtext' || property.type === 'pagination') continue;
 
     const label = property.name || toTitleCase(key);
     const attrName = toCamelCase(key);
@@ -616,6 +620,14 @@ const generateIndexJs = (
             : null
         )
         .filter(Boolean) as Array<{ name: string; label: string; type: 'select'; options: Array<{ label: string; value: string }>; default?: string }>;
+      const paginationToggle = dynamicConfig.pagination
+        ? `
+                <ToggleControl
+                  label={__('Show Pagination', 'handoff')}
+                  checked={${attrName}PaginationEnabled ?? true}
+                  onChange={(value) => setAttributes({ ${attrName}PaginationEnabled: value })}
+                />`
+        : '';
       panels.push(`          {/* ${label} Panel - Dynamic */}
           <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
             <TabPanel
@@ -635,6 +647,7 @@ const generateIndexJs = (
               ]}
             >
               {(tab) => tab.name === 'dynamic' ? (
+                <>
                 <DynamicPostSelector
                   value={{
                     source: ${attrName}Source === 'static' ? '${defaultMode}' : ${attrName}Source,
@@ -658,7 +671,8 @@ const generateIndexJs = (
                     showExcludeCurrent: true,
                     advancedFields: ${JSON.stringify(advancedFields)}
                   }}
-                />
+                />${paginationToggle}
+                </>
               ) : (
                 <>
 ${generatePropertyControl(key, property)}

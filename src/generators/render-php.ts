@@ -1048,6 +1048,8 @@ const generateAttributeExtraction = (properties: Record<string, HandoffProperty>
   for (const [key, property] of Object.entries(properties)) {
     // richtext properties use InnerBlocks/$content — no attribute to extract
     if (property.type === 'richtext') continue;
+    // pagination items are auto-generated from WP_Query — no attribute to extract
+    if (property.type === 'pagination') continue;
 
     const camelKey = toCamelCase(key);
     const defaultValue = getPhpDefaultValue(property);
@@ -1112,6 +1114,33 @@ const fieldMappingToPhp = (mapping: Record<string, FieldMappingValue>): string =
 };
 
 /**
+ * Generate pagination PHP code for a dynamic array query.
+ * Returns the pagination block to append after the WP_Query execution.
+ */
+const generatePaginationPhp = (
+  attrName: string,
+  paginationPropName: string
+): string => {
+  return `
+  // Pagination
+  $${paginationPropName} = [];
+  $${attrName}_pagination_enabled = $attributes['${attrName}PaginationEnabled'] ?? true;
+  if ($${attrName}_pagination_enabled && $query->max_num_pages > 1 && function_exists('handoff_build_pagination')) {
+    $${paginationPropName} = handoff_build_pagination($hf_paged, $query->max_num_pages, '${`hf_page_${attrName}`}');
+  }`;
+};
+
+/**
+ * Generate the paged variable extraction and WP_Query paged arg for pagination.
+ */
+const generatePagedPhp = (attrName: string): string => {
+  const paramKey = `hf_page_${attrName}`;
+  return `
+  // Read current page from custom query parameter
+  $hf_paged = isset($_GET['${paramKey}']) ? max(1, intval($_GET['${paramKey}'])) : 1;`;
+};
+
+/**
  * Generate dynamic array extraction code for render.php
  * Supports both manual post selection and query builder modes
  */
@@ -1125,6 +1154,8 @@ const generateDynamicArrayExtraction = (
     : '[]';
   
   const isQueryMode = config.selectionMode === 'query';
+  const hasPagination = isQueryMode && !!config.pagination;
+  const paginationPropName = config.pagination?.propertyName || 'pagination';
   
   // Common code for loading the field resolver
   const loadResolver = `
@@ -1138,6 +1169,13 @@ const generateDynamicArrayExtraction = (
     }
   }`;
 
+  // Pagination PHP snippets (empty strings when no pagination)
+  const pagedExtraction = hasPagination ? generatePagedPhp(attrName) : '';
+  const pagedArg = hasPagination ? `\n    'paged'          => $hf_paged,` : '';
+  const paginationBlock = hasPagination ? generatePaginationPhp(attrName, paginationPropName) : '';
+  // Initialize pagination variable to empty array when not in query mode
+  const paginationInit = hasPagination ? `\n$${paginationPropName} = [];` : '';
+
   if (config.renderMode === 'template') {
     // Template mode - store posts for template rendering
     const templatePath = config.templatePath || `template-parts/handoff/${fieldName}-item.php`;
@@ -1147,11 +1185,11 @@ const generateDynamicArrayExtraction = (
       return `
 // Dynamic array: ${fieldName} (query builder + template mode)
 $${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
-$${attrName}_posts = [];
+$${attrName}_posts = [];${paginationInit}
 
 if ($${attrName}_source === 'query') {
   // Query builder mode - build WP_Query from saved args
-  $query_args = $attributes['${attrName}QueryArgs'] ?? [];
+  $query_args = $attributes['${attrName}QueryArgs'] ?? [];${pagedExtraction}
   
   // Build WP_Query arguments
   $wp_query_args = [
@@ -1159,7 +1197,7 @@ if ($${attrName}_source === 'query') {
     'posts_per_page' => $query_args['posts_per_page'] ?? ${config.maxItems || 6},
     'orderby'        => $query_args['orderby'] ?? 'date',
     'order'          => $query_args['order'] ?? 'DESC',
-    'post_status'    => 'publish',
+    'post_status'    => 'publish',${pagedArg}
   ];
   
   // Exclude the current post to prevent self-reference
@@ -1181,7 +1219,7 @@ if ($${attrName}_source === 'query') {
   }
   
   $query = new WP_Query($wp_query_args);
-  $${attrName}_posts = $query->posts;
+  $${attrName}_posts = $query->posts;${paginationBlock}
   wp_reset_postdata();
 }
 // For template mode, the template will iterate over $${attrName}_posts
@@ -1191,7 +1229,7 @@ if ($${attrName}_source === 'query') {
       return `
 // Dynamic array: ${fieldName} (manual selection + template mode)
 $${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
-$${attrName}_posts = [];
+$${attrName}_posts = [];${paginationInit}
 
 if ($${attrName}_source === 'manual') {
   $selected_posts = $attributes['${attrName}SelectedPosts'] ?? [];
@@ -1221,13 +1259,13 @@ if ($${attrName}_source === 'manual') {
       // Query builder mode with field mapping
       return `
 // Dynamic array: ${fieldName} (query builder + mapped mode)
-$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';${paginationInit}
 
 if ($${attrName}_source === 'query') {
   // Query builder mode - build WP_Query from saved args
   $query_args = $attributes['${attrName}QueryArgs'] ?? [];
   $field_mapping = $attributes['${attrName}FieldMapping'] ?? ${mappingPhp};
-${loadResolver}
+${loadResolver}${pagedExtraction}
   
   // Build WP_Query arguments
   $wp_query_args = [
@@ -1235,7 +1273,7 @@ ${loadResolver}
     'posts_per_page' => $query_args['posts_per_page'] ?? ${config.maxItems || 6},
     'orderby'        => $query_args['orderby'] ?? 'date',
     'order'          => $query_args['order'] ?? 'DESC',
-    'post_status'    => 'publish',
+    'post_status'    => 'publish',${pagedArg}
   ];
   
   // Exclude the current post to prevent self-reference
@@ -1271,7 +1309,7 @@ ${loadResolver}
     foreach ($${attrName} as $i => $item) {
       $${attrName}[$i] = handoff_apply_item_overrides($item, $item_overrides);
     }
-  }
+  }${paginationBlock}
   wp_reset_postdata();
 }
 // else: Static mode uses $${attrName} directly from attribute extraction
@@ -1280,7 +1318,7 @@ ${loadResolver}
       // Manual selection mode with field mapping
       return `
 // Dynamic array: ${fieldName} (manual selection + mapped mode)
-$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';${paginationInit}
 
 if ($${attrName}_source === 'manual') {
   $selected_posts = $attributes['${attrName}SelectedPosts'] ?? [];

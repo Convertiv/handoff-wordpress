@@ -435,6 +435,57 @@ function handoff_query_and_map_posts($selected_posts, $field_mapping) {
 }
 
 /**
+ * Build a pagination array in the standard Handoff format: [{label, url, active}].
+ *
+ * Generates numbered page links with ellipsis for large page counts.
+ * Uses add_query_arg() to build URLs with a custom query parameter per block,
+ * allowing multiple paginated blocks on the same page.
+ *
+ * @param int    $current_page    The current page number (1-based).
+ * @param int    $total_pages     Total number of pages from WP_Query->max_num_pages.
+ * @param string $query_param_key The query parameter key (e.g., 'hf_page_bioItems').
+ * @return array Array of pagination items [{label, url, active}].
+ */
+function handoff_build_pagination($current_page, $total_pages, $query_param_key) {
+    if ($total_pages <= 1) {
+        return array();
+    }
+
+    $pagination = array();
+    $base_url = remove_query_arg($query_param_key);
+    $range = 2;
+
+    for ($i = 1; $i <= $total_pages; $i++) {
+        if (
+            $i === 1 ||
+            $i === $total_pages ||
+            abs($i - $current_page) <= $range
+        ) {
+            $url = ($i === 1)
+                ? remove_query_arg($query_param_key, $base_url)
+                : add_query_arg($query_param_key, $i, $base_url);
+
+            $pagination[] = array(
+                'label'  => (string) $i,
+                'url'    => $url,
+                'active' => ($i === $current_page),
+            );
+        } elseif (
+            ($i === $current_page - $range - 1 && $i > 1) ||
+            ($i === $current_page + $range + 1 && $i < $total_pages)
+        ) {
+            $pagination[] = array(
+                'label'  => '...',
+                'url'    => '#',
+                'active' => false,
+            );
+        }
+    }
+
+    return $pagination;
+}
+
+/**
  * Get available post types for the block editor.
  * Excludes WordPress internal types.
  *

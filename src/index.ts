@@ -311,7 +311,23 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
     for (const [key, config] of Object.entries(resolvedConfig.dynamicArrays)) {
       if (key.startsWith(`${component.id}.`) && config.enabled) {
         const fieldName = key.substring(component.id.length + 1);
-        componentDynamicArrays[fieldName] = config;
+        componentDynamicArrays[fieldName] = { ...config };
+      }
+    }
+  }
+  
+  // Auto-detect pagination for dynamic arrays
+  for (const [fieldName, dynConfig] of Object.entries(componentDynamicArrays)) {
+    const prop = component.properties[fieldName];
+    if (prop?.type === 'array' && prop.pagination?.type === 'pagination') {
+      // The pagination property name in the Handlebars template is typically the
+      // key under which the pagination sub-property is accessed (e.g., "pagination").
+      // We scan the Handlebars for {{#field "fieldName.pagination"}} to find it.
+      const paginationFieldRegex = new RegExp(
+        `\\{\\{\\s*#field\\s+["']${fieldName}\\.pagination["']`
+      );
+      if (paginationFieldRegex.test(component.code)) {
+        dynConfig.pagination = { propertyName: 'pagination' };
       }
     }
   }

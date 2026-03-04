@@ -142,6 +142,10 @@ const mapPropertyType = (property: HandoffProperty, previewValue?: any): Gutenbe
       // richtext uses InnerBlocks – content is stored in post content, not as an attribute
       return null as any;
 
+    case 'pagination':
+      // pagination items are auto-generated from WP_Query results, not stored as an attribute
+      return null as any;
+
     case 'text':
       return { type: 'string', default: getDefault('') };
     
@@ -336,6 +340,13 @@ const generateBlockJson = (
         attributes[`${attrName}TemplatePath`] = {
           type: 'string',
           default: dynamicConfig.templatePath
+        };
+      }
+      // Pagination toggle (auto-detected from component's pagination sub-property)
+      if (dynamicConfig.pagination) {
+        attributes[`${attrName}PaginationEnabled`] = {
+          type: 'boolean',
+          default: true
         };
       }
     }

@@ -180,12 +180,46 @@ const resolveVariablePath = (
       }
       
       // Handle arrays within array items
-      if (prop.type === 'array' && prop.items?.properties) {
-        const nested = resolveVariablePath(rest, prop.items.properties);
-        return {
-          ...nested,
-          resolvedAt: nested.found ? `${actualKey}.${nested.resolvedAt}` : undefined
-        };
+      if (prop.type === 'array') {
+        if (prop.items?.properties) {
+          const nested = resolveVariablePath(rest, prop.items.properties);
+          if (nested.found) {
+            return {
+              ...nested,
+              resolvedAt: `${actualKey}.${nested.resolvedAt}`
+            };
+          }
+        }
+        if (prop.pagination && rest[0] === 'pagination') {
+          if (rest.length === 1) {
+            return { found: true, property: prop.pagination, resolvedAt: `${actualKey}.pagination` };
+          }
+          const paginationRest = rest.slice(1);
+          if (prop.pagination.items?.properties) {
+            const nested = resolveVariablePath(paginationRest, prop.pagination.items.properties);
+            return {
+              ...nested,
+              resolvedAt: nested.found ? `${actualKey}.pagination.${nested.resolvedAt}` : undefined
+            };
+          }
+        }
+      }
+      
+      // Handle pagination type (resolves through items.properties like arrays)
+      if (prop.type === 'pagination') {
+        if (prop.items?.properties) {
+          const nested = resolveVariablePath(rest, prop.items.properties);
+          if (nested.found) {
+            return {
+              ...nested,
+              resolvedAt: `${actualKey}.${nested.resolvedAt}`
+            };
+          }
+        }
+        const paginationItemProps = ['label', 'url', 'active'];
+        if (rest.length === 1 && paginationItemProps.includes(rest[0])) {
+          return { found: true, resolvedAt: `${actualKey}.${rest[0]}` };
+        }
       }
       
       // Image has implicit src, alt, id, srcset properties
@@ -248,13 +282,46 @@ const resolveVariablePath = (
   }
   
   // Resolve nested path for arrays - look into items.properties
-  // This handles paths like "rightCards.icon" where rightCards is an array of objects
-  if (prop.type === 'array' && prop.items?.properties) {
-    const nested = resolveVariablePath(rest, prop.items.properties);
-    return {
-      ...nested,
-      resolvedAt: nested.found ? `${actualKey}.${nested.resolvedAt}` : undefined
-    };
+  if (prop.type === 'array') {
+    if (prop.items?.properties) {
+      const nested = resolveVariablePath(rest, prop.items.properties);
+      if (nested.found) {
+        return {
+          ...nested,
+          resolvedAt: `${actualKey}.${nested.resolvedAt}`
+        };
+      }
+    }
+    if (prop.pagination && rest[0] === 'pagination') {
+      if (rest.length === 1) {
+        return { found: true, property: prop.pagination, resolvedAt: `${actualKey}.pagination` };
+      }
+      const paginationRest = rest.slice(1);
+      if (prop.pagination.items?.properties) {
+        const nested = resolveVariablePath(paginationRest, prop.pagination.items.properties);
+        return {
+          ...nested,
+          resolvedAt: nested.found ? `${actualKey}.pagination.${nested.resolvedAt}` : undefined
+        };
+      }
+    }
+  }
+  
+  // Handle pagination type (resolves through items.properties like arrays)
+  if (prop.type === 'pagination') {
+    if (prop.items?.properties) {
+      const nested = resolveVariablePath(rest, prop.items.properties);
+      if (nested.found) {
+        return {
+          ...nested,
+          resolvedAt: `${actualKey}.${nested.resolvedAt}`
+        };
+      }
+    }
+    const paginationItemProps = ['label', 'url', 'active'];
+    if (rest.length === 1 && paginationItemProps.includes(rest[0])) {
+      return { found: true, resolvedAt: `${actualKey}.${rest[0]}` };
+    }
   }
   
   // Image has implicit src, alt, id, srcset properties
@@ -310,7 +377,7 @@ const getArrayItemProperties = (
   // First resolve the full path to find the array property
   const resolved = resolveVariablePath(arrayPath, properties, currentContext);
   
-  if (!resolved.found || !resolved.property || resolved.property.type !== 'array') {
+  if (!resolved.found || !resolved.property || (resolved.property.type !== 'array' && resolved.property.type !== 'pagination')) {
     return null;
   }
   
@@ -361,7 +428,14 @@ export const validateTemplateVariables = (
   };
   
   const template = component.code;
-  const properties = component.properties;
+  // Augmented properties: include implicit root-level pagination from array sub-properties
+  // so that {{#if properties.pagination}} and {{#each properties.pagination}} resolve correctly
+  const properties: Record<string, HandoffProperty> = { ...component.properties };
+  for (const prop of Object.values(component.properties)) {
+    if (prop.type === 'array' && prop.pagination && !properties['pagination']) {
+      properties['pagination'] = prop.pagination;
+    }
+  }
   
   // Stack of contexts for nested scopes
   const contextStack: ScopeContext[] = [
@@ -466,7 +540,7 @@ export const validateTemplateVariables = (
               context: `{{#each ${blockArg}}}`,
               message: `Array variable "${arrayArg}" is not defined in component properties`
             });
-          } else if (resolved.property?.type !== 'array') {
+          } else if (resolved.property?.type !== 'array' && resolved.property?.type !== 'pagination') {
             result.isValid = false;
             result.errors.push({
               variable: arrayArg,
@@ -534,42 +608,44 @@ export const validateTemplateVariables = (
           });
           
         } else if (blockType === 'field') {
-          // {{#field "name"}} or {{#field name}} - validate the field exists
-          // Strip quotes from the argument first
           const strippedArg = stripQuotes(blockArg);
-          const fieldPath = parseVariablePath(strippedArg);
           const currentContext = contextStack[contextStack.length - 1];
-          const resolved = resolveVariablePath(fieldPath, properties, currentContext.itemProperties);
           
-          if (!resolved.found) {
-            // Build helpful error message showing the path and available properties
-            const availableAtRoot = Object.keys(properties).join(', ');
-            let errorDetail = `Field path "${strippedArg}" (parsed as: ${fieldPath.join(' -> ')}) is not defined.`;
+          // Pagination-related field paths are metadata annotations, not editable fields.
+          // Skip validation but still push context for proper scope tracking.
+          const isPaginationField = strippedArg.includes('.pagination') || strippedArg.startsWith('pagination.');
+          
+          if (!isPaginationField) {
+            const fieldPath = parseVariablePath(strippedArg);
+            const resolved = resolveVariablePath(fieldPath, properties, currentContext.itemProperties);
             
-            // Check if the first part exists to give better context
-            const firstPart = fieldPath[0];
-            const rootProp = properties[firstPart];
-            if (rootProp) {
-              if (fieldPath.length > 1 && rootProp.type === 'object' && rootProp.properties) {
-                const nestedAvailable = Object.keys(rootProp.properties).join(', ');
-                errorDetail += ` "${firstPart}" exists (type: ${rootProp.type}), but "${fieldPath[1]}" not found in its properties. Available: ${nestedAvailable}`;
-              } else if (fieldPath.length > 1) {
-                errorDetail += ` "${firstPart}" exists but is type "${rootProp.type}" (not an object with nested properties).`;
+            if (!resolved.found) {
+              const availableAtRoot = Object.keys(properties).join(', ');
+              let errorDetail = `Field path "${strippedArg}" (parsed as: ${fieldPath.join(' -> ')}) is not defined.`;
+              
+              const firstPart = fieldPath[0];
+              const rootProp = properties[firstPart];
+              if (rootProp) {
+                if (fieldPath.length > 1 && rootProp.type === 'object' && rootProp.properties) {
+                  const nestedAvailable = Object.keys(rootProp.properties).join(', ');
+                  errorDetail += ` "${firstPart}" exists (type: ${rootProp.type}), but "${fieldPath[1]}" not found in its properties. Available: ${nestedAvailable}`;
+                } else if (fieldPath.length > 1) {
+                  errorDetail += ` "${firstPart}" exists but is type "${rootProp.type}" (not an object with nested properties).`;
+                }
+              } else {
+                errorDetail += ` Available root properties: ${availableAtRoot}`;
               }
-            } else {
-              errorDetail += ` Available root properties: ${availableAtRoot}`;
+              
+              result.isValid = false;
+              result.errors.push({
+                variable: strippedArg,
+                line: lineNumber,
+                context: `{{#field ${blockArg}}}`,
+                message: errorDetail
+              });
             }
-            
-            result.isValid = false;
-            result.errors.push({
-              variable: strippedArg,
-              line: lineNumber,
-              context: `{{#field ${blockArg}}}`,
-              message: errorDetail
-            });
           }
           
-          // Field context inherits itemProperties from parent (important for fields inside loops)
           contextStack.push({
             type: 'field',
             variable: strippedArg,

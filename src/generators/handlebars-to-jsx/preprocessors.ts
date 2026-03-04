@@ -35,6 +35,14 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
       continue;
     }
     
+    // Pagination-related field paths are metadata annotations, not editable fields.
+    // Strip them and keep content regardless of resolution.
+    if (fieldPath.includes('.pagination') || fieldPath.startsWith('pagination.')) {
+      result = result.substring(0, startPos) + content + result.substring(startPos + fullMatch.length);
+      fieldRegex.lastIndex = startPos + content.length;
+      continue;
+    }
+    
     // Look up the field type
     const fieldType = lookupFieldType(fieldPath, properties);
     
