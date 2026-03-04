@@ -138,8 +138,11 @@ const mapPropertyType = (property: HandoffProperty, previewValue?: any): Gutenbe
   };
 
   switch (property.type) {
-    case 'text':
     case 'richtext':
+      // richtext uses InnerBlocks – content is stored in post content, not as an attribute
+      return null as any;
+
+    case 'text':
       return { type: 'string', default: getDefault('') };
     
     case 'number':
@@ -276,7 +279,10 @@ const generateBlockJson = (
     const attrName = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
     // Pass preview value for this property to use as fallback default
     const previewValue = genericPreviewValues[key];
-    attributes[attrName] = mapPropertyType(property, previewValue);
+    const mapped = mapPropertyType(property, previewValue);
+    // richtext returns null – no attribute (content stored via InnerBlocks)
+    if (mapped === null) continue;
+    attributes[attrName] = mapped;
     
     // Add dynamic array control attributes if this field has a dynamic config
     const dynamicConfig = dynamicArrayConfigs?.[key];

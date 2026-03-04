@@ -359,6 +359,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
   
   // Convert editable field markers to appropriate components based on field type
   // Handle both hyphenated and camelCase attribute names
+  // Track whether <InnerBlocks /> has been emitted for richtext (only one allowed per block)
+  let innerBlocksEmitted = false;
   result = result.replace(
     /<editable-field-marker\s+(?:data-field|dataField)="([^"]+)"\s*(?:\/>|><\/editable-field-marker>)/gi,
     (_, encodedFieldInfo) => {
@@ -443,13 +445,13 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
             size="large"
           />`;
         } else if (type === 'richtext') {
-          return `<RichText
-            tagName="div"
-            className="handoff-editable-field"
-            value={${valueExpr}}
-            onChange={${onChangeExpr}}
-            placeholder={__('Enter content...', 'handoff')}
-          />`;
+          if (innerBlocksEmitted) {
+            // Only one InnerBlocks is allowed per block; subsequent richtext positions
+            // also output $content in PHP so this placeholder is intentionally empty.
+            return `{/* richtext: content rendered via InnerBlocks above */}`;
+          }
+          innerBlocksEmitted = true;
+          return `<InnerBlocks allowedBlocks={CONTENT_BLOCKS} />`;
         } else {
           // For text fields, use RichText with no allowed formats for inline contenteditable editing
           return `<RichText

@@ -48,15 +48,8 @@ ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}/>`;
 
     case 'richtext':
-      return `${indent}<div className="components-base-control">
-${indent}  <label className="components-base-control__label">{__('${label}', 'handoff')}</label>
-${indent}  <RichText
-${indent}    tagName="div"
-${indent}    value={${valueAccessor} || ''}
-${indent}    onChange={(value) => ${onChangeHandler('value')}}
-${indent}    placeholder={__('Enter ${label.toLowerCase()}...', 'handoff')}
-${indent}  />
-${indent}</div>`;
+      // richtext uses InnerBlocks on the canvas – no sidebar control needed
+      return '';
 
     case 'number':
       return `${indent}<RangeControl
@@ -509,8 +502,13 @@ const generateIndexJs = (
   // Check which fields have dynamic array configs
   const hasDynamicArrays = dynamicArrayConfigs && Object.keys(dynamicArrayConfigs).length > 0;
 
-  // Get all attribute names
-  const attrNames = Object.keys(properties).map(toCamelCase);
+  // Detect richtext properties (they use InnerBlocks, not attributes)
+  const hasRichtext = Object.values(properties).some(p => p.type === 'richtext');
+
+  // Get all attribute names – exclude richtext (no attribute; stored via InnerBlocks)
+  const attrNames = Object.keys(properties)
+    .filter(k => properties[k].type !== 'richtext')
+    .map(toCamelCase);
   
   // Add dynamic array attribute names
   if (dynamicArrayConfigs) {
@@ -554,7 +552,6 @@ const generateIndexJs = (
   const needsRangeControl = hasPropertyType('number') || hasOverlay;
   const needsToggleControl = hasPropertyType('boolean') || hasPropertyType('button');
   const needsSelectControl = hasPropertyType('select');
-  const needsRichText = hasPropertyType('richtext');
   const hasArrayProps = Object.values(properties).some(p => p.type === 'array');
   const hasObjectProps = hasPropertyType('object');
 
@@ -563,8 +560,9 @@ const generateIndexJs = (
   if (needsMediaUpload) {
     blockEditorImports.push('MediaUpload', 'MediaUploadCheck', 'MediaReplaceFlow');
   }
-  if (needsRichText) {
-    blockEditorImports.push('RichText');
+  // InnerBlocks for richtext content areas
+  if (hasRichtext) {
+    blockEditorImports.push('InnerBlocks');
   }
   // Add LinkControl for link and button fields (internal page search + URL validation)
   const needsLinkControl = hasPropertyType('link') || hasPropertyType('button');
@@ -599,6 +597,9 @@ const generateIndexJs = (
   const panels: string[] = [];
 
   for (const [key, property] of Object.entries(properties)) {
+    // richtext uses InnerBlocks on the canvas – no sidebar panel needed
+    if (property.type === 'richtext') continue;
+
     const label = property.name || toTitleCase(key);
     const attrName = toCamelCase(key);
     const dynamicConfig = dynamicArrayConfigs?.[key];
@@ -993,6 +994,7 @@ registerBlockType(metadata.name, {
   ...metadata,
   edit: ({ attributes, setAttributes }) => {
     const blockProps = useBlockProps();
+${hasRichtext ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
     const { ${attrNames.join(', ')} } = attributes;
 ${dynamicArrayResolutionCode}
 ${arrayHelpers}
@@ -1012,8 +1014,7 @@ ${previewContent}
     );
   },
   save: () => {
-    // Server-side rendering via render.php
-    return null;
+${hasRichtext ? '    // InnerBlocks content must be saved so it is persisted in post content\n    return <InnerBlocks.Content />;' : '    // Server-side rendering via render.php\n    return null;'}
   },
 });
 `;

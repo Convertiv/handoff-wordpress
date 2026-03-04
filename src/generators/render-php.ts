@@ -79,7 +79,7 @@ const getPhpDefaultValue = (property: HandoffProperty): string => {
 /**
  * Convert handlebars template to PHP
  */
-const handlebarsToPhp = (template: string, properties: Record<string, HandoffProperty>): string => {
+const handlebarsToPhp = (template: string, properties: Record<string, HandoffProperty>, richtextProps: Set<string> = new Set()): string => {
   let php = template;
   
   // Remove HTML wrapper if present
@@ -898,10 +898,14 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
   // Triple braces are for unescaped HTML output (rich text fields)
   
   // Convert {{{properties.xxx}}} triple braces (unescaped HTML)
+  // richtext props use InnerBlocks — output $content (inner blocks rendered HTML)
   php = php.replace(
     /\{\{\{\s*properties\.(\w+)\s*\}\}\}/g,
     (_, prop) => {
       const camelProp = toCamelCase(prop);
+      if (richtextProps.has(prop) || richtextProps.has(camelProp)) {
+        return `<?php echo $content; ?>`;
+      }
       return `<?php echo wp_kses_post($${camelProp} ?? ''); ?>`;
     }
   );
@@ -1042,6 +1046,9 @@ const generateAttributeExtraction = (properties: Record<string, HandoffProperty>
   const extractions: string[] = [];
   
   for (const [key, property] of Object.entries(properties)) {
+    // richtext properties use InnerBlocks/$content — no attribute to extract
+    if (property.type === 'richtext') continue;
+
     const camelKey = toCamelCase(key);
     const defaultValue = getPhpDefaultValue(property);
     
@@ -1308,8 +1315,18 @@ const generateRenderPhp = (
   dynamicArrayConfigs?: Record<string, DynamicArrayConfig>
 ): string => {
   const hasOverlay = component.code.includes('overlay');
+
+  // Collect richtext property keys (original snake_case and camelCase) for $content substitution
+  const richtextProps = new Set<string>();
+  for (const [key, prop] of Object.entries(component.properties)) {
+    if (prop.type === 'richtext') {
+      richtextProps.add(key);
+      richtextProps.add(toCamelCase(key));
+    }
+  }
+
   const attributeExtraction = generateAttributeExtraction(component.properties, hasOverlay);
-  const templatePhp = handlebarsToPhp(component.code, component.properties);
+  const templatePhp = handlebarsToPhp(component.code, component.properties, richtextProps);
   
   // Generate dynamic array extraction code
   const dynamicArrayExtractions: string[] = [];
