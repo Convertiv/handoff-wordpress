@@ -375,15 +375,45 @@ These types never have inline equivalents:
 
 ## 10. Dynamic Arrays
 
-Array fields can be configured for dynamic post population via `DynamicArrayConfig` in `handoff-wp.config.json`.
+Array fields can be configured for dynamic post population via the `import` key in `handoff-wp.config.json`. Dynamic array configuration is nested under the component type and component ID:
+
+```json
+{
+  "import": {
+    "block": {
+      "posts-latest": {
+        "posts": {
+          "postTypes": ["post", "page"],
+          "selectionMode": "query",
+          "maxItems": 12,
+          "renderMode": "mapped",
+          "fieldMapping": { ... }
+        }
+      }
+    }
+  }
+}
+```
+
+### Import Config Structure
+
+The `import` key controls which component types are imported and where dynamic array fields are configured:
+
+- **Type-level**: `"element": false` skips all elements; `"block": { ... }` imports all blocks with per-component overrides
+- **Component-level**: `"posts-latest": { ... }` provides field-level dynamic array configs; `false` skips a specific component
+- **Field-level**: `"posts": { ...DynamicArrayConfig }` enables dynamic post population on that array field
+
+Types and components not listed default to imported with no dynamic arrays.
 
 ### Modes
 
-| Mode | Description |
-|------|-------------|
-| `static` | Manual content entered through the Repeater UI |
-| `query` | Posts fetched via WP_Query with taxonomy filters, ordering, and pagination |
-| `manual` | Specific posts selected by the user via search |
+The editor provides a three-button toggle for dynamic array fields:
+
+| Mode | Source Value | Description |
+|------|-------------|-------------|
+| Query | `'query'` | Posts fetched via WP_Query with taxonomy filters, ordering, and pagination |
+| Select | `'select'` | Specific posts hand-picked by the user via search |
+| Manual | `'manual'` | Static content entered through the standard Repeater UI |
 
 ### Additional Attributes
 
@@ -391,9 +421,9 @@ For each dynamic array field `items`, the compiler adds:
 
 | Attribute | Type | Purpose |
 |-----------|------|---------|
-| `itemsSource` | `string` | Mode: `'static'`, `'query'`, or `'manual'` |
+| `itemsSource` | `string` | Mode: `'query'`, `'select'`, or `'manual'` |
 | `itemsPostType` | `string` | WordPress post type to query |
-| `itemsSelectedPosts` | `array` | Manually selected post IDs |
+| `itemsSelectedPosts` | `array` | Hand-picked post IDs (select mode) |
 | `itemsQueryArgs` | `object` | WP_Query arguments |
 | `itemsFieldMapping` | `object` | Post field → template field mapping |
 | `itemsItemOverrides` | `object` | Per-field overrides applied to all items |
@@ -416,11 +446,15 @@ Maps WordPress post fields to Handoff template fields:
 
 ### Editor Preview
 
-In the editor, dynamic arrays use `useSelect` with `@wordpress/core-data` to fetch and display live post data. A loading spinner shows while posts are resolving.
+In the editor, dynamic arrays use `useSelect` with `@wordpress/core-data` to fetch and display live post data. A loading spinner shows while posts are resolving. In manual mode, the standard repeater fields are used directly with no post fetching.
 
 ### Server-Side Rendering
 
-In `render.php`, dynamic arrays generate a `WP_Query` (for query mode) or `get_posts()` (for manual mode) and map results through the field mapping configuration.
+In `render.php`, dynamic arrays generate a `WP_Query` (for query mode) or `get_posts()` (for select mode) and map results through the field mapping configuration. In manual mode, the array attribute is used directly.
+
+### Backward Compatibility
+
+The legacy `dynamicArrays` config (flat `"componentId.fieldName"` keys with an `enabled` flag) is auto-migrated to the `import` structure at load time if no `import` key is present. A deprecation warning is logged.
 
 ---
 
@@ -488,19 +522,21 @@ All layout previously using `__experimental` WordPress components has been repla
 
 The full compilation pipeline, in order:
 
-1. **Load configuration** — Read `handoff-wp.config.json` for API URL, output paths, and dynamic array configs
-2. **Fetch component** — GET from Handoff API (`/api/component/{name}.json`)
-3. **Validate template** — Check that template variables match property definitions
-4. **Generate block.json** — Map properties to Gutenberg attributes with defaults
-5. **Generate index.js** — Transpile Handlebars to JSX, build sidebar controls, detect inline fields
-6. **Generate render.php** — Transpile Handlebars to PHP, generate attribute extraction
-7. **Generate editor.scss** — Editor preview styles with editable field highlights
-8. **Generate style.scss** — Frontend structural styles
-9. **Generate README.md** — Block documentation with property table
-10. **Generate shared components** — Shared index files (once per compilation run)
-11. **Generate categories PHP** — Block category registration (once per compilation run)
-12. **Format output** — Run Prettier on generated JS/SCSS files
-13. **Write files** — Output to the configured directory structure
+1. **Load configuration** — Read `handoff-wp.config.json` for API URL, output paths, and `import` config (with backward-compat migration from legacy `dynamicArrays`)
+2. **Fetch component list** — Filter components by `import` config (skip types set to `false`, skip individual components set to `false`)
+3. **Fetch component** — GET from Handoff API (`/api/component/{name}.json`)
+4. **Validate template** — Check that template variables match property definitions
+5. **Extract dynamic array configs** — Look up per-component field configs from `import[type][componentId]`
+6. **Generate block.json** — Map properties to Gutenberg attributes with defaults
+7. **Generate index.js** — Transpile Handlebars to JSX, build sidebar controls, detect inline fields
+8. **Generate render.php** — Transpile Handlebars to PHP, generate attribute extraction
+9. **Generate editor.scss** — Editor preview styles with editable field highlights
+10. **Generate style.scss** — Frontend structural styles
+11. **Generate README.md** — Block documentation with property table
+12. **Generate shared components** — Shared index files (once per compilation run, if any component has dynamic arrays)
+13. **Generate categories PHP** — Block category registration (once per compilation run)
+14. **Format output** — Run Prettier on generated JS/SCSS files
+15. **Write files** — Output to the configured directory structure
 
 ### Directory Structure
 

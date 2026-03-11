@@ -216,6 +216,29 @@ export interface DynamicArrayConfig {
 }
 
 /**
+ * Per-component import config.
+ * - true or {} : import with no dynamic arrays
+ * - false      : skip this component
+ * - Record<fieldName, DynamicArrayConfig> : import with dynamic array config on specified fields
+ */
+export type ComponentImportConfig = boolean | Record<string, DynamicArrayConfig>;
+
+/**
+ * Per-type import config.
+ * - true  : import all components of this type (no per-component overrides)
+ * - false : skip all components of this type
+ * - Record<componentId, ComponentImportConfig> : import all components of this type;
+ *   listed components get per-field overrides, unlisted import with defaults
+ */
+export type TypeImportConfig = boolean | Record<string, ComponentImportConfig>;
+
+/**
+ * Top-level import config keyed by component type (e.g. "element", "block").
+ * Types not listed default to true (import all).
+ */
+export type ImportConfig = Record<string, TypeImportConfig>;
+
+/**
  * Configuration file structure for handoff-wp.config.json
  */
 export interface HandoffWpConfig {
@@ -234,6 +257,12 @@ export interface HandoffWpConfig {
   /** Basic auth password */
   password?: string;
   
-  /** Dynamic array configurations keyed by "componentId.fieldName" */
+  /** Component import configuration by type */
+  import?: ImportConfig;
+
+  /**
+   * @deprecated Use `import` instead. Kept for backward compatibility.
+   * Dynamic array configurations keyed by "componentId.fieldName"
+   */
   dynamicArrays?: Record<string, DynamicArrayConfig>;
 }

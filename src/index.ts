@@ -31,7 +31,7 @@ import * as https from 'https';
 import * as http from 'http';
 import * as prettier from 'prettier';
 
-import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig } from './types';
+import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig, ImportConfig, ComponentImportConfig } from './types';
 
 /**
  * Auth credentials for HTTP requests
@@ -50,7 +50,7 @@ interface ResolvedConfig {
   themeDir: string;
   username?: string;
   password?: string;
-  dynamicArrays?: Record<string, DynamicArrayConfig>;
+  import: ImportConfig;
 }
 
 /**
@@ -62,7 +62,35 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   themeDir: './theme',
   username: undefined,
   password: undefined,
-  dynamicArrays: undefined,
+  import: { element: false },
+};
+
+/**
+ * Migrate legacy `dynamicArrays` config to the new `import` structure.
+ * Groups "componentId.fieldName" entries under import.block[componentId][fieldName].
+ */
+const migrateDynamicArrays = (dynamicArrays: Record<string, DynamicArrayConfig>): ImportConfig => {
+  const importConfig: ImportConfig = { element: false };
+  const blockConfig: Record<string, ComponentImportConfig> = {};
+
+  for (const [key, config] of Object.entries(dynamicArrays)) {
+    if (!config.enabled) continue;
+    const dotIndex = key.indexOf('.');
+    if (dotIndex === -1) continue;
+    const componentId = key.substring(0, dotIndex);
+    const fieldName = key.substring(dotIndex + 1);
+
+    if (!blockConfig[componentId] || typeof blockConfig[componentId] === 'boolean') {
+      blockConfig[componentId] = {};
+    }
+    (blockConfig[componentId] as Record<string, DynamicArrayConfig>)[fieldName] = config;
+  }
+
+  if (Object.keys(blockConfig).length > 0) {
+    importConfig.block = blockConfig;
+  }
+
+  return importConfig;
 };
 
 /**
@@ -91,6 +119,16 @@ const loadConfig = (): HandoffWpConfig => {
  */
 const getConfig = (): ResolvedConfig => {
   const fileConfig = loadConfig();
+
+  let importConfig: ImportConfig;
+  if (fileConfig.import) {
+    importConfig = fileConfig.import;
+  } else if (fileConfig.dynamicArrays) {
+    console.warn(`⚠️  "dynamicArrays" config is deprecated. Migrate to "import" — see SPECIFICATION.md.`);
+    importConfig = migrateDynamicArrays(fileConfig.dynamicArrays);
+  } else {
+    importConfig = DEFAULT_CONFIG.import;
+  }
   
   return {
     apiUrl: fileConfig.apiUrl ?? DEFAULT_CONFIG.apiUrl,
@@ -98,25 +136,10 @@ const getConfig = (): ResolvedConfig => {
     themeDir: fileConfig.themeDir ?? DEFAULT_CONFIG.themeDir,
     username: fileConfig.username ?? DEFAULT_CONFIG.username,
     password: fileConfig.password ?? DEFAULT_CONFIG.password,
-    dynamicArrays: fileConfig.dynamicArrays ?? DEFAULT_CONFIG.dynamicArrays,
+    import: importConfig,
   };
 };
 
-/**
- * Get dynamic array configuration for a specific component field
- * @param componentId - The component ID (e.g., 'hero-carousel')
- * @param fieldName - The field name (e.g., 'slides')
- * @returns The dynamic array config if enabled, undefined otherwise
- */
-const getDynamicArrayConfig = (
-  componentId: string,
-  fieldName: string,
-  config: ResolvedConfig
-): DynamicArrayConfig | undefined => {
-  const key = `${componentId}.${fieldName}`;
-  const dynamicConfig = config.dynamicArrays?.[key];
-  return dynamicConfig?.enabled ? dynamicConfig : undefined;
-};
 
 /**
  * Build HTTP request options with optional basic auth
@@ -305,16 +328,10 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
     }
   }
   
-  // Build dynamic array configs for this component
-  const componentDynamicArrays: Record<string, DynamicArrayConfig> = {};
-  if (resolvedConfig.dynamicArrays) {
-    for (const [key, config] of Object.entries(resolvedConfig.dynamicArrays)) {
-      if (key.startsWith(`${component.id}.`) && config.enabled) {
-        const fieldName = key.substring(component.id.length + 1);
-        componentDynamicArrays[fieldName] = { ...config };
-      }
-    }
-  }
+  // Extract dynamic array configs for this component from the import config
+  const componentDynamicArrays: Record<string, DynamicArrayConfig> = {
+    ...extractDynamicArrayConfigs(component.id, component.type, resolvedConfig.import)
+  };
   
   // Auto-detect pagination for dynamic arrays
   for (const [fieldName, dynConfig] of Object.entries(componentDynamicArrays)) {
@@ -437,9 +454,50 @@ const compile = async (options: CompilerOptions): Promise<void> => {
 };
 
 /**
- * Fetch list of all components from API
+ * Check whether a component should be imported based on the import config.
  */
-const fetchComponentList = async (apiUrl: string, auth?: AuthCredentials): Promise<string[]> => {
+const shouldImportComponent = (componentId: string, componentType: string, importConfig: ImportConfig): boolean => {
+  const typeConfig = importConfig[componentType];
+
+  // Type not listed in import config — default to true (import)
+  if (typeConfig === undefined) return true;
+  // Entire type disabled
+  if (typeConfig === false) return false;
+  // Entire type enabled with no per-component overrides
+  if (typeConfig === true) return true;
+
+  // Per-component lookup within the type object
+  const componentConfig = typeConfig[componentId];
+  // Not listed — import with defaults (type-object means "import all, override listed")
+  if (componentConfig === undefined) return true;
+  // Explicitly disabled
+  if (componentConfig === false) return false;
+  // Explicitly enabled or has field overrides
+  return true;
+};
+
+/**
+ * Extract dynamic array configs for a component from the import config.
+ */
+const extractDynamicArrayConfigs = (
+  componentId: string,
+  componentType: string,
+  importConfig: ImportConfig
+): Record<string, DynamicArrayConfig> => {
+  const typeConfig = importConfig[componentType];
+  if (!typeConfig || typeof typeConfig === 'boolean') return {};
+
+  const componentConfig = typeConfig[componentId];
+  if (!componentConfig || typeof componentConfig === 'boolean') return {};
+
+  // componentConfig is Record<string, DynamicArrayConfig>
+  return componentConfig as Record<string, DynamicArrayConfig>;
+};
+
+/**
+ * Fetch list of all components from API, filtered by import config
+ */
+const fetchComponentList = async (apiUrl: string, importConfig: ImportConfig, auth?: AuthCredentials): Promise<string[]> => {
   const url = `${apiUrl}/api/components.json`;
   
   return new Promise((resolve, reject) => {
@@ -460,12 +518,9 @@ const fetchComponentList = async (apiUrl: string, auth?: AuthCredentials): Promi
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
         try {
-          // TODO: improve the typing of the component list
-          // TODO: Can we pull the type from the api?
           const components = JSON.parse(data) as Array<HandoffComponent>;
-          // filter out elements from the component list
-          const filteredComponents = components.filter(c => c.type !== 'element');
-          resolve(filteredComponents.map(c => c.id));
+          const filtered = components.filter(c => shouldImportComponent(c.id, c.type, importConfig));
+          resolve(filtered.map(c => c.id));
         } catch (e) {
           reject(new Error(`Failed to parse components list: ${e}`));
         }
@@ -490,7 +545,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
   
   try {
     console.log(`📡 Fetching component list...`);
-    const componentIds = await fetchComponentList(apiUrl, auth);
+    const componentIds = await fetchComponentList(apiUrl, config.import, auth);
 
     console.log(`   Found ${componentIds.length} components\n`);
     
@@ -534,8 +589,14 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
       console.log(`✅ Generated: ${categoriesPath}`);
     }
     
-    // Generate shared components if dynamic arrays are configured
-    if (config.dynamicArrays && Object.keys(config.dynamicArrays).length > 0) {
+    // Generate shared components if any component has dynamic array configs
+    const hasDynamicArraysInImport = Object.values(config.import).some(typeConfig => {
+      if (typeof typeConfig !== 'object') return false;
+      return Object.values(typeConfig).some(compConfig =>
+        typeof compConfig === 'object' && Object.keys(compConfig).length > 0
+      );
+    });
+    if (hasDynamicArraysInImport) {
       console.log(`\n⚙️  Generating shared components...`);
       const sharedComponents = generateSharedComponents();
       
@@ -764,7 +825,7 @@ const validate = async (apiUrl: string, outputDir: string, componentName: string
 /**
  * Validate all components for breaking property changes
  */
-const validateAll = async (apiUrl: string, outputDir: string, auth?: AuthCredentials): Promise<void> => {
+const validateAll = async (apiUrl: string, outputDir: string, importConfig: ImportConfig, auth?: AuthCredentials): Promise<void> => {
   console.log(`\n🔍 Validating All Components`);
   console.log(`   API: ${apiUrl}`);
   console.log(`   Manifest: ${outputDir}\n`);
@@ -772,7 +833,7 @@ const validateAll = async (apiUrl: string, outputDir: string, auth?: AuthCredent
   try {
     // Fetch component list
     console.log(`📡 Fetching component list...`);
-    const componentIds = await fetchComponentList(apiUrl, auth);
+    const componentIds = await fetchComponentList(apiUrl, importConfig, auth);
     console.log(`   Found ${componentIds.length} components\n`);
     
     // Load manifest
@@ -1084,14 +1145,21 @@ const configureDynamicArrays = async (
     }
   }
   
-  const dynamicArrays: Record<string, DynamicArrayConfig> = existingConfig.dynamicArrays || {};
+  // Build the import config, preserving existing entries
+  const importConfig: ImportConfig = existingConfig.import || { element: false };
+  if (!importConfig.block || typeof importConfig.block === 'boolean') {
+    importConfig.block = {};
+  }
+  const blockConfig = importConfig.block as Record<string, ComponentImportConfig>;
+  if (!blockConfig[component.id] || typeof blockConfig[component.id] === 'boolean') {
+    blockConfig[component.id] = {};
+  }
+  const componentFieldConfig = blockConfig[component.id] as Record<string, DynamicArrayConfig>;
   
   // Configure each selected array
   for (const arrayProp of selectedArrays) {
     console.log(`\n${'─'.repeat(60)}`);
     console.log(`\n⚙️  Configuring: ${component.id}.${arrayProp.path}\n`);
-    
-    const configKey = `${component.id}.${arrayProp.path}`;
     
     // Selection mode
     const selectionMode = await promptChoice(
@@ -1185,7 +1253,7 @@ const configureDynamicArrays = async (
     
     // Build config
     const arrayConfig: DynamicArrayConfig = {
-      enabled: true,
+      enabled: true, // kept for backward compat with DynamicArrayConfig type
       postTypes,
       selectionMode: isQueryMode ? 'query' : 'manual',
       maxItems,
@@ -1208,20 +1276,21 @@ const configureDynamicArrays = async (
       };
     }
     
-    dynamicArrays[configKey] = arrayConfig;
+    componentFieldConfig[arrayProp.path] = arrayConfig;
     
-    console.log(`\n✅ Configured: ${configKey}`);
+    console.log(`\n✅ Configured: ${component.id}.${arrayProp.path}`);
   }
   
-  // Update config file
+  // Update config file — remove legacy dynamicArrays if present
+  const { dynamicArrays: _legacyDynamic, ...restConfig } = existingConfig;
   const newConfig: HandoffWpConfig = {
-    ...existingConfig,
-    dynamicArrays,
+    ...restConfig,
+    import: importConfig,
   };
   
   console.log(`\n${'─'.repeat(60)}`);
   console.log(`\n📄 Configuration Preview:\n`);
-  console.log(JSON.stringify({ dynamicArrays: dynamicArrays }, null, 2));
+  console.log(JSON.stringify({ import: importConfig }, null, 2));
   
   const shouldSave = await promptYesNo('\nSave to handoff-wp.config.json?', true);
   
@@ -1263,7 +1332,7 @@ program
       console.log(`\n🔍 Fetching component list from ${apiUrl}...\n`);
       
       try {
-        const componentIds = await fetchComponentList(apiUrl, auth);
+        const componentIds = await fetchComponentList(apiUrl, config.import, auth);
         
         // Fetch each component to find ones with array fields
         console.log(`📋 Found ${componentIds.length} components. Checking for array fields...\n`);
@@ -1369,7 +1438,7 @@ program
     
     // Validation commands
     if (opts.validateAll) {
-      await validateAll(apiUrl, output, auth);
+      await validateAll(apiUrl, output, config.import, auth);
       return;
     }
     
@@ -1390,7 +1459,7 @@ program
       if (!opts.force) {
         console.log(`\n🔍 Pre-compilation validation...\n`);
         try {
-          await validateAll(apiUrl, output, auth);
+          await validateAll(apiUrl, output, config.import, auth);
         } catch {
           // validateAll exits with code 1 on breaking changes
           return;
@@ -1400,7 +1469,7 @@ program
       
       // Update manifest after successful compilation
       console.log(`\n📝 Updating property manifest...`);
-      const componentIds = await fetchComponentList(apiUrl, auth);
+      const componentIds = await fetchComponentList(apiUrl, config.import, auth);
       for (const componentId of componentIds) {
         try {
           const component = await fetchComponent(apiUrl, componentId, auth);

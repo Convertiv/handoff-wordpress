@@ -130,54 +130,78 @@ You can also manually create a `handoff-wp.config.json` file in your project roo
 | `themeDir` | Theme directory for header/footer templates |
 | `username` | Basic auth username (optional) |
 | `password` | Basic auth password (optional) |
+| `import` | Component import configuration by type (see below) |
 
 CLI options always override config file values. If no config file exists, defaults are used.
 
 See `handoff-wp.config.example.json` for a template.
 
-### Dynamic Arrays
+### Component Import Configuration
 
-Dynamic arrays allow you to populate Handoff array fields with WordPress posts instead of static content. This is useful for blog grids, featured posts, testimonials, team members, or any repeating content pulled from WordPress.
-
-Add a `dynamicArrays` property to your config file:
+The `import` key controls which component types are imported and configures per-component dynamic array fields. This replaces the previous hardcoded element filter and the flat `dynamicArrays` config.
 
 ```json
 {
   "apiUrl": "https://demo.handoff.com",
   "output": "./demo/plugin/blocks",
-  "dynamicArrays": {
-    "posts-latest.posts": {
-      "enabled": true,
-      "postTypes": ["post", "page"],
-      "selectionMode": "query",
-      "maxItems": 12,
-      "renderMode": "mapped",
-      "fieldMapping": {
-        "image": "featured_image",
-        "title": "post_title",
-        "summary": "post_excerpt",
-        "date.day": "post_date:day_numeric",
-        "date.month": "post_date:month_short",
-        "date.year": "post_date:year",
-        "url": "permalink"
+  "import": {
+    "element": false,
+    "block": {
+      "posts-latest": {
+        "posts": {
+          "postTypes": ["post", "page"],
+          "selectionMode": "query",
+          "maxItems": 12,
+          "renderMode": "mapped",
+          "fieldMapping": {
+            "image": "featured_image",
+            "title": "post_title",
+            "summary": "post_excerpt",
+            "date.day": "post_date:day_numeric",
+            "date.month": "post_date:month_short",
+            "date.year": "post_date:year",
+            "url": "permalink"
+          }
+        }
       }
     }
   }
 }
 ```
 
-#### Configuration Key
+#### Type-Level Values
 
-The key format is `{componentId}.{propertyName}` where the property name matches the array field in the Handoff component (e.g., `posts-latest.posts`, `hero-carousel.slides`).
+Each key under `import` is a component type (e.g., `element`, `block`). The value controls how components of that type are handled:
 
-#### Dynamic Array Options
+| Value | Meaning |
+|-------|---------|
+| `false` | Skip all components of this type |
+| `true` | Import all components of this type (no per-component config) |
+| `{ ... }` (object) | Import **all** components of this type; listed components get per-field overrides |
+
+When `import` is absent, the default is `{ "element": false }` (skip elements, import everything else).
+
+#### Component-Level Values
+
+Within a type object, each key is a component ID. The value controls that specific component:
+
+| Value | Meaning |
+|-------|---------|
+| `true` or `{}` | Import with no dynamic arrays |
+| `false` | Skip this specific component |
+| `{ "fieldName": { ...config } }` | Import with dynamic array config on the specified fields |
+
+Components not listed in a type object are still imported with defaults.
+
+#### Dynamic Array Field Config
+
+Each field-level object is a `DynamicArrayConfig`:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `enabled` | boolean | Enable dynamic post selection for this field |
 | `postTypes` | string[] | Allowed WordPress post types |
 | `defaultPostType` | string | Default post type when first enabled |
-| `selectionMode` | `"manual"` \| `"query"` | How posts are selected (see below) |
+| `selectionMode` | `"query"` \| `"manual"` | Default selection mode (see below) |
 | `maxItems` | number | Maximum number of items |
 | `renderMode` | `"mapped"` \| `"template"` | How posts are rendered |
 | `fieldMapping` | object | Maps post data to template fields (for mapped mode) |
@@ -186,13 +210,17 @@ The key format is `{componentId}.{propertyName}` where the property name matches
 
 #### Selection Modes
 
-**Manual Mode** (`selectionMode: "manual"`): Users search and hand-pick specific posts in the editor. Posts are ordered as selected.
+The editor provides three modes for dynamic array fields, controlled by a three-button toggle:
 
-**Query Mode** (`selectionMode: "query"`): Users build a query with filters. The editor shows:
+**Query** (`selectionMode: "query"`): Users build a query with filters. The editor shows:
 - Post type selector
 - Posts per page slider
 - Order by / direction controls
 - Taxonomy filters (categories, tags, custom taxonomies)
+
+**Select** (`selectionMode: "manual"`): Users search and hand-pick specific posts. Posts are ordered as selected.
+
+**Manual**: Users enter data directly through the standard repeater fields — the same as a non-dynamic array. No post fetching occurs.
 
 #### Render Modes
 
@@ -319,53 +347,61 @@ The callback receives `($post_id, $source_config)` and should return the resolve
 
 ```json
 {
-  "dynamicArrays": {
-    "posts-latest.posts": {
-      "enabled": true,
-      "postTypes": ["post"],
-      "selectionMode": "query",
-      "maxItems": 12,
-      "renderMode": "mapped",
-      "fieldMapping": {
-        "image": "featured_image",
-        "title": "post_title",
-        "excerpt": "post_excerpt",
-        "date.day": "post_date:day_numeric",
-        "date.month": "post_date:month_short",
-        "date.year": "post_date:year",
-        "category": "taxonomy:category",
-        "author": "author.name",
-        "link.url": "permalink",
-        "link.text": { "type": "static", "value": "Read More" }
-      },
-      "defaultQueryArgs": {
-        "posts_per_page": 6,
-        "orderby": "date",
-        "order": "DESC"
+  "import": {
+    "element": false,
+    "block": {
+      "posts-latest": {
+        "posts": {
+          "postTypes": ["post"],
+          "selectionMode": "query",
+          "maxItems": 12,
+          "renderMode": "mapped",
+          "fieldMapping": {
+            "image": "featured_image",
+            "title": "post_title",
+            "excerpt": "post_excerpt",
+            "date.day": "post_date:day_numeric",
+            "date.month": "post_date:month_short",
+            "date.year": "post_date:year",
+            "category": "taxonomy:category",
+            "author": "author.name",
+            "link.url": "permalink",
+            "link.text": { "type": "static", "value": "Read More" }
+          },
+          "defaultQueryArgs": {
+            "posts_per_page": 6,
+            "orderby": "date",
+            "order": "DESC"
+          }
+        }
       }
     }
   }
 }
 ```
 
-#### Team Members (Manual Selection)
+#### Team Members (Select Mode)
 
 ```json
 {
-  "dynamicArrays": {
-    "team-grid.members": {
-      "enabled": true,
-      "postTypes": ["team_member"],
-      "selectionMode": "manual",
-      "maxItems": 20,
-      "renderMode": "mapped",
-      "fieldMapping": {
-        "photo": "featured_image",
-        "name": "post_title",
-        "bio": "post_excerpt",
-        "role": "meta:job_title",
-        "email": "meta:email_address",
-        "linkedin": "meta:linkedin_url"
+  "import": {
+    "element": false,
+    "block": {
+      "team-grid": {
+        "members": {
+          "postTypes": ["team_member"],
+          "selectionMode": "manual",
+          "maxItems": 20,
+          "renderMode": "mapped",
+          "fieldMapping": {
+            "photo": "featured_image",
+            "name": "post_title",
+            "bio": "post_excerpt",
+            "role": "meta:job_title",
+            "email": "meta:email_address",
+            "linkedin": "meta:linkedin_url"
+          }
+        }
       }
     }
   }
@@ -376,13 +412,33 @@ The callback receives `($post_id, $source_config)` and should return the resolve
 
 ```json
 {
-  "dynamicArrays": {
-    "testimonials.items": {
-      "enabled": true,
-      "postTypes": ["testimonial"],
-      "selectionMode": "query",
-      "renderMode": "template",
-      "templatePath": "template-parts/testimonial-item.php"
+  "import": {
+    "element": false,
+    "block": {
+      "testimonials": {
+        "items": {
+          "postTypes": ["testimonial"],
+          "selectionMode": "query",
+          "renderMode": "template",
+          "templatePath": "template-parts/testimonial-item.php"
+        }
+      }
+    }
+  }
+}
+```
+
+#### Skip Specific Components
+
+```json
+{
+  "import": {
+    "element": false,
+    "block": {
+      "deprecated-hero": false,
+      "posts-latest": {
+        "posts": { "postTypes": ["post"], "selectionMode": "query", "renderMode": "mapped" }
+      }
     }
   }
 }
@@ -390,7 +446,7 @@ The callback receives `($post_id, $source_config)` and should return the resolve
 
 #### Dynamic Array Wizard
 
-Instead of manually editing the config file, use the interactive wizard to configure dynamic arrays:
+Instead of manually editing the config file, use the interactive wizard to configure dynamic arrays. The wizard writes to the `import` structure automatically.
 
 ```bash
 # Start the wizard and select a component interactively
@@ -413,6 +469,7 @@ The wizard will:
    - Maximum items
    - Render mode (Mapped or Template)
    - Field mappings with smart suggestions based on field names
+4. Save the configuration under `import.block[componentId][fieldName]`
 
 Example session:
 
@@ -448,6 +505,25 @@ Maximum items [12]: 6
 
 ✅ Saved to handoff-wp.config.json
 ```
+
+#### Backward Compatibility
+
+If your config file still uses the legacy `dynamicArrays` key (without an `import` key), the compiler will auto-migrate it at load time and log a deprecation warning. The legacy format uses dot notation (`"componentId.fieldName"`) and an `enabled` flag:
+
+```json
+{
+  "dynamicArrays": {
+    "posts-latest.posts": {
+      "enabled": true,
+      "postTypes": ["post"],
+      "selectionMode": "query",
+      "..."
+    }
+  }
+}
+```
+
+This is automatically converted to the equivalent `import` structure. We recommend migrating your config file to the new format.
 
 ## Usage
 
