@@ -1,7 +1,7 @@
 /**
  * DynamicPostSelector Component
  *
- * Unified UI for dynamic array fields: Query/Manual tabs, taxonomy filters,
+ * Unified UI for dynamic array fields: Query/Select/Manual tabs, taxonomy filters,
  * order & limit (number input), optional date filter and advanced options.
  * Accepts value/onChange/options only so blocks stay thin.
  *
@@ -288,7 +288,7 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
 
   const { postCount, isLoading } = useSelect(
     (select) => {
-      if (source === 'manual')
+      if (source === 'select')
         return { postCount: selectedPosts.length, isLoading: false };
       const core = select(coreDataStore);
       const args = {
@@ -363,40 +363,50 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
 
   return (
     <div className="handoff-dps">
-      <div className="handoff-dps__header">
-        <div className="handoff-dps__post-type">
-          <SelectControl
-            value={currentPostType}
-            options={postTypes.map((pt) => ({
-              label: pt.charAt(0).toUpperCase() + pt.slice(1),
-              value: pt,
-            }))}
-            onChange={handlePostTypeChange}
-            __nextHasNoMarginBottom
-          />
+      {source !== 'manual' && (
+        <div className="handoff-dps__header">
+          <div className="handoff-dps__post-type">
+            <SelectControl
+              value={currentPostType}
+              options={postTypes.map((pt) => ({
+                label: pt.charAt(0).toUpperCase() + pt.slice(1),
+                value: pt,
+              }))}
+              onChange={handlePostTypeChange}
+              __nextHasNoMarginBottom
+            />
+          </div>
+          <div className="handoff-dps__count">
+            {isLoading ? (
+              <Spinner />
+            ) : (
+              <>
+                <span className="handoff-dps__count-number">{postCount}</span>
+                <span className="handoff-dps__count-label">
+                  {postCount === 1 ? __('post', textDomain) : __('posts', textDomain)}
+                </span>
+              </>
+            )}
+          </div>
         </div>
-        <div className="handoff-dps__count">
-          {isLoading ? (
-            <Spinner />
-          ) : (
-            <>
-              <span className="handoff-dps__count-number">{postCount}</span>
-              <span className="handoff-dps__count-label">
-                {postCount === 1 ? __('post', textDomain) : __('posts', textDomain)}
-              </span>
-            </>
-          )}
-        </div>
-      </div>
+      )}
 
       <div className="handoff-dps__modes">
         <button
           type="button"
-          className={`handoff-dps__mode ${source !== 'manual' ? 'is-active' : ''}`}
+          className={`handoff-dps__mode ${source === 'query' ? 'is-active' : ''}`}
           onClick={() => updateValue({ source: 'query' })}
         >
           <span className="dashicons dashicons-filter" />
           {__('Query', textDomain)}
+        </button>
+        <button
+          type="button"
+          className={`handoff-dps__mode ${source === 'select' ? 'is-active' : ''}`}
+          onClick={() => updateValue({ source: 'select' })}
+        >
+          <span className="dashicons dashicons-search" />
+          {__('Select', textDomain)}
         </button>
         <button
           type="button"
@@ -408,7 +418,7 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
         </button>
       </div>
 
-      {source !== 'manual' && (
+      {source === 'query' && (
         <div className="handoff-dps__content">
           <div className="handoff-dps__section">
             <span className="handoff-dps__section-label">
@@ -535,8 +545,8 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
         </div>
       )}
 
-      {source === 'manual' && (
-        <div className="handoff-dps__content handoff-dps__content--manual">
+      {source === 'select' && (
+        <div className="handoff-dps__content handoff-dps__content--select">
           <ManualPicker
             postTypes={[currentPostType]}
             selectedPosts={selectedPosts}

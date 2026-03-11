@@ -291,11 +291,12 @@ const generateBlockJson = (
     // Add dynamic array control attributes if this field has a dynamic config
     const dynamicConfig = dynamicArrayConfigs?.[key];
     if (property.type === 'array' && dynamicConfig) {
-      // Source: 'static' (manual items), 'query' (query builder), or 'manual' (hand-pick posts)
+      // Source: 'query' (query builder), 'select' (hand-pick posts), or 'manual' (static repeater)
+      const sourceDefault = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
       attributes[`${attrName}Source`] = { 
         type: 'string', 
-        default: 'static',
-        enum: ['static', 'query', 'manual']
+        default: sourceDefault,
+        enum: ['query', 'select', 'manual']
       };
       // Selected post type for query mode
       attributes[`${attrName}PostType`] = { 

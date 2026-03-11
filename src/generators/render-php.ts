@@ -1184,7 +1184,7 @@ const generateDynamicArrayExtraction = (
       // Query builder mode - use WP_Query with query args
       return `
 // Dynamic array: ${fieldName} (query builder + template mode)
-$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'query';
 $${attrName}_posts = [];${paginationInit}
 
 if ($${attrName}_source === 'query') {
@@ -1227,11 +1227,11 @@ if ($${attrName}_source === 'query') {
     } else {
       // Manual selection mode - fetch specific posts
       return `
-// Dynamic array: ${fieldName} (manual selection + template mode)
-$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';
+// Dynamic array: ${fieldName} (select posts + template mode)
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'query';
 $${attrName}_posts = [];${paginationInit}
 
-if ($${attrName}_source === 'manual') {
+if ($${attrName}_source === 'select') {
   $selected_posts = $attributes['${attrName}SelectedPosts'] ?? [];
   
   if (!empty($selected_posts)) {
@@ -1259,7 +1259,7 @@ if ($${attrName}_source === 'manual') {
       // Query builder mode with field mapping
       return `
 // Dynamic array: ${fieldName} (query builder + mapped mode)
-$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';${paginationInit}
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'query';${paginationInit}
 
 if ($${attrName}_source === 'query') {
   // Query builder mode - build WP_Query from saved args
@@ -1312,15 +1312,15 @@ ${loadResolver}${pagedExtraction}
   }${paginationBlock}
   wp_reset_postdata();
 }
-// else: Static mode uses $${attrName} directly from attribute extraction
+// else: Manual mode uses $${attrName} directly from attribute extraction
 `;
     } else {
-      // Manual selection mode with field mapping
+      // Select posts mode with field mapping
       return `
-// Dynamic array: ${fieldName} (manual selection + mapped mode)
-$${attrName}_source = $attributes['${attrName}Source'] ?? 'static';${paginationInit}
+// Dynamic array: ${fieldName} (select posts + mapped mode)
+$${attrName}_source = $attributes['${attrName}Source'] ?? 'query';${paginationInit}
 
-if ($${attrName}_source === 'manual') {
+if ($${attrName}_source === 'select') {
   $selected_posts = $attributes['${attrName}SelectedPosts'] ?? [];
   $field_mapping = $attributes['${attrName}FieldMapping'] ?? ${mappingPhp};
 ${loadResolver}
@@ -1337,7 +1337,7 @@ ${loadResolver}
     }
   }
 }
-// else: Static mode uses $${attrName} directly from attribute extraction
+// else: Manual mode uses $${attrName} directly from attribute extraction
 `;
     }
   }

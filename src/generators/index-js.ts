@@ -577,8 +577,6 @@ const generateIndexJs = (
   if (needsToggleControl) componentImports.push('ToggleControl');
   // SelectControl is needed for select fields OR dynamic arrays (post type selector)
   if (needsSelectControl || hasDynamicArrays) componentImports.push('SelectControl');
-  // TabPanel for dynamic array source switching
-  if (hasDynamicArrays) componentImports.push('TabPanel');
   // Spinner for dynamic array loading state in editor preview
   if (hasDynamicArrays) componentImports.push('Spinner');
 
@@ -620,8 +618,10 @@ const generateIndexJs = (
     if (property.type === 'richtext' || property.type === 'pagination') continue;
 
     // Skip fields that are inline-editable on the canvas (text, image, link, button
-    // wrapped in {{#field}}) – they don't need sidebar controls
-    if (inlineEditableFields.has(key)) continue;
+    // wrapped in {{#field}}) – they don't need sidebar controls.
+    // Array fields are always kept: they need sidebar UI for manual/dynamic toggle
+    // and for adding/removing items, even when their child fields are inline-editable.
+    if (inlineEditableFields.has(key) && property.type !== 'array') continue;
 
     const label = property.name || toTitleCase(key);
     const attrName = toCamelCase(key);
@@ -629,7 +629,7 @@ const generateIndexJs = (
     
     // Check if this is a dynamic array field
     if (property.type === 'array' && dynamicConfig) {
-      const defaultMode = dynamicConfig.selectionMode === 'manual' ? 'manual' : 'query';
+      const defaultMode = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
       const itemOverridesConfig = dynamicConfig.itemOverridesConfig || {};
       const advancedFields = Object.entries(itemOverridesConfig)
         .filter(([, c]: [string, ItemOverrideFieldConfig]) => c.mode === 'ui')
@@ -649,55 +649,35 @@ const generateIndexJs = (
         : '';
       panels.push(`          {/* ${label} Panel - Dynamic */}
           <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
-            <TabPanel
-              className="handoff-source-tabs"
-              activeClass="is-active"
-              initialTabName={${attrName}Source === 'static' ? 'manual' : 'dynamic'}
-              onSelect={(tabName) => {
-                if (tabName === 'manual') {
-                  setAttributes({ ${attrName}Source: 'static' });
-                } else if (${attrName}Source === 'static') {
-                  setAttributes({ ${attrName}Source: '${defaultMode}' });
-                }
+            <DynamicPostSelector
+              value={{
+                source: ${attrName}Source || '${defaultMode}',
+                postType: ${attrName}PostType,
+                queryArgs: ${attrName}QueryArgs || {},
+                selectedPosts: ${attrName}SelectedPosts || [],
+                itemOverrides: ${attrName}ItemOverrides || {}
               }}
-              tabs={[
-                { name: 'manual', title: __('Manual Content', 'handoff') },
-                { name: 'dynamic', title: __('Build Post', 'handoff') },
-              ]}
-            >
-              {(tab) => tab.name === 'dynamic' ? (
-                <>
-                <DynamicPostSelector
-                  value={{
-                    source: ${attrName}Source === 'static' ? '${defaultMode}' : ${attrName}Source,
-                    postType: ${attrName}PostType,
-                    queryArgs: ${attrName}QueryArgs || {},
-                    selectedPosts: ${attrName}SelectedPosts || [],
-                    itemOverrides: ${attrName}ItemOverrides || {}
-                  }}
-                  onChange={(nextValue) => setAttributes({
-                    ${attrName}Source: nextValue.source,
-                    ${attrName}PostType: nextValue.postType,
-                    ${attrName}QueryArgs: { ...nextValue.queryArgs, post_type: nextValue.postType },
-                    ${attrName}SelectedPosts: nextValue.selectedPosts || [],
-                    ${attrName}ItemOverrides: nextValue.itemOverrides ?? {}
-                  })}
-                  options={{
-                    postTypes: ${JSON.stringify(dynamicConfig.postTypes)},
-                    maxItems: ${dynamicConfig.maxItems ?? 20},
-                    textDomain: 'handoff',
-                    showDateFilter: ${(dynamicConfig as any).showDateFilter === true ? 'true' : 'false'},
-                    showExcludeCurrent: true,
-                    advancedFields: ${JSON.stringify(advancedFields)}
-                  }}
-                />${paginationToggle}
-                </>
-              ) : (
-                <>
+              onChange={(nextValue) => setAttributes({
+                ${attrName}Source: nextValue.source,
+                ${attrName}PostType: nextValue.postType,
+                ${attrName}QueryArgs: { ...nextValue.queryArgs, post_type: nextValue.postType },
+                ${attrName}SelectedPosts: nextValue.selectedPosts || [],
+                ${attrName}ItemOverrides: nextValue.itemOverrides ?? {}
+              })}
+              options={{
+                postTypes: ${JSON.stringify(dynamicConfig.postTypes)},
+                maxItems: ${dynamicConfig.maxItems ?? 20},
+                textDomain: 'handoff',
+                showDateFilter: ${(dynamicConfig as any).showDateFilter === true ? 'true' : 'false'},
+                showExcludeCurrent: true,
+                advancedFields: ${JSON.stringify(advancedFields)}
+              }}
+            />${paginationToggle}
+            {${attrName}Source === 'manual' && (
+              <>
 ${generatePropertyControl(key, property)}
-                </>
-              )}
-            </TabPanel>
+              </>
+            )}
           </PanelBody>`);
     } else {
       // Standard panel (non-dynamic)
@@ -759,7 +739,7 @@ ${generatePropertyControl(key, property)}
   ].join('\n');
   panels.push(designSystemPanel);
 
-  // Dynamic array resolution for editor preview (query/manual → fetch + map)
+  // Dynamic array resolution for editor preview (query/select → fetch + map)
   let dynamicArrayResolutionCode = '';
   const resolvingFlags: string[] = [];
   if (dynamicArrayConfigs) {
@@ -779,7 +759,7 @@ ${generatePropertyControl(key, property)}
       dynamicArrayResolutionCode += `
     const ${resolvedVarName} = useSelect(
       (select) => {
-        if (${sourceAttr} === 'static') return undefined;
+        if (${sourceAttr} === 'manual') return undefined;
         const store = select(coreDataStore);
         if (${sourceAttr} === 'query') {
           const queryArgs = ${queryArgsAttr} || {};
@@ -807,7 +787,7 @@ ${generatePropertyControl(key, property)}
             mapPostEntityToItem(rec, mapping, overrides, rec._embedded || {})
           );
         }
-        if (${sourceAttr} === 'manual') {
+        if (${sourceAttr} === 'select') {
           const selected = ${selectedPostsAttr} || [];
           if (!selected.length) return [];
           const mapping = ${fieldMappingAttr} || {};
@@ -823,10 +803,10 @@ ${generatePropertyControl(key, property)}
       },
       [${sourceAttr}, ${postTypeAttr}, JSON.stringify(${queryArgsAttr} || {}), JSON.stringify(${selectedPostsAttr} || []), JSON.stringify(${fieldMappingAttr} || {}), JSON.stringify(${itemOverridesAttr} || {})]
     );
-    const ${previewVarName} = ${sourceAttr} !== 'static' ? (${resolvedVarName} ?? []) : (${attrName} ?? []);
-    const ${resolvingVarName} = ${sourceAttr} !== 'static' && ${resolvedVarName} === undefined;
+    const ${previewVarName} = ${sourceAttr} !== 'manual' ? (${resolvedVarName} ?? []) : (${attrName} ?? []);
+    const ${resolvingVarName} = ${sourceAttr} !== 'manual' && ${resolvedVarName} === undefined;
 `;
-      // Use preview variable in the generated preview JSX so the editor shows query/manual results
+      // Use preview variable in the generated preview JSX so the editor shows query/select results
       const arrayVarRegex = new RegExp(`\\b${attrName}\\b`, 'g');
       previewJsx = previewJsx.replace(arrayVarRegex, previewVarName);
     }
