@@ -28,9 +28,7 @@ import {
   Button,
   Card,
   CardBody,
-  __experimentalVStack as VStack,
-  __experimentalHStack as HStack,
-  __experimentalText as Text,
+  Flex,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import { closeSmall } from '@wordpress/icons';
@@ -204,7 +202,7 @@ export function PostSelector({
   const canAddMore = mode === 'multiple' ? selectedPosts.length < maxItems : selectedPosts.length === 0;
 
   return (
-    <VStack spacing={3} className="handoff-post-selector">
+    <Flex direction="column" gap={3} className="handoff-post-selector">
       {/* Search input */}
       {canAddMore && (
         <div className="handoff-post-selector__search">
@@ -227,7 +225,7 @@ export function PostSelector({
 
       {/* Selected posts list */}
       {selectedPostData.length > 0 && (
-        <VStack spacing={2} className="handoff-post-selector__selected">
+        <Flex direction="column" gap={2} className="handoff-post-selector__selected">
           {selectedPostData.map((post, index) => (
             <Card
               key={post.id}
@@ -235,9 +233,9 @@ export function PostSelector({
               className="handoff-post-selector__item"
             >
               <CardBody>
-                <HStack alignment="center" spacing={2}>
+                <Flex align="center" gap={2}>
                   {mode === 'multiple' && selectedPosts.length > 1 && (
-                    <VStack spacing={0}>
+                    <Flex direction="column" gap={0}>
                       <Button
                         icon="arrow-up-alt2"
                         size="small"
@@ -252,19 +250,19 @@ export function PostSelector({
                         onClick={() => handleMoveDown(index)}
                         label={__('Move down', 'handoff')}
                       />
-                    </VStack>
+                    </Flex>
                   )}
                   <div style={{ flex: 1 }}>
-                    <Text weight={500}>
+                    <span style={{ fontWeight: 500 }}>
                       {post.loading ? (
                         <span style={{ opacity: 0.6 }}>{post.title}</span>
                       ) : (
                         post.title
                       )}
-                    </Text>
-                    <Text variant="muted" size="small">
+                    </span>
+                    <span style={{ color: '#757575', fontSize: '12px' }}>
                       {post.type}
-                    </Text>
+                    </span>
                   </div>
                   <Button
                     icon={closeSmall}
@@ -273,27 +271,27 @@ export function PostSelector({
                     onClick={() => handleRemove(post.id)}
                     label={__('Remove', 'handoff')}
                   />
-                </HStack>
+                </Flex>
               </CardBody>
             </Card>
           ))}
-        </VStack>
+        </Flex>
       )}
 
       {/* Empty state */}
       {selectedPosts.length === 0 && (
-        <Text variant="muted" align="center">
+        <span style={{ color: '#757575', textAlign: 'center', display: 'block' }}>
           {__('No posts selected. Search above to add posts.', 'handoff')}
-        </Text>
+        </span>
       )}
 
       {/* Max items notice */}
       {mode === 'multiple' && selectedPosts.length >= maxItems && (
-        <Text variant="muted" align="center">
+        <span style={{ color: '#757575', textAlign: 'center', display: 'block' }}>
           {__(\`Maximum of \${maxItems} items reached.\`, 'handoff')}
-        </Text>
+        </span>
       )}
-    </VStack>
+    </Flex>
   );
 }
 
@@ -329,10 +327,7 @@ import {
   CardBody,
   CardHeader,
   FormTokenField,
-  __experimentalVStack as VStack,
-  __experimentalHStack as HStack,
-  __experimentalText as Text,
-  __experimentalDivider as Divider,
+  Flex,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import { closeSmall } from '@wordpress/icons';
@@ -383,8 +378,8 @@ function TaxonomyFilter({ taxonomy, selectedTerms, onChange, onRemove }) {
   return (
     <Card size="small" className="handoff-taxonomy-filter">
       <CardHeader className="handoff-taxonomy-filter__header">
-        <HStack alignment="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-          <Text weight={500}>{taxonomy.label}</Text>
+        <Flex align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <span style={{ fontWeight: 500 }}>{taxonomy.label}</span>
           <Button
             icon={closeSmall}
             size="small"
@@ -394,7 +389,7 @@ function TaxonomyFilter({ taxonomy, selectedTerms, onChange, onRemove }) {
             label={__('Remove filter', 'handoff')}
             style={{ marginLeft: 'auto' }}
           />
-        </HStack>
+        </Flex>
       </CardHeader>
       <CardBody>
         <FormTokenField
@@ -402,8 +397,6 @@ function TaxonomyFilter({ taxonomy, selectedTerms, onChange, onRemove }) {
           value={selectedTermNames}
           suggestions={termNames}
           onChange={handleChange}
-          __experimentalExpandOnFocus
-          __experimentalShowHowTo={false}
         />
       </CardBody>
     </Card>
@@ -512,7 +505,7 @@ export function PostQueryBuilder({
   ];
 
   return (
-    <VStack spacing={4} className="handoff-query-builder">
+    <Flex direction="column" gap={4} className="handoff-query-builder">
       {/* Post Type Selection */}
       {postTypes.length > 1 && (
         <SelectControl
@@ -528,11 +521,11 @@ export function PostQueryBuilder({
 
       {/* Taxonomy Filters - Moved to top */}
       <div className="handoff-query-builder__filters">
-        <Text weight={600} size="12px" style={{ textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
+        <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
           {__('Filters', 'handoff')}
-        </Text>
+        </span>
 
-        <VStack spacing={3}>
+        <Flex direction="column" gap={3}>
           {currentTaxQueries.map((taxQuery, index) => {
             const taxonomy = availableTaxonomies.find(
               (t) => t.slug === taxQuery.taxonomy
@@ -570,17 +563,17 @@ export function PostQueryBuilder({
           )}
 
           {unusedTaxonomies.length === 0 && currentTaxQueries.length === 0 && (
-            <Text variant="muted">
+            <span style={{ color: '#757575' }}>
               {__('No taxonomy filters available for this post type.', 'handoff')}
-            </Text>
+            </span>
           )}
-        </VStack>
+        </Flex>
       </div>
 
-      <Divider />
+      <hr style={{ margin: '0', border: 'none', borderTop: '1px solid #e0e0e0' }} />
 
       {/* Ordering Options */}
-      <HStack alignment="top" spacing={3}>
+      <Flex align="flex-start" gap={3}>
         <div style={{ flex: 1 }}>
           <SelectControl
             label={__('Order By', 'handoff')}
@@ -597,7 +590,7 @@ export function PostQueryBuilder({
             onChange={(value) => updateQueryArg('order', value)}
           />
         </div>
-      </HStack>
+      </Flex>
 
       {/* Posts Per Page - Now a simple number input */}
       <TextControl
@@ -622,7 +615,7 @@ export function PostQueryBuilder({
         borderRadius: '4px',
         marginTop: '8px'
       }}>
-        <Text variant="muted" size="small">
+        <span style={{ color: '#757575', fontSize: '12px' }}>
           {__('Showing', 'handoff')} <strong>{currentPerPage}</strong> {currentPostType}
           {currentPerPage !== 1 ? 's' : ''} {__('ordered by', 'handoff')}{' '}
           <strong>{currentOrderBy}</strong> ({currentOrder})
@@ -630,9 +623,9 @@ export function PostQueryBuilder({
             \` \${__('with', 'handoff')} \${currentTaxQueries.length} \${
               currentTaxQueries.length === 1 ? __('filter', 'handoff') : __('filters', 'handoff')
             }\`}
-        </Text>
+        </span>
       </div>
-    </VStack>
+    </Flex>
   );
 }
 

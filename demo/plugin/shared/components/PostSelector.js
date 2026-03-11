@@ -16,12 +16,10 @@ import {
   Button,
   Card,
   CardBody,
-  __experimentalVStack as VStack,
-  __experimentalHStack as HStack,
-  __experimentalText as Text,
+  Flex,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
-import { dragHandle, closeSmall } from '@wordpress/icons';
+import { closeSmall } from '@wordpress/icons';
 
 /**
  * PostSelector - Select WordPress posts for dynamic array fields
@@ -193,7 +191,7 @@ export function PostSelector({
   const canAddMore = mode === 'multiple' ? selectedPosts.length < maxItems : selectedPosts.length === 0;
 
   return (
-    <VStack spacing={3} className="handoff-post-selector">
+    <Flex direction="column" gap={3} className="handoff-post-selector">
       {/* Search input */}
       {canAddMore && (
         <div className="handoff-post-selector__search">
@@ -206,9 +204,6 @@ export function PostSelector({
               setIsSearching(value.length >= 2);
             }}
             options={searchOptions}
-            __experimentalRenderItem={({ item }) => (
-              <span>{item.label}</span>
-            )}
           />
           {isLoading && (
             <div className="handoff-post-selector__loading">
@@ -220,7 +215,7 @@ export function PostSelector({
 
       {/* Selected posts list */}
       {selectedPostData.length > 0 && (
-        <VStack spacing={2} className="handoff-post-selector__selected">
+        <Flex direction="column" gap={2} className="handoff-post-selector__selected">
           {selectedPostData.map((post, index) => (
             <Card
               key={post.id}
@@ -228,9 +223,9 @@ export function PostSelector({
               className="handoff-post-selector__item"
             >
               <CardBody>
-                <HStack alignment="center" spacing={2}>
+                <Flex align="center" gap={2}>
                   {mode === 'multiple' && selectedPosts.length > 1 && (
-                    <VStack spacing={0}>
+                    <Flex direction="column" gap={0}>
                       <Button
                         icon="arrow-up-alt2"
                         size="small"
@@ -245,19 +240,19 @@ export function PostSelector({
                         onClick={() => handleMoveDown(index)}
                         label={__('Move down', 'handoff')}
                       />
-                    </VStack>
+                    </Flex>
                   )}
                   <div style={{ flex: 1 }}>
-                    <Text weight={500}>
+                    <span style={{ fontWeight: 500 }}>
                       {post.loading ? (
                         <span style={{ opacity: 0.6 }}>{post.title}</span>
                       ) : (
                         post.title
                       )}
-                    </Text>
-                    <Text variant="muted" size="small">
+                    </span>
+                    <span style={{ color: '#757575', fontSize: '12px' }}>
                       {post.type}
-                    </Text>
+                    </span>
                   </div>
                   <Button
                     icon={closeSmall}
@@ -266,27 +261,27 @@ export function PostSelector({
                     onClick={() => handleRemove(post.id)}
                     label={__('Remove', 'handoff')}
                   />
-                </HStack>
+                </Flex>
               </CardBody>
             </Card>
           ))}
-        </VStack>
+        </Flex>
       )}
 
       {/* Empty state */}
       {selectedPosts.length === 0 && (
-        <Text variant="muted" align="center">
+        <span style={{ color: '#757575', textAlign: 'center', display: 'block' }}>
           {__('No posts selected. Search above to add posts.', 'handoff')}
-        </Text>
+        </span>
       )}
 
       {/* Max items notice */}
       {mode === 'multiple' && selectedPosts.length >= maxItems && (
-        <Text variant="muted" align="center">
+        <span style={{ color: '#757575', textAlign: 'center', display: 'block' }}>
           {__(`Maximum of ${maxItems} items reached.`, 'handoff')}
-        </Text>
+        </span>
       )}
-    </VStack>
+    </Flex>
   );
 }
 

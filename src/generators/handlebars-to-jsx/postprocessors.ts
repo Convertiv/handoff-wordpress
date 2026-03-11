@@ -452,6 +452,42 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
           }
           innerBlocksEmitted = true;
           return `<InnerBlocks allowedBlocks={CONTENT_BLOCKS} />`;
+        } else if (type === 'link') {
+          // Link fields: RichText for label + Popover with LinkControl for URL
+          const safeId = path.replace(/\./g, '_');
+          const labelValueExpr = valueExpr.replace(/ \|\| ''$/, '?.label || \'\'');
+          const objRef = valueExpr.replace(/ \|\| ''$/, '');
+          const labelOnChange = onChangeExpr
+            .replace('value)', '{ ...' + objRef + ', label: value })');
+          const linkOnChange = onChangeExpr
+            .replace('value)', '{ ...' + objRef + ', url: value.url || \'\', opensInNewTab: value.opensInNewTab || false })');;
+          return `<HandoffLinkField
+            fieldId="${safeId}"
+            label={${labelValueExpr}}
+            url={${objRef}?.url || ''}
+            opensInNewTab={${objRef}?.opensInNewTab || false}
+            onLabelChange={${labelOnChange}}
+            onLinkChange={${linkOnChange}}
+            isSelected={isSelected}
+          />`;
+        } else if (type === 'button') {
+          // Button fields: RichText for label + Popover with LinkControl for href
+          const safeId = path.replace(/\./g, '_');
+          const labelValueExpr = valueExpr.replace(/ \|\| ''$/, '?.label || \'\'');
+          const objRef = valueExpr.replace(/ \|\| ''$/, '');
+          const labelOnChange = onChangeExpr
+            .replace('value)', '{ ...' + objRef + ', label: value })');
+          const linkOnChange = onChangeExpr
+            .replace('value)', '{ ...' + objRef + ', href: value.url || \'#\', target: value.opensInNewTab ? \'_blank\' : \'\', rel: value.opensInNewTab ? \'noopener noreferrer\' : \'\' })');
+          return `<HandoffLinkField
+            fieldId="${safeId}"
+            label={${labelValueExpr}}
+            url={${objRef}?.href || '#'}
+            opensInNewTab={${objRef}?.target === '_blank'}
+            onLabelChange={${labelOnChange}}
+            onLinkChange={${linkOnChange}}
+            isSelected={isSelected}
+          />`;
         } else {
           // For text fields, use RichText with no allowed formats for inline contenteditable editing
           return `<RichText

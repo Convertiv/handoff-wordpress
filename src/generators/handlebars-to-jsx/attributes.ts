@@ -4,7 +4,7 @@
 
 import { HTMLElement } from 'node-html-parser';
 import { TranspilerContext, ConvertedAttributeValue } from './types';
-import { toCamelCase, toJsxAttrName, normalizeWhitespace } from './utils';
+import { toCamelCase, toJsxAttrName, normalizeWhitespace, collapseWhitespace } from './utils';
 import { transpileExpression, resolveParentPropertiesInExpression } from './expression-parser';
 import { parseStyleToObject } from './styles';
 
@@ -123,8 +123,8 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
     (_: string, condition: string, ifVal: string, elseVal: string) => {
       isExpression = true;
       const condExpr = propToExpr(normalizeWhitespace(condition));
-      const ifExpr = convertInnerToExpr(normalizeWhitespace(ifVal));
-      const elseExpr = convertInnerToExpr(normalizeWhitespace(elseVal));
+      const ifExpr = convertInnerToExpr(collapseWhitespace(ifVal));
+      const elseExpr = convertInnerToExpr(collapseWhitespace(elseVal));
       
       return '${' + condExpr + ' ? ' + ifExpr + ' : ' + elseExpr + '}';
     }
@@ -137,7 +137,7 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
     (_: string, condition: string, ifVal: string) => {
       isExpression = true;
       const condExpr = propToExpr(normalizeWhitespace(condition));
-      const ifExpr = convertInnerToExpr(normalizeWhitespace(ifVal));
+      const ifExpr = convertInnerToExpr(collapseWhitespace(ifVal));
       
       return '${' + condExpr + ' ? ' + ifExpr + " : ''}";
     }
@@ -149,7 +149,7 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
     /\{\{#unless\s+@last\s*\}\}([\s\S]*?)\{\{\/unless\}\}/g,
     (_: string, unlessVal: string) => {
       isExpression = true;
-      const unlessExpr = convertInnerToExpr(normalizeWhitespace(unlessVal));
+      const unlessExpr = convertInnerToExpr(collapseWhitespace(unlessVal));
       // @last means it's NOT the last item, so we check index < array.length - 1
       return "${index < items?.length - 1 ? " + unlessExpr + " : ''}";
     }
@@ -161,7 +161,7 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
     /\{\{#unless\s+@first\s*\}\}([\s\S]*?)\{\{\/unless\}\}/g,
     (_: string, unlessVal: string) => {
       isExpression = true;
-      const unlessExpr = convertInnerToExpr(normalizeWhitespace(unlessVal));
+      const unlessExpr = convertInnerToExpr(collapseWhitespace(unlessVal));
       // @first is true when index === 0, so unless @first means index !== 0
       return "${index !== 0 ? " + unlessExpr + " : ''}";
     }
@@ -174,7 +174,7 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
     (_: string, condition: string, unlessVal: string) => {
       isExpression = true;
       const condExpr = propToExpr(normalizeWhitespace(condition));
-      const unlessExpr = convertInnerToExpr(normalizeWhitespace(unlessVal));
+      const unlessExpr = convertInnerToExpr(collapseWhitespace(unlessVal));
       
       // unless is the opposite of if
       return '${!' + condExpr + ' ? ' + unlessExpr + " : ''}";
@@ -196,14 +196,15 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
 
 /**
  * Pre-process conditional attributes (entire attribute wrapped in {{#if}})
- * Pattern: {{#if condition}}attrName="value"{{/if}}
- * Convert to: attrName={condition || undefined}
+ * Handles two patterns:
+ *   1. {{#if condition}}attrName="value"{{/if}}  — attr with value
+ *   2. {{#if condition}} attrName{{/if}}          — boolean attr (e.g. selected, disabled)
+ * Both are converted to: attrName={condition ? value : undefined}
  */
 export const preprocessConditionalAttributes = (template: string): string => {
   let result = template;
   
-  // Match {{#if condition}}attrName="value"{{/if}} pattern
-  // This handles cases where an entire attribute is conditionally included
+  // Pattern 1: {{#if condition}}attrName="value"{{/if}}
   const condAttrRegex = /\{\{#if\s+([^}]+)\}\}(\w+(?:-\w+)*)="([^"]*)"\{\{\/if\}\}/g;
   
   let match;
@@ -248,14 +249,54 @@ export const preprocessConditionalAttributes = (template: string): string => {
       jsxAttrName = toJsxAttrName(attrName);
     }
     
-    // Create the replacement using a marker that won't be parsed as HTML
-    // The condition is used to determine if the value should be included
-    // Since condition === value expression in most cases, we can use value directly
-    const markerContent = `${valueExpr} || undefined`;
+    const markerContent = `${condExpr} ? ${valueExpr} : undefined`;
     const replacement = `${jsxAttrName}="__COND_ATTR__${Buffer.from(markerContent).toString('base64')}__END_COND_ATTR__"`;
     
     result = result.substring(0, startPos) + replacement + result.substring(startPos + fullMatch.length);
     condAttrRegex.lastIndex = startPos + replacement.length;
+  }
+  
+  // Pattern 2: {{#if condition}} booleanAttr{{/if}} (boolean attribute, no ="value")
+  // e.g. {{#if this.selected}} selected{{/if}} or {{#if this.disabled}} disabled{{/if}}
+  // Only matches outside attribute values — conditionals inside class="..." etc. are
+  // handled later by convertAttributeValue.
+  const condBoolRegex = /\{\{#if\s+([^}]+)\}\}\s*(\w+(?:-\w+)*)\s*\{\{\/if\}\}/g;
+  
+  while ((match = condBoolRegex.exec(result)) !== null) {
+    const fullMatch = match[0];
+    const startPos = match.index;
+    
+    // Skip if this match is inside an HTML attribute value (between quotes).
+    // Find the last `<` before this position and count unescaped quotes in the
+    // segment between that `<` and the match, ignoring quotes inside {{...}} blocks.
+    const lastTagStart = result.lastIndexOf('<', startPos);
+    if (lastTagStart !== -1) {
+      const segment = result.substring(lastTagStart, startPos);
+      const segmentNoHbs = segment.replace(/\{\{[\s\S]*?\}\}/g, '');
+      const quoteCount = (segmentNoHbs.match(/"/g) || []).length;
+      if (quoteCount % 2 === 1) {
+        // Odd quote count means we're inside an attribute value — skip
+        continue;
+      }
+    }
+    
+    const condition = match[1].trim();
+    const attrName = match[2];
+    
+    let condExpr = condition;
+    if (condition.startsWith('properties.')) {
+      const parts = condition.replace('properties.', '').split('.');
+      condExpr = parts.map((p: string, i: number) => i === 0 ? toCamelCase(p) : p).join('?.');
+    } else if (condition.startsWith('this.')) {
+      condExpr = `item.${condition.replace('this.', '')}`;
+    }
+    
+    const jsxAttrName = toJsxAttrName(attrName);
+    const markerContent = `${condExpr} || undefined`;
+    const replacement = ` ${jsxAttrName}="__COND_ATTR__${Buffer.from(markerContent).toString('base64')}__END_COND_ATTR__"`;
+    
+    result = result.substring(0, startPos) + replacement + result.substring(startPos + fullMatch.length);
+    condBoolRegex.lastIndex = startPos + replacement.length;
   }
   
   return result;

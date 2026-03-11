@@ -21,10 +21,7 @@ import {
   CardBody,
   CardHeader,
   FormTokenField,
-  __experimentalVStack as VStack,
-  __experimentalHStack as HStack,
-  __experimentalText as Text,
-  __experimentalDivider as Divider,
+  Flex,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import { plus, closeSmall } from '@wordpress/icons';
@@ -83,8 +80,8 @@ function TaxonomyFilter({ taxonomy, selectedTerms, onChange, onRemove }) {
   return (
     <Card size="small" className="handoff-taxonomy-filter">
       <CardHeader>
-        <HStack alignment="center">
-          <Text weight={500}>{taxonomy.label}</Text>
+        <Flex align="center" gap={2}>
+          <span style={{ fontWeight: 500 }}>{taxonomy.label}</span>
           <Button
             icon={closeSmall}
             size="small"
@@ -92,7 +89,7 @@ function TaxonomyFilter({ taxonomy, selectedTerms, onChange, onRemove }) {
             onClick={onRemove}
             label={__('Remove filter', 'handoff')}
           />
-        </HStack>
+        </Flex>
       </CardHeader>
       <CardBody>
         <FormTokenField
@@ -100,8 +97,6 @@ function TaxonomyFilter({ taxonomy, selectedTerms, onChange, onRemove }) {
           value={selectedTermNames}
           suggestions={termNames}
           onChange={handleChange}
-          __experimentalExpandOnFocus
-          __experimentalShowHowTo={false}
         />
       </CardBody>
     </Card>
@@ -226,7 +221,7 @@ export function PostQueryBuilder({
   ];
 
   return (
-    <VStack spacing={4} className="handoff-query-builder">
+    <Flex direction="column" gap={4} className="handoff-query-builder">
       {/* Post Type Selection */}
       {postTypes.length > 1 && (
         <SelectControl
@@ -250,10 +245,10 @@ export function PostQueryBuilder({
         help={__('Number of posts to display', 'handoff')}
       />
 
-      <Divider />
+      <hr style={{ margin: '0', border: 'none', borderTop: '1px solid #e0e0e0' }} />
 
       {/* Ordering */}
-      <HStack alignment="top" spacing={3}>
+      <Flex align="flex-start" gap={3}>
         <div style={{ flex: 1 }}>
           <SelectControl
             label={__('Order By', 'handoff')}
@@ -270,17 +265,17 @@ export function PostQueryBuilder({
             onChange={(value) => updateQueryArg('order', value)}
           />
         </div>
-      </HStack>
+      </Flex>
 
-      <Divider />
+      <hr style={{ margin: '0', border: 'none', borderTop: '1px solid #e0e0e0' }} />
 
       {/* Taxonomy Filters */}
       <div className="handoff-query-builder__filters">
-        <Text weight={600} size="12px" upperCase>
+        <span style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
           {__('Filters', 'handoff')}
-        </Text>
+        </span>
 
-        <VStack spacing={3}>
+        <Flex direction="column" gap={3}>
           {currentTaxQueries.map((taxQuery, index) => {
             const taxonomy = availableTaxonomies.find(
               (t) => t.slug === taxQuery.taxonomy
@@ -300,7 +295,7 @@ export function PostQueryBuilder({
 
           {/* Add Filter Button */}
           {unusedTaxonomies.length > 0 && (
-            <HStack>
+            <Flex align="center" gap={2}>
               <SelectControl
                 label={__('Add Filter', 'handoff')}
                 value=""
@@ -317,20 +312,20 @@ export function PostQueryBuilder({
                   }
                 }}
               />
-            </HStack>
+            </Flex>
           )}
 
           {unusedTaxonomies.length === 0 && currentTaxQueries.length === 0 && (
-            <Text variant="muted">
+            <span style={{ color: '#757575' }}>
               {__('No taxonomy filters available for this post type.', 'handoff')}
-            </Text>
+            </span>
           )}
-        </VStack>
+        </Flex>
       </div>
 
       {/* Query Preview */}
       <div className="handoff-query-builder__preview">
-        <Text variant="muted" size="small">
+        <span style={{ color: '#757575', fontSize: '12px' }}>
           {__('Showing', 'handoff')} {currentPerPage} {currentPostType}
           {currentPerPage !== 1 ? 's' : ''} {__('ordered by', 'handoff')}{' '}
           {currentOrderBy} ({currentOrder})
@@ -338,9 +333,9 @@ export function PostQueryBuilder({
             ` ${__('with', 'handoff')} ${currentTaxQueries.length} ${
               currentTaxQueries.length === 1 ? __('filter', 'handoff') : __('filters', 'handoff')
             }`}
-        </Text>
+        </span>
       </div>
-    </VStack>
+    </Flex>
   );
 }
 

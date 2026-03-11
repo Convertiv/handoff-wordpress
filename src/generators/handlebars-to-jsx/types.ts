@@ -21,6 +21,8 @@ export interface ConvertedAttributeValue {
 export interface TranspileResult {
   jsx: string;
   needsFragment: boolean;
+  /** Field paths that have inline editing on the canvas (text, image, link, button) */
+  inlineEditableFields: Set<string>;
 }
 
 export interface FieldInfo {

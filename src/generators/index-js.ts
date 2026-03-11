@@ -75,7 +75,7 @@ ${indent}    onSelect={(media) => ${onChangeHandler('{ src: media.url, alt: medi
 ${indent}    allowedTypes={['image']}
 ${indent}    value={${valueAccessor}?.src}
 ${indent}    render={({ open }) => (
-${indent}      <VStack spacing={3}>
+${indent}      <Flex direction="column" gap={3}>
 ${indent}        <span className="components-base-control__label">{__('${label}', 'handoff')}</span>
 ${indent}        {${valueAccessor}?.src && (
 ${indent}          <img 
@@ -97,7 +97,7 @@ ${indent}          >
 ${indent}            {__('Remove', 'handoff')}
 ${indent}          </Button>
 ${indent}        )}
-${indent}      </VStack>
+${indent}      </Flex>
 ${indent}    )}
 ${indent}  />
 ${indent}</MediaUploadCheck>`;
@@ -193,9 +193,9 @@ ${indent}/>`;
         // Generate a list control for string arrays
         return `${indent}<div className="components-base-control">
 ${indent}  <label className="components-base-control__label">{__('${label}', 'handoff')}</label>
-${indent}  <VStack spacing={2}>
+${indent}  <Flex direction="column" gap={2}>
 ${indent}    {(${valueAccessor} || []).map((listItem, listIndex) => (
-${indent}      <HStack key={listIndex} spacing={2} alignment="center">
+${indent}      <Flex key={listIndex} gap={2} align="center">
 ${indent}        <div style={{ flex: 1 }}>
 ${indent}          <TextControl
 ${indent}            value={listItem || ''}
@@ -242,7 +242,7 @@ ${indent}          }}
 ${indent}          isDestructive
 ${indent}          size="small"
 ${indent}        />
-${indent}      </HStack>
+${indent}      </Flex>
 ${indent}    ))}
 ${indent}    <Button
 ${indent}      onClick={() => {
@@ -254,7 +254,7 @@ ${indent}      size="small"
 ${indent}    >
 ${indent}      {__('Add Item', 'handoff')}
 ${indent}    </Button>
-${indent}  </VStack>
+${indent}  </Flex>
 ${indent}</div>`;
       }
       // For object arrays, fall through to default (these should be handled by generateArrayControl at top level)
@@ -271,9 +271,9 @@ ${indent}</div>`;
             };
             return generateFieldControl(nestedKey, nestedProp, nestedContext);
           }).join('\n');
-        return `${indent}<VStack spacing={2}>
+        return `${indent}<Flex direction="column" gap={2}>
 ${nestedControls}
-${indent}</VStack>`;
+${indent}</Flex>`;
       }
       return '';
 
@@ -353,9 +353,9 @@ ${indent}            />
 ${indent}          </span>
 ${indent}        </summary>
 ${indent}        <div className="repeater-item__fields">
-${indent}          <VStack spacing={2}>
+${indent}          <Flex direction="column" gap={2}>
 ${itemFields}
-${indent}          </VStack>
+${indent}          </Flex>
 ${indent}        </div>
 ${indent}      </details>
 ${indent}    </div>
@@ -568,7 +568,7 @@ const generateIndexJs = (
   // Add LinkControl for link and button fields (internal page search + URL validation)
   const needsLinkControl = hasPropertyType('link') || hasPropertyType('button');
   if (needsLinkControl) {
-    blockEditorImports.push('__experimentalLinkControl as LinkControl');
+    blockEditorImports.push('LinkControl');
   }
 
   const componentImports = ['PanelBody', 'TextControl', 'Button'];
@@ -582,10 +582,10 @@ const generateIndexJs = (
   // Spinner for dynamic array loading state in editor preview
   if (hasDynamicArrays) componentImports.push('Spinner');
 
-  componentImports.push('__experimentalVStack as VStack');
-  // HStack is needed for nested objects or string arrays with reorder buttons
-  if (hasObjectProps) {
-    componentImports.push('__experimentalHStack as HStack');
+  componentImports.push('Flex');
+  // Popover is needed for inline link/button editing
+  if (needsLinkControl) {
+    componentImports.push('Popover');
   }
 
   // 10up block-components imports
@@ -594,6 +594,23 @@ const generateIndexJs = (
     tenUpImports.push('Repeater');
   }
 
+  // Generate array helpers
+  const arrayHelpers = generateArrayHelpers(properties);
+
+  // Generate JSX preview from handlebars template
+  // This must happen before panel generation so we know which fields have inline editing
+  const previewResult = generateJsxPreview(
+    component.code,
+    properties,
+    component.id,
+    component.title
+  );
+  let previewJsx = previewResult.jsx;
+  const inlineEditableFields = previewResult.inlineEditableFields;
+
+  // Detect if preview uses HandoffLinkField (link/button inline editing)
+  const previewUsesLinkField = previewJsx.includes('<HandoffLinkField');
+
   // Generate panel bodies for each property
   const panels: string[] = [];
 
@@ -601,6 +618,10 @@ const generateIndexJs = (
     // richtext uses InnerBlocks on the canvas – no sidebar panel needed
     // pagination is auto-generated from query results – no sidebar panel needed
     if (property.type === 'richtext' || property.type === 'pagination') continue;
+
+    // Skip fields that are inline-editable on the canvas (text, image, link, button
+    // wrapped in {{#field}}) – they don't need sidebar controls
+    if (inlineEditableFields.has(key)) continue;
 
     const label = property.name || toTitleCase(key);
     const attrName = toCamelCase(key);
@@ -703,49 +724,40 @@ ${generatePropertyControl(key, property)}
   }
 
   // Add Handoff design system links panel
-  // This panel will be shown if __handoff metadata exists in block.json
-  panels.push(`          {/* Design System Links */}
-          {(metadata.__handoff?.handoffUrl || metadata.__handoff?.figmaUrl) && (
-            <PanelBody title={__('Design System', 'handoff')} initialOpen={false}>
-              <VStack spacing={3}>
-                {metadata.__handoff?.handoffUrl && (
-                  <Button
-                    variant="secondary"
-                    href={metadata.__handoff.handoffUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    icon="visibility"
-                    style={{ width: '100%', justifyContent: 'center' }}
-                  >
-                    {__('View in Handoff', 'handoff')}
-                  </Button>
-                )}
-                {metadata.__handoff?.figmaUrl && (
-                  <Button
-                    variant="secondary"
-                    href={metadata.__handoff.figmaUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    icon="art"
-                    style={{ width: '100%', justifyContent: 'center' }}
-                  >
-                    {__('Open in Figma', 'handoff')}
-                  </Button>
-                )}
-              </VStack>
-            </PanelBody>
-          )}`);
-
-  // Generate array helpers
-  const arrayHelpers = generateArrayHelpers(properties);
-
-  // Generate JSX preview from handlebars template
-  let previewJsx = generateJsxPreview(
-    component.code,
-    properties,
-    component.id,
-    component.title
-  );
+  const designSystemPanel = [
+    '          {/* Design System Links */}',
+    '          {(metadata.__handoff?.handoffUrl || metadata.__handoff?.figmaUrl) && (',
+    '            <PanelBody title={__(\'Design System\', \'handoff\')} initialOpen={false}>',
+    '              <Flex direction="column" gap={3}>',
+    '                {metadata.__handoff?.handoffUrl && (',
+    '                  <Button',
+    '                    variant="secondary"',
+    '                    href={metadata.__handoff.handoffUrl}',
+    '                    target="_blank"',
+    '                    rel="noopener noreferrer"',
+    '                    icon="visibility"',
+    '                    style={{ width: \'100%\', justifyContent: \'center\' }}',
+    '                  >',
+    '                    {__(\'View in Handoff\', \'handoff\')}',
+    '                  </Button>',
+    '                )}',
+    '                {metadata.__handoff?.figmaUrl && (',
+    '                  <Button',
+    '                    variant="secondary"',
+    '                    href={metadata.__handoff.figmaUrl}',
+    '                    target="_blank"',
+    '                    rel="noopener noreferrer"',
+    '                    icon="art"',
+    '                    style={{ width: \'100%\', justifyContent: \'center\' }}',
+    '                  >',
+    '                    {__(\'Open in Figma\', \'handoff\')}',
+    '                  </Button>',
+    '                )}',
+    '              </Flex>',
+    '            </PanelBody>',
+    '          )}',
+  ].join('\n');
+  panels.push(designSystemPanel);
 
   // Dynamic array resolution for editor preview (query/manual → fetch + map)
   let dynamicArrayResolutionCode = '';
@@ -854,8 +866,18 @@ ${previewJsx}
   const previewUses10upImage = previewJsx.includes('<Image');
 
   // Add RichText to imports if used in preview (and not already included from property types)
-  if (previewUsesRichText && !blockEditorImports.includes('RichText')) {
+  if ((previewUsesRichText || previewUsesLinkField) && !blockEditorImports.includes('RichText')) {
     blockEditorImports.push('RichText');
+  }
+
+  // Add LinkControl if link field inline editing is used
+  if (previewUsesLinkField && !blockEditorImports.includes('LinkControl')) {
+    blockEditorImports.push('LinkControl');
+  }
+
+  // Add Popover if link field inline editing is used
+  if (previewUsesLinkField && !componentImports.includes('Popover')) {
+    componentImports.push('Popover');
   }
 
   // Add InnerBlocks if used in preview but not already imported
@@ -1005,6 +1027,51 @@ ${imageFields.map(field => `          <MediaReplaceFlow
     ? `import { DynamicPostSelector, mapPostEntityToItem } from '../../shared';\nimport { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n` 
     : '';
 
+  // Build element imports
+  const elementImports = ['Fragment'];
+  if (previewUsesLinkField) {
+    elementImports.push('useState', 'useRef', 'useCallback');
+  }
+
+  // HandoffLinkField component: inline RichText for label + Popover with LinkControl for URL
+  const linkFieldComponent = previewUsesLinkField ? `
+function HandoffLinkField({ fieldId, label, url, opensInNewTab, onLabelChange, onLinkChange, isSelected }) {
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
+  const ref = useRef(null);
+  const toggle = useCallback(() => setIsEditingUrl((v) => !v), []);
+
+  return (
+    <span ref={ref} className="handoff-editable-field handoff-link-field" onClick={toggle} role="button" tabIndex={0}>
+      <RichText
+        tagName="span"
+        value={label}
+        onChange={onLabelChange}
+        allowedFormats={[]}
+        withoutInteractiveFormatting
+        placeholder={__('Link text...', 'handoff')}
+      />
+      {isSelected && (isEditingUrl || url) && (
+        <Popover
+          placement="bottom"
+          onClose={() => setIsEditingUrl(false)}
+          anchor={ref.current}
+          focusOnMount={isEditingUrl ? 'firstElement' : false}
+          shift
+        >
+          <div style={{ minWidth: 280, padding: '8px' }}>
+            <LinkControl
+              value={{ url: url || '', opensInNewTab: opensInNewTab || false }}
+              onChange={(val) => onLinkChange({ url: val.url || '', opensInNewTab: val.opensInNewTab || false })}
+              settings={[{ id: 'opensInNewTab', title: __('Open in new tab', 'handoff') }]}
+            />
+          </div>
+        </Popover>
+      )}
+    </span>
+  );
+}
+` : '';
+
   return `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
@@ -1013,14 +1080,14 @@ import {
   ${componentImports.join(',\n  ')} 
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
-import { Fragment } from '@wordpress/element';
+import { ${elementImports.join(', ')} } from '@wordpress/element';
 ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${hasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
-
+${linkFieldComponent}
 registerBlockType(metadata.name, {
   ...metadata,
-  edit: ({ attributes, setAttributes }) => {
+  edit: ({ attributes, setAttributes, isSelected }) => {
     const blockProps = useBlockProps();
 ${hasRichtext || previewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
     const { ${attrNames.join(', ')} } = attributes;

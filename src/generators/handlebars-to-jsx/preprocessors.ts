@@ -8,13 +8,23 @@ import { parseHelperExpression } from './expression-parser';
 import { lookupFieldType } from './field-lookup';
 import { preprocessAttributeConditionals } from './attributes';
 
+/** Supported inline-editable field types */
+const INLINE_EDITABLE_TYPES = new Set(['text', 'richtext', 'image', 'link', 'button']);
+
+export interface PreprocessFieldsResult {
+  template: string;
+  /** Field paths that were converted to inline-editable markers */
+  inlineEditableFields: Set<string>;
+}
+
 /**
  * Preprocess {{#field "path"}}content{{/field}} into field markers
- * These will be converted to RichText components in postprocessing
- * Only creates markers for text/richtext fields that are NOT inside attribute values
+ * These will be converted to RichText/Image/LinkControl components in postprocessing
+ * Only creates markers for supported field types that are NOT inside attribute values
  */
-export const preprocessFields = (template: string, properties: Record<string, HandoffProperty>): string => {
+export const preprocessFields = (template: string, properties: Record<string, HandoffProperty>): PreprocessFieldsResult => {
   let result = template;
+  const inlineEditableFields = new Set<string>();
   
   // Match {{#field "path"}}content{{/field}} or {{#field path}}content{{/field}}
   const fieldRegex = /\{\{\s*#field\s+["']?([^"'\}]+)["']?\s*\}\}([\s\S]*?)\{\{\s*\/field\s*\}\}/g;
@@ -46,9 +56,8 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
     // Look up the field type
     const fieldType = lookupFieldType(fieldPath, properties);
     
-    // Create editable markers for supported field types that resolve to known properties
-    // If fieldType is null, the field path doesn't resolve - just output the content as-is (non-editable)
-    if (fieldType === 'text' || fieldType === 'richtext' || fieldType === 'image') {
+    // Create editable markers for supported inline-editable field types
+    if (fieldType && INLINE_EDITABLE_TYPES.has(fieldType)) {
       // Encode field info in marker
       const fieldInfo = Buffer.from(JSON.stringify({
         path: fieldPath,
@@ -60,6 +69,10 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
       
       result = result.substring(0, startPos) + replacement + result.substring(startPos + fullMatch.length);
       fieldRegex.lastIndex = startPos + replacement.length;
+      
+      // Track the top-level property name for sidebar filtering
+      const topLevelKey = fieldPath.split('.')[0];
+      inlineEditableFields.add(topLevelKey);
     } else {
       // For unsupported field types OR unresolved field paths (fieldType === null),
       // just keep the content without making it editable
@@ -68,7 +81,7 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
     }
   }
   
-  return result;
+  return { template: result, inlineEditableFields };
 };
 
 /**

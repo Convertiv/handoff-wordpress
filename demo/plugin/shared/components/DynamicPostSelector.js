@@ -21,9 +21,7 @@ import {
   Card,
   CardBody,
   FormTokenField,
-  __experimentalVStack as VStack,
-  __experimentalHStack as HStack,
-  __experimentalText as Text,
+  Flex,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import { closeSmall } from '@wordpress/icons';
@@ -90,7 +88,7 @@ function TaxonomyFilterRow({ filter, taxonomies, onChange, onRemove, textDomain 
 
   return (
     <div className="handoff-dps__filter-row">
-      <HStack alignment="stretch" spacing={2}>
+      <Flex align="stretch" gap={2}>
         <SelectControl
           value={filter.taxonomy}
           options={taxonomyOptions}
@@ -114,7 +112,7 @@ function TaxonomyFilterRow({ filter, taxonomies, onChange, onRemove, textDomain 
           label={__('Remove filter', textDomain)}
           className="handoff-dps__filter-remove"
         />
-      </HStack>
+      </Flex>
     </div>
   );
 }
@@ -191,7 +189,7 @@ function ManualPicker({ postTypes, selectedPosts, onChange, maxItems, textDomain
   const canAddMore = selectedPosts.length < maxItems;
 
   return (
-    <VStack spacing={3} className="handoff-dps__manual">
+    <Flex direction="column" gap={3} className="handoff-dps__manual">
       {canAddMore && (
         <div className="handoff-dps__manual-search">
           <ComboboxControl
@@ -205,14 +203,14 @@ function ManualPicker({ postTypes, selectedPosts, onChange, maxItems, textDomain
         </div>
       )}
       {selectedPostData.length > 0 && (
-        <VStack spacing={2}>
+        <Flex direction="column" gap={2}>
           {selectedPostData.map((post, index) => (
             <Card key={post.id} size="small">
               <CardBody>
-                <HStack alignment="center" spacing={2}>
+                <Flex align="center" gap={2}>
                   <div style={{ flex: 1 }}>
-                    <Text weight={500}>{post.title}</Text>
-                    <Text variant="muted" size="small">{post.type}</Text>
+                    <span style={{ fontWeight: 500 }}>{post.title}</span>
+                    <span style={{ color: '#757575', fontSize: '12px' }}>{post.type}</span>
                   </div>
                   <Button
                     icon={closeSmall}
@@ -221,19 +219,19 @@ function ManualPicker({ postTypes, selectedPosts, onChange, maxItems, textDomain
                     onClick={() => onChange(selectedPosts.filter((p) => p.id !== post.id))}
                     label={__('Remove', textDomain)}
                   />
-                </HStack>
+                </Flex>
               </CardBody>
             </Card>
           ))}
-        </VStack>
+        </Flex>
       )}
       {selectedPosts.length === 0 && (
-        <Text variant="muted">{__('No posts selected. Search above to add posts.', textDomain)}</Text>
+        <span style={{ color: '#757575' }}>{__('No posts selected. Search above to add posts.', textDomain)}</span>
       )}
       {selectedPosts.length >= maxItems && (
-        <Text variant="muted">{__('Maximum items reached.', textDomain)}</Text>
+        <span style={{ color: '#757575' }}>{__('Maximum items reached.', textDomain)}</span>
       )}
-    </VStack>
+    </Flex>
   );
 }
 
@@ -413,12 +411,12 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
       {source !== 'manual' && (
         <div className="handoff-dps__content">
           <div className="handoff-dps__section">
-            <Text className="handoff-dps__section-label">
+            <span className="handoff-dps__section-label">
               <span className="dashicons dashicons-category" />
               {__('Filter by Taxonomy', textDomain)}
-            </Text>
+            </span>
             {(taxonomies || []).length === 0 ? (
-              <Text variant="muted">{__('No taxonomies for this post type.', textDomain)}</Text>
+              <span style={{ color: '#757575' }}>{__('No taxonomies for this post type.', textDomain)}</span>
             ) : (
               <>
                 {currentTaxQueries.map((filter, index) => (
@@ -439,11 +437,11 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
           </div>
 
           <div className="handoff-dps__section">
-            <Text className="handoff-dps__section-label">
+            <span className="handoff-dps__section-label">
               <span className="dashicons dashicons-sort" />
               {__('Order & Limit', textDomain)}
-            </Text>
-            <HStack spacing={2} wrap>
+            </span>
+            <Flex gap={2} wrap>
               <SelectControl
                 label={__('Order by', textDomain)}
                 value={currentOrderBy}
@@ -458,7 +456,7 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
                 onChange={(v) => updateQueryArgs({ order: v })}
                 __nextHasNoMarginBottom
               />
-            </HStack>
+            </Flex>
             <TextControl
               label={__('Number of posts', textDomain)}
               type="number"
@@ -475,10 +473,10 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
 
           {showDateFilter && (
             <div className="handoff-dps__section">
-              <Text className="handoff-dps__section-label">
+              <span className="handoff-dps__section-label">
                 <span className="dashicons dashicons-calendar-alt" />
                 {__('Date Filter', textDomain)}
-              </Text>
+              </span>
               <SelectControl
                 value={datePreset || ''}
                 options={datePresets}
@@ -546,9 +544,9 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
             maxItems={maxItems}
             textDomain={textDomain}
           />
-          <Text className="handoff-dps__selection-count">
+          <span className="handoff-dps__selection-count">
             {selectedPosts.length} {__('selected', textDomain)}
-          </Text>
+          </span>
         </div>
       )}
     </div>

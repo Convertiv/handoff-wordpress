@@ -99,6 +99,15 @@ export const normalizeWhitespace = (str: string): string => {
 };
 
 /**
+ * Collapse internal whitespace (newlines, multiple spaces) into single spaces
+ * but preserve leading/trailing whitespace. Used for conditional attribute values
+ * where a leading space (e.g. " u-mx-auto") is significant.
+ */
+export const collapseWhitespace = (str: string): string => {
+  return str.replace(/\s+/g, ' ');
+};
+
+/**
  * Find matching closing tag for a block helper, handling nesting
  */
 export const findMatchingClose = (template: string, openTag: string, closeTag: string, startPos: number): number => {

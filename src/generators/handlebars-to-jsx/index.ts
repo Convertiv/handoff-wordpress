@@ -31,7 +31,7 @@ export const transpileHandlebarsToJsx = (
   };
   
   // Preprocess fields FIRST (before cleanTemplate strips them)
-  let processed = preprocessFields(template, properties);
+  const { template: processed, inlineEditableFields } = preprocessFields(template, properties);
   
   // Clean and preprocess template
   const cleaned = cleanTemplate(processed);
@@ -61,7 +61,8 @@ export const transpileHandlebarsToJsx = (
   
   return {
     jsx,
-    needsFragment: jsx.includes('<Fragment')
+    needsFragment: jsx.includes('<Fragment'),
+    inlineEditableFields
   };
 };
 
@@ -114,6 +115,11 @@ export const generateFallbackPreview = (
   return preview;
 };
 
+export interface JsxPreviewResult {
+  jsx: string;
+  inlineEditableFields: Set<string>;
+}
+
 /**
  * Generate a JSX preview that's suitable for the Gutenberg editor
  * Falls back to simplified preview if transpilation produces unusable output
@@ -123,9 +129,9 @@ export const generateJsxPreview = (
   properties: Record<string, HandoffProperty>,
   componentId: string,
   componentTitle: string
-): string => {
+): JsxPreviewResult => {
   try {
-    const { jsx } = transpileHandlebarsToJsx(template, properties);
+    const { jsx, inlineEditableFields } = transpileHandlebarsToJsx(template, properties);
     
     // Validate the output has some content
     if (jsx.trim().length < 50) {
@@ -134,11 +140,17 @@ export const generateJsxPreview = (
     
     // Wrap in a container with the editor preview class
     const className = componentId.replace(/_/g, '-');
-    return `          <div className="${className}-editor-preview">
+    return {
+      jsx: `          <div className="${className}-editor-preview">
 ${jsx}
-          </div>`;
+          </div>`,
+      inlineEditableFields
+    };
   } catch (error) {
     console.warn(`Handlebars transpilation failed, using simplified preview: ${error}`);
-    return generateFallbackPreview(properties, componentId, componentTitle);
+    return {
+      jsx: generateFallbackPreview(properties, componentId, componentTitle),
+      inlineEditableFields: new Set()
+    };
   }
 };
