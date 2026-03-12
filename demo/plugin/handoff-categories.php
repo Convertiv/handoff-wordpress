@@ -26,13 +26,13 @@ function handoff_get_block_categories() {
       'icon' => 'admin-customizer',
     ],
     [
-      'slug' => 'handoff-alert',
-      'title' => __('Alert', 'handoff'),
+      'slug' => 'handoff-atomic-elements',
+      'title' => __('Atomic Elements', 'handoff'),
       'icon' => 'admin-customizer',
     ],
     [
-      'slug' => 'handoff-atomic-elements',
-      'title' => __('Atomic Elements', 'handoff'),
+      'slug' => 'handoff-banner',
+      'title' => __('Banner', 'handoff'),
       'icon' => 'admin-customizer',
     ],
     [
@@ -83,6 +83,11 @@ function handoff_get_block_categories() {
     [
       'slug' => 'handoff-navigation',
       'title' => __('Navigation', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-notification',
+      'title' => __('Notification', 'handoff'),
       'icon' => 'admin-customizer',
     ],
     [

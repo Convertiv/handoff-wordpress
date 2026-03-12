@@ -179,7 +179,8 @@ import {
   generateFooterPhp,
   generateTemplatePartPhp,
   generateCategoriesPhp,
-  generateSharedComponents
+  generateSharedComponents,
+  generateMigrationSchema
 } from './generators';
 import {
   loadManifest,
@@ -385,6 +386,7 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
     editorScss: generateEditorScss(component),
     styleScss: generateStyleScss(component),
     readme: generateReadme(component),
+    migrationSchema: generateMigrationSchema(component),
     screenshotUrl
   };
 };
@@ -415,6 +417,7 @@ const writeBlockFiles = async (outputDir: string, componentId: string, block: Ge
   fs.writeFileSync(path.join(blockDir, 'editor.scss'), formattedEditorScss);
   fs.writeFileSync(path.join(blockDir, 'style.scss'), formattedStyleScss);
   fs.writeFileSync(path.join(blockDir, 'README.md'), block.readme);
+  fs.writeFileSync(path.join(blockDir, 'migration-schema.json'), block.migrationSchema);
   
   // Download screenshot if available
   let screenshotDownloaded = false;
@@ -432,6 +435,7 @@ const writeBlockFiles = async (outputDir: string, componentId: string, block: Ge
   console.log(`   📄 editor.scss`);
   console.log(`   📄 style.scss`);
   console.log(`   📄 README.md`);
+  console.log(`   📄 migration-schema.json`);
   if (screenshotDownloaded) {
     console.log(`   🖼️  screenshot.png`);
   }

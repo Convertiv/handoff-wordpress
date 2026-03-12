@@ -95,6 +95,7 @@ export interface GeneratedBlock {
   editorScss: string;
   styleScss: string;
   readme: string;
+  migrationSchema: string;
   screenshotUrl?: string;  // URL to fetch the screenshot from
 }
 

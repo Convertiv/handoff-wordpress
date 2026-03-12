@@ -34,6 +34,14 @@ if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-rest-api.php')) {
   require_once HANDOFF_BLOCKS_PATH . 'includes/handoff-rest-api.php';
 }
 
+// Include migration tooling
+if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/class-handoff-migration.php')) {
+  require_once HANDOFF_BLOCKS_PATH . 'includes/class-handoff-migration.php';
+}
+if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-migration-rest.php')) {
+  require_once HANDOFF_BLOCKS_PATH . 'includes/handoff-migration-rest.php';
+}
+
 /**
  * Register all Handoff blocks
  */
@@ -198,3 +206,60 @@ add_action('after_setup_theme', 'handoff_blocks_remove_core_patterns');
 //   });
 // }
 // add_filter('block_categories_all', 'handoff_blocks_filter_categories', 20, 2);
+
+/**
+ * Register the Handoff Migration admin page
+ */
+function handoff_blocks_migration_menu() {
+  add_menu_page(
+    __('Handoff Migration', 'handoff'),
+    __('Handoff Migration', 'handoff'),
+    'edit_others_posts',
+    'handoff-migration',
+    'handoff_blocks_migration_page',
+    'dashicons-migrate',
+    80
+  );
+}
+add_action('admin_menu', 'handoff_blocks_migration_menu');
+
+function handoff_blocks_migration_page() {
+  echo '<div id="handoff-migration-root"></div>';
+}
+
+/**
+ * Enqueue scripts and styles for the migration admin page
+ */
+function handoff_blocks_migration_assets($hook) {
+  if ($hook !== 'toplevel_page_handoff-migration') {
+    return;
+  }
+
+  $asset_file = HANDOFF_BLOCKS_PATH . 'build/migration/index.asset.php';
+
+  if (file_exists($asset_file)) {
+    $asset = require $asset_file;
+  } else {
+    $asset = [
+      'dependencies' => ['wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n'],
+      'version'      => HANDOFF_BLOCKS_VERSION,
+    ];
+  }
+
+  wp_enqueue_script(
+    'handoff-migration',
+    HANDOFF_BLOCKS_URL . 'build/migration/index.js',
+    $asset['dependencies'],
+    $asset['version'],
+    true
+  );
+
+  wp_enqueue_style(
+    'handoff-migration',
+    HANDOFF_BLOCKS_URL . 'build/migration/index.css',
+    ['wp-components'],
+    $asset['version']
+  );
+
+  wp_enqueue_style('wp-components');
+}

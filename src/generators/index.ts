@@ -15,3 +15,4 @@ export {
 } from './handlebars-to-jsx';
 export { generateHeaderPhp, generateFooterPhp, generateTemplatePartPhp } from './theme-template';
 export { generateSharedComponents, generatePostSelector, generatePostQueryBuilder } from './shared-components';
+export { generateMigrationSchema } from './schema-json';

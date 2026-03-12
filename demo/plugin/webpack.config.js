@@ -30,6 +30,12 @@ blockFolders.forEach(block => {
   entry[`${block}/index`] = path.resolve(blocksDir, block, 'index.js');
 });
 
+// Migration admin page entry point
+const migrationEntry = path.resolve(__dirname, 'src/migration/index.js');
+if (fs.existsSync(migrationEntry)) {
+  entry['migration/index'] = migrationEntry;
+}
+
 // Create copy patterns for block.json and render.php files
 const copyPatterns = blockFolders.flatMap(block => {
   const patterns = [];
@@ -48,6 +54,14 @@ const copyPatterns = blockFolders.flatMap(block => {
     patterns.push({
       from: path.join(blockPath, 'render.php'),
       to: path.join(block, 'render.php'),
+    });
+  }
+
+  // Copy migration-schema.json
+  if (fs.existsSync(path.join(blockPath, 'migration-schema.json'))) {
+    patterns.push({
+      from: path.join(blockPath, 'migration-schema.json'),
+      to: path.join(block, 'migration-schema.json'),
     });
   }
   

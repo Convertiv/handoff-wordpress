@@ -1,0 +1,36 @@
+.handoff-migration {
+  max-width: 1200px;
+}
+
+.handoff-migration .components-tab-panel__tabs {
+  margin-bottom: 16px;
+}
+
+.handoff-migration__page-list table code {
+  font-size: 11px;
+  background: #f0f0f0;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.handoff-migration__mapper .components-card {
+  border: 1px solid #ddd;
+}
+
+.handoff-migration__mapper .components-card__header {
+  background: #f9f9f9;
+}
+
+.handoff-migration__mapper table.widefat {
+  border-collapse: collapse;
+}
+
+.handoff-migration__mapper table.widefat td,
+.handoff-migration__mapper table.widefat th {
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.handoff-migration__mapper table.widefat .components-select-control__input {
+  width: 100%;
+}
