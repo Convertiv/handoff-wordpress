@@ -1,0 +1,613 @@
+openapi: 3.0.3
+info:
+  title: Handoff Blocks REST API
+  description: |
+    REST API for the Handoff Blocks WordPress plugin. Provides endpoints for
+    block editor dynamic array support (post type discovery, field introspection,
+    taxonomy listing) and ACF-to-Handoff block migration tooling.
+  version: 1.0.0
+  contact:
+    name: Handoff
+    url: https://handoff.com
+
+servers:
+  - url: /wp-json/handoff/v1
+    description: WordPress REST API (relative to site root)
+
+security:
+  - cookieAuth: []
+
+tags:
+  - name: Block Editor
+    description: Endpoints used by the Gutenberg block editor for dynamic array fields
+  - name: Migration
+    description: ACF-to-Handoff block migration admin tooling
+
+paths:
+  /post-types:
+    get:
+      tags: [Block Editor]
+      summary: List available post types
+      description: Returns all public, REST-visible post types (excludes attachment).
+      operationId: getPostTypes
+      responses:
+        "200":
+          description: List of post types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PostType"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /fields/{post_type}:
+    get:
+      tags: [Block Editor]
+      summary: List fields for a post type
+      description: |
+        Returns core fields, author fields, registered post meta, and public
+        taxonomies available for the given post type. Extensible via the
+        `handoff_available_fields` filter.
+      operationId: getFields
+      parameters:
+        - name: post_type
+          in: path
+          required: true
+          schema:
+            type: string
+          description: A valid WordPress post type slug
+          example: post
+      responses:
+        "200":
+          description: List of available fields
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Field"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /taxonomies/{post_type}:
+    get:
+      tags: [Block Editor]
+      summary: List taxonomies for a post type
+      description: Returns public, REST-visible taxonomies attached to the post type.
+      operationId: getTaxonomies
+      parameters:
+        - name: post_type
+          in: path
+          required: true
+          schema:
+            type: string
+          description: A valid WordPress post type slug
+          example: post
+      responses:
+        "200":
+          description: List of taxonomies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Taxonomy"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /migration/schemas:
+    get:
+      tags: [Migration]
+      summary: List Handoff block schemas
+      description: |
+        Returns all migration schemas read from `migration-schema.json` files
+        in the plugin's `build/<block>/` directories. Keyed by block name.
+      operationId: getMigrationSchemas
+      responses:
+        "200":
+          description: Map of block name to migration schema
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/MigrationSchema"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /migration/pages:
+    get:
+      tags: [Migration]
+      summary: List pages containing ACF blocks
+      description: Returns pages and posts whose content contains ACF blocks.
+      operationId: getMigrationPages
+      parameters:
+        - name: post_type
+          in: query
+          schema:
+            type: string
+            default: any
+          description: Filter by post type, or "any" for pages and posts
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 50
+          description: Number of results per page
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Page number for pagination
+      responses:
+        "200":
+          description: Paginated list of pages with ACF blocks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PagesResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /migration/pages/{id}/blocks:
+    get:
+      tags: [Migration]
+      summary: Parse ACF blocks from a page
+      description: |
+        Parses the post content and returns all ACF blocks found, with their
+        field data cleaned of internal ACF keys (prefixed with `_`).
+      operationId: getPageBlocks
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: WordPress post ID
+          example: 42
+      responses:
+        "200":
+          description: List of ACF blocks with field data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AcfBlock"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /migration/mappings:
+    get:
+      tags: [Migration]
+      summary: List saved mapping templates
+      description: Returns all saved ACF-to-Handoff mapping templates, keyed by ACF block name.
+      operationId: getMappings
+      responses:
+        "200":
+          description: Map of ACF block name to mapping template
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/MappingTemplate"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    post:
+      tags: [Migration]
+      summary: Save a mapping template
+      description: |
+        Save or update a mapping template for an ACF block type. If a mapping
+        for the given `acfBlock` already exists, it is overwritten.
+      operationId: saveMapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveMappingRequest"
+      responses:
+        "200":
+          description: Mapping saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /migration/mappings/{acfBlock}:
+    delete:
+      tags: [Migration]
+      summary: Delete a mapping template
+      description: Deletes a saved mapping template by ACF block name.
+      operationId: deleteMapping
+      parameters:
+        - name: acfBlock
+          in: path
+          required: true
+          schema:
+            type: string
+          description: URL-encoded ACF block name (e.g. `acf%2Ftestimonial`)
+          example: acf/testimonial
+      responses:
+        "200":
+          description: Mapping deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /migration/migrate:
+    post:
+      tags: [Migration]
+      summary: Execute page migration
+      description: |
+        Migrates a page's ACF blocks to Handoff blocks using saved mapping
+        templates. ACF blocks without a mapping are left untouched.
+
+        **Modes:**
+        - `draft` — Creates a new draft post with migrated content (original untouched)
+        - `in-place` — Updates the original post content directly (creates a revision)
+      operationId: migratePage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MigrateRequest"
+      responses:
+        "200":
+          description: Migration completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MigrateResponse"
+        "400":
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Migration failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: wordpress_logged_in
+      description: |
+        WordPress cookie authentication with nonce verification.
+        In the admin, use `@wordpress/api-fetch` which handles nonces automatically.
+        For external requests, pass the `X-WP-Nonce` header.
+
+  responses:
+    Forbidden:
+      description: User does not have required capabilities
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    PostType:
+      type: object
+      required: [name, label, singular, rest_base, icon]
+      properties:
+        name:
+          type: string
+          example: post
+        label:
+          type: string
+          example: Posts
+        singular:
+          type: string
+          example: Post
+        rest_base:
+          type: string
+          example: posts
+        icon:
+          type: string
+          example: dashicons-admin-post
+
+    Field:
+      type: object
+      required: [key, label, type, group]
+      properties:
+        key:
+          type: string
+          description: Field identifier, possibly namespaced (e.g. `meta:field_key`, `taxonomy:category`)
+          example: post_title
+        label:
+          type: string
+          example: Title
+        type:
+          type: string
+          enum: [text, richtext, date, url, image, string, taxonomy]
+          example: text
+        group:
+          type: string
+          enum: [core, author, meta, taxonomy]
+          example: core
+
+    Taxonomy:
+      type: object
+      required: [name, label, singular, rest_base, hierarchical]
+      properties:
+        name:
+          type: string
+          example: category
+        label:
+          type: string
+          example: Categories
+        singular:
+          type: string
+          example: Category
+        rest_base:
+          type: string
+          example: categories
+        hierarchical:
+          type: boolean
+          example: true
+
+    MigrationSchema:
+      type: object
+      required: [blockName, title, description, category, properties]
+      properties:
+        blockName:
+          type: string
+          example: handoff/hero-basic
+        title:
+          type: string
+          example: Basic Hero
+        description:
+          type: string
+        category:
+          type: string
+          example: handoff-heroes
+        isMergedGroup:
+          type: boolean
+          description: True if this schema represents a merged group block with variants
+        properties:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/SchemaProperty"
+        variants:
+          type: object
+          description: Present only for merged group blocks
+          additionalProperties:
+            type: object
+            properties:
+              title:
+                type: string
+              description:
+                type: string
+              properties:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/SchemaProperty"
+
+    SchemaProperty:
+      type: object
+      required: [type, label]
+      properties:
+        type:
+          type: string
+          enum: [text, richtext, number, boolean, select, image, link, button, object, array]
+        label:
+          type: string
+        attributeName:
+          type: string
+          description: The camelCase attribute key used in Gutenberg block attributes
+        description:
+          type: string
+        default: {}
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              value:
+                type: string
+        properties:
+          type: object
+          description: Nested properties (for object type)
+          additionalProperties:
+            $ref: "#/components/schemas/SchemaProperty"
+        items:
+          type: object
+          description: Item schema (for array type)
+          properties:
+            properties:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/SchemaProperty"
+
+    PagesResponse:
+      type: object
+      required: [pages, total, totalPages]
+      properties:
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/PageSummary"
+        total:
+          type: integer
+          example: 12
+        totalPages:
+          type: integer
+          example: 1
+
+    PageSummary:
+      type: object
+      required: [id, title, postType, status, editUrl, acfBlockCount, acfBlockTypes]
+      properties:
+        id:
+          type: integer
+          example: 42
+        title:
+          type: string
+          example: About Us
+        postType:
+          type: string
+          example: page
+        status:
+          type: string
+          enum: [publish, draft, private]
+          example: publish
+        editUrl:
+          type: string
+          format: uri
+          example: https://example.com/wp-admin/post.php?post=42&action=edit
+        acfBlockCount:
+          type: integer
+          example: 5
+        acfBlockTypes:
+          type: array
+          items:
+            type: string
+          example: ["acf/hero", "acf/testimonial"]
+
+    AcfBlock:
+      type: object
+      required: [blockName, index, data]
+      properties:
+        blockName:
+          type: string
+          example: acf/testimonial
+        index:
+          type: integer
+          description: Position of this block in the page content
+          example: 0
+        data:
+          type: object
+          description: ACF field data with internal `_` keys stripped
+          additionalProperties: {}
+          example:
+            quote: Great product!
+            author_name: Jane Doe
+            author_photo: 123
+        raw:
+          type: object
+          description: Original parsed block array from WordPress
+
+    MappingTemplate:
+      type: object
+      required: [targetBlock, fieldMappings]
+      properties:
+        targetBlock:
+          type: string
+          description: Target Handoff block name
+          example: handoff/testimonial-card
+        fieldMappings:
+          type: object
+          description: Map of ACF field key to Handoff dot-notation property path
+          additionalProperties:
+            type: string
+          example:
+            quote: content
+            author_name: author.name
+            author_photo: author.image
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2026-03-10T14:30:00+00:00"
+
+    SaveMappingRequest:
+      type: object
+      required: [acfBlock, targetBlock]
+      properties:
+        acfBlock:
+          type: string
+          description: ACF block name
+          example: acf/testimonial
+        targetBlock:
+          type: string
+          description: Target Handoff block name
+          example: handoff/testimonial-card
+        fieldMappings:
+          type: object
+          description: ACF field key to Handoff property path mapping
+          additionalProperties:
+            type: string
+
+    MigrateRequest:
+      type: object
+      required: [postId]
+      properties:
+        postId:
+          type: integer
+          description: WordPress post ID to migrate
+          example: 42
+        mode:
+          type: string
+          enum: [draft, in-place]
+          default: draft
+          description: |
+            `draft` creates a new draft post with migrated content.
+            `in-place` updates the existing post directly.
+
+    MigrateResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Migrated 5 block(s) into new draft (skipped 1)."
+        postId:
+          type: integer
+          description: ID of the migrated post (new draft or original)
+          example: 99
+        editUrl:
+          type: string
+          format: uri
+          example: https://example.com/wp-admin/post.php?post=99&action=edit
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: missing_fields
+        message:
+          type: string
+          example: acfBlock and targetBlock are required.
+        data:
+          type: object
+          properties:
+            status:
+              type: integer
+              example: 400
