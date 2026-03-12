@@ -4,49 +4,74 @@
   "themeDir": "./demo/theme",
   "username": "",
   "password": "",
-  "dynamicArrays": {
-    "hero-carousel.slides": {
-      "enabled": true,
-      "postTypes": ["post", "page"],
-      "defaultPostType": "post",
-      "selectionMode": "manual",
-      "maxItems": 10,
-      "renderMode": "mapped",
-      "fieldMapping": {
-        "image": "featured_image",
-        "title": "post_title",
-        "subtitle": "post_excerpt",
-        "link.url": "permalink",
-        "link.label": { "type": "static", "value": "Learn More" }
-      }
-    },
-    "posts-latest.posts": {
-      "enabled": true,
-      "postTypes": ["post", "page", "custom_post_type"],
-      "selectionMode": "query",
-      "maxItems": 20,
-      "renderMode": "mapped",
-      "fieldMapping": {
-        "image": "featured_image",
-        "title": "post_title",
-        "excerpt": "post_excerpt",
-        "date": "post_date",
-        "category": { "type": "taxonomy", "taxonomy": "category", "format": "first" },
-        "link.url": "permalink",
-        "link.text": { "type": "static", "value": "Read More" }
+
+  "import": {
+    "element": false,
+
+    "block": {
+      "deprecated-component": false,
+
+      "hero-carousel": {
+        "slides": {
+          "postTypes": ["post", "page"],
+          "defaultPostType": "post",
+          "selectionMode": "manual",
+          "maxItems": 10,
+          "renderMode": "mapped",
+          "fieldMapping": {
+            "image": "featured_image",
+            "title": "post_title",
+            "subtitle": "post_excerpt",
+            "link.url": "permalink",
+            "link.label": { "type": "static", "value": "Learn More" }
+          }
+        }
       },
-      "defaultQueryArgs": {
-        "posts_per_page": 6,
-        "orderby": "date",
-        "order": "DESC"
+
+      "posts-latest": {
+        "posts": {
+          "postTypes": ["post", "page", "custom_post_type"],
+          "selectionMode": "query",
+          "maxItems": 20,
+          "renderMode": "mapped",
+          "fieldMapping": {
+            "image": "featured_image",
+            "title": "post_title",
+            "excerpt": "post_excerpt",
+            "date.day": "post_date:day_numeric",
+            "date.month": "post_date:month_short",
+            "date.year": "post_date:year",
+            "category": { "type": "taxonomy", "taxonomy": "category", "format": "first" },
+            "author": "author.name",
+            "link.url": "permalink",
+            "link.text": { "type": "static", "value": "Read More" },
+            "type": { "type": "manual" }
+          },
+          "defaultQueryArgs": {
+            "posts_per_page": 6,
+            "orderby": "date",
+            "order": "DESC"
+          }
+        }
+      },
+
+      "card-grid": {
+        "cards": {
+          "postTypes": ["post"],
+          "selectionMode": "manual",
+          "renderMode": "template",
+          "templatePath": "template-parts/cards/post-card.php"
+        }
+      },
+
+      "content-page": {
+        "content": { "innerBlocks": true }
       }
-    },
-    "card-grid.cards": {
-      "enabled": true,
-      "postTypes": ["post"],
-      "selectionMode": "manual",
-      "renderMode": "template",
-      "templatePath": "template-parts/cards/post-card.php"
     }
+  },
+
+  "groups": {
+    "heroes": "merged",
+    "ctas": "merged"
   }
 }

@@ -15,4 +15,6 @@ export {
 } from './handlebars-to-jsx';
 export { generateHeaderPhp, generateFooterPhp, generateTemplatePartPhp } from './theme-template';
 export { generateSharedComponents, generatePostSelector, generatePostQueryBuilder } from './shared-components';
-export { generateMigrationSchema } from './schema-json';
+export { generateMigrationSchema, extractMigrationProperty } from './schema-json';
+export { generateMergedBlock, buildSupersetAttributes } from './group-block';
+export type { VariantInfo, FieldMap } from './group-block';

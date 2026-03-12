@@ -51,6 +51,7 @@ interface ResolvedConfig {
   username?: string;
   password?: string;
   import: ImportConfig;
+  groups: Record<string, 'merged' | 'individual'>;
 }
 
 /**
@@ -63,6 +64,7 @@ const DEFAULT_CONFIG: ResolvedConfig = {
   username: undefined,
   password: undefined,
   import: { element: false },
+  groups: {},
 };
 
 /**
@@ -137,6 +139,7 @@ const getConfig = (): ResolvedConfig => {
     username: fileConfig.username ?? DEFAULT_CONFIG.username,
     password: fileConfig.password ?? DEFAULT_CONFIG.password,
     import: importConfig,
+    groups: fileConfig.groups ?? DEFAULT_CONFIG.groups,
   };
 };
 
@@ -180,8 +183,10 @@ import {
   generateTemplatePartPhp,
   generateCategoriesPhp,
   generateSharedComponents,
-  generateMigrationSchema
+  generateMigrationSchema,
+  generateMergedBlock,
 } from './generators';
+import type { VariantInfo } from './generators';
 import {
   loadManifest,
   saveManifest,
@@ -602,6 +607,64 @@ const fetchComponentList = async (apiUrl: string, importConfig: ImportConfig, au
 /**
  * Compile all components
  */
+/**
+ * Build VariantInfo for a component (resolves dynamic arrays, InnerBlocks field, etc.)
+ */
+const buildVariantInfo = (component: HandoffComponent, resolvedConfig: ResolvedConfig): VariantInfo => {
+  const componentDynamicArrays: Record<string, DynamicArrayConfig> = {
+    ...extractDynamicArrayConfigs(component.id, component.type, resolvedConfig.import),
+  };
+
+  for (const [fieldName, dynConfig] of Object.entries(componentDynamicArrays)) {
+    const prop = component.properties[fieldName];
+    if (prop?.type === 'array' && prop.pagination?.type === 'pagination') {
+      const paginationFieldRegex = new RegExp(
+        `\\{\\{\\s*#field\\s+["']${fieldName}\\.pagination["']`
+      );
+      if (paginationFieldRegex.test(component.code)) {
+        dynConfig.pagination = { propertyName: 'pagination' };
+      }
+    }
+  }
+
+  const fieldPrefs = extractFieldPreferences(component.id, component.type, resolvedConfig.import);
+  const richtextFields = Object.entries(component.properties)
+    .filter(([, prop]) => prop.type === 'richtext')
+    .map(([key]) => key);
+
+  const explicitInnerBlocks = Object.entries(fieldPrefs)
+    .filter(([, prefs]) => prefs.innerBlocks === true)
+    .map(([key]) => key);
+
+  let innerBlocksField: string | null;
+  if (explicitInnerBlocks.length > 1) {
+    throw new Error(
+      `Component "${component.id}": only one richtext field per block can use InnerBlocks, ` +
+      `but ${explicitInnerBlocks.length} are marked: ${explicitInnerBlocks.join(', ')}`
+    );
+  } else if (explicitInnerBlocks.length === 1) {
+    const field = explicitInnerBlocks[0];
+    const prop = component.properties[field];
+    if (!prop || prop.type !== 'richtext') {
+      throw new Error(
+        `Component "${component.id}": field "${field}" is marked as innerBlocks but is not a richtext field`
+      );
+    }
+    innerBlocksField = field;
+  } else if (richtextFields.length === 1) {
+    innerBlocksField = richtextFields[0];
+  } else {
+    innerBlocksField = null;
+  }
+
+  return {
+    component,
+    fieldMap: {},
+    innerBlocksField,
+    dynamicArrayConfigs: componentDynamicArrays,
+  };
+};
+
 const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredentials): Promise<void> => {
   console.log(`\n🔧 Gutenberg Compiler - Batch Mode`);
   console.log(`   API: ${apiUrl}`);
@@ -621,11 +684,12 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     let failed = 0;
     const compiledComponents: HandoffComponent[] = [];
     
+    // Fetch all components first so we can partition by group
+    const allComponents: HandoffComponent[] = [];
     for (const componentId of componentIds) {
       try {
         const component = await fetchComponent(apiUrl, componentId, auth);
-        
-        // Validate template variables
+
         const templateValidation = validateTemplateVariables(component);
         if (!templateValidation.isValid) {
           console.log(formatTemplateValidationResult(templateValidation));
@@ -633,14 +697,78 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
           failed++;
           continue;
         }
-        
+
+        allComponents.push(component);
+      } catch (error) {
+        console.error(`❌ Failed to fetch ${componentId}: ${error instanceof Error ? error.message : error}`);
+        failed++;
+      }
+    }
+
+    // Partition components: merged groups vs individual
+    const mergedGroups = config.groups;
+    const groupBuckets: Record<string, HandoffComponent[]> = {};
+    const individualComponents: HandoffComponent[] = [];
+
+    for (const component of allComponents) {
+      const group = component.group;
+      if (group && mergedGroups[group] === 'merged') {
+        if (!groupBuckets[group]) groupBuckets[group] = [];
+        groupBuckets[group].push(component);
+      } else {
+        individualComponents.push(component);
+      }
+    }
+
+    // Compile individual components (existing behavior)
+    for (const component of individualComponents) {
+      try {
         const block = generateBlock(component, apiUrl, config);
         await writeBlockFiles(outputDir, component.id, block, auth);
         compiledComponents.push(component);
         success++;
       } catch (error) {
-        console.error(`❌ Failed to compile ${componentId}: ${error instanceof Error ? error.message : error}`);
+        console.error(`❌ Failed to compile ${component.id}: ${error instanceof Error ? error.message : error}`);
         failed++;
+      }
+    }
+
+    // Compile merged groups
+    for (const [groupSlug, groupComponents] of Object.entries(groupBuckets)) {
+      try {
+        console.log(`\n🔀 Generating merged group block: ${groupSlug} (${groupComponents.length} variants)`);
+        const variantInfos: VariantInfo[] = groupComponents.map((c) => buildVariantInfo(c, config));
+
+        const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos);
+        const groupBlockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const groupDir = path.join(outputDir, groupBlockName);
+        if (!fs.existsSync(groupDir)) {
+          fs.mkdirSync(groupDir, { recursive: true });
+        }
+
+        const formattedBlockJson = await formatCode(mergedBlock.blockJson, 'json');
+        const formattedIndexJs = await formatCode(mergedBlock.indexJs, 'babel');
+        const formattedRenderPhp = await formatCode(mergedBlock.renderPhp, 'php');
+        const formattedEditorScss = await formatCode(mergedBlock.editorScss, 'scss');
+        const formattedStyleScss = await formatCode(mergedBlock.styleScss, 'scss');
+
+        fs.writeFileSync(path.join(groupDir, 'block.json'), formattedBlockJson);
+        fs.writeFileSync(path.join(groupDir, 'index.js'), formattedIndexJs);
+        fs.writeFileSync(path.join(groupDir, 'render.php'), formattedRenderPhp);
+        fs.writeFileSync(path.join(groupDir, 'editor.scss'), formattedEditorScss);
+        fs.writeFileSync(path.join(groupDir, 'style.scss'), formattedStyleScss);
+        fs.writeFileSync(path.join(groupDir, 'README.md'), mergedBlock.readme);
+        fs.writeFileSync(path.join(groupDir, 'migration-schema.json'), mergedBlock.migrationSchema);
+
+        console.log(`✅ Generated merged block: ${groupBlockName} (${groupComponents.length} variants)`);
+        console.log(`   📁 ${groupDir}`);
+
+        // Add all group components to compiled list for category generation
+        compiledComponents.push(...groupComponents);
+        success += groupComponents.length;
+      } catch (error) {
+        console.error(`❌ Failed to compile merged group ${groupSlug}: ${error instanceof Error ? error.message : error}`);
+        failed += groupComponents.length;
       }
     }
     
@@ -689,6 +817,9 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     console.log(`   ✅ Success: ${success}`);
     if (failed > 0) {
       console.log(`   ❌ Failed: ${failed}`);
+    }
+    if (Object.keys(groupBuckets).length > 0) {
+      console.log(`   🔀 Merged groups: ${Object.keys(groupBuckets).length}`);
     }
     console.log(`\nDon't forget to run 'npm run build' in your blocks plugin.\n`);
     

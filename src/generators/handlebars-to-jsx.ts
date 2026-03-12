@@ -23,3 +23,5 @@ export {
   generateFallbackPreview,
   toCamelCase 
 } from './handlebars-to-jsx/index';
+
+export type { JsxPreviewResult } from './handlebars-to-jsx/index';

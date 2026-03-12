@@ -281,6 +281,14 @@ export interface HandoffWpConfig {
   import?: ImportConfig;
 
   /**
+   * Group compilation mode.
+   * Keys are group names (matching HandoffComponent.group).
+   * - "merged" : all components in the group compile into one block with WP variations
+   * - "individual" (or omitted) : each component is its own block (default)
+   */
+  groups?: Record<string, 'merged' | 'individual'>;
+
+  /**
    * @deprecated Use `import` instead. Kept for backward compatibility.
    * Dynamic array configurations keyed by "componentId.fieldName"
    */

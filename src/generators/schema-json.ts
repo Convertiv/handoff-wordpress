@@ -32,7 +32,7 @@ export interface MigrationSchema {
   properties: Record<string, MigrationPropertySchema>;
 }
 
-const extractMigrationProperty = (prop: HandoffProperty, includeAttributeName: boolean = false, key?: string): MigrationPropertySchema => {
+export const extractMigrationProperty = (prop: HandoffProperty, includeAttributeName: boolean = false, key?: string): MigrationPropertySchema => {
   const schema: MigrationPropertySchema = {
     type: prop.type,
     label: prop.name || key || '',

@@ -263,3 +263,4 @@ function handoff_blocks_migration_assets($hook) {
 
   wp_enqueue_style('wp-components');
 }
+add_action('admin_enqueue_scripts', 'handoff_blocks_migration_assets');
