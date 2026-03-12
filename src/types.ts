@@ -114,6 +114,7 @@ export interface CompilerOptions {
 export type FieldMappingValue =
   | string                                              // Simple field reference: "post_title", "featured_image"
   | { type: 'static'; value: string }                   // Static value: { type: 'static', value: 'Read More' }
+  | { type: 'manual' }                                  // User-editable value via sidebar control
   | { type: 'meta'; key: string }                       // Post meta: { type: 'meta', key: 'custom_field' }
   | { type: 'taxonomy'; taxonomy: string; format?: 'first' | 'all' }  // Taxonomy terms
   | { type: 'custom'; callback: string };               // PHP callback function name
@@ -216,12 +217,30 @@ export interface DynamicArrayConfig {
 }
 
 /**
- * Per-component import config.
- * - true or {} : import with no dynamic arrays
- * - false      : skip this component
- * - Record<fieldName, DynamicArrayConfig> : import with dynamic array config on specified fields
+ * Per-field preferences for non-array fields (e.g. richtext InnerBlocks opt-in).
  */
-export type ComponentImportConfig = boolean | Record<string, DynamicArrayConfig>;
+export interface FieldPreferences {
+  /** Use InnerBlocks for this richtext field (only one per block) */
+  innerBlocks?: boolean;
+}
+
+/**
+ * A per-field config entry: either a DynamicArrayConfig (for array fields)
+ * or general field preferences (for other field types).
+ */
+export type FieldConfig = DynamicArrayConfig | FieldPreferences;
+
+/** Type guard: true when the config has DynamicArrayConfig-specific keys */
+export const isDynamicArrayConfig = (config: FieldConfig): config is DynamicArrayConfig =>
+  'postTypes' in config || 'renderMode' in config;
+
+/**
+ * Per-component import config.
+ * - true or {} : import with no field overrides
+ * - false      : skip this component
+ * - Record<fieldName, FieldConfig> : import with per-field config (dynamic arrays or preferences)
+ */
+export type ComponentImportConfig = boolean | Record<string, FieldConfig>;
 
 /**
  * Per-type import config.

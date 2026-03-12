@@ -22,7 +22,8 @@ export { toCamelCase, isReservedWord, sanitizeReservedName } from './utils';
 export const transpileHandlebarsToJsx = (
   template: string, 
   properties: Record<string, HandoffProperty>,
-  indent: string = '          '
+  indent: string = '          ',
+  innerBlocksField?: string | null
 ): TranspileResult => {
   const context: TranspilerContext = {
     properties,
@@ -47,7 +48,7 @@ export const transpileHandlebarsToJsx = (
   let jsx = nodeToJsx(root, context);
   
   // Post-process to handle block markers
-  jsx = postprocessJsx(jsx, context);
+  jsx = postprocessJsx(jsx, context, 'item', innerBlocksField);
   
   // Convert template literal markers back to actual template literals
   jsx = postprocessTemplateLiterals(jsx);
@@ -128,10 +129,11 @@ export const generateJsxPreview = (
   template: string,
   properties: Record<string, HandoffProperty>,
   componentId: string,
-  componentTitle: string
+  componentTitle: string,
+  innerBlocksField?: string | null
 ): JsxPreviewResult => {
   try {
-    const { jsx, inlineEditableFields } = transpileHandlebarsToJsx(template, properties);
+    const { jsx, inlineEditableFields } = transpileHandlebarsToJsx(template, properties, '          ', innerBlocksField);
     
     // Validate the output has some content
     if (jsx.trim().length < 50) {

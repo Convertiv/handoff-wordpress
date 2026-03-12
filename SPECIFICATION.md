@@ -440,9 +440,32 @@ Maps WordPress post fields to Handoff template fields:
   "image": "featured_image",
   "url": "permalink",
   "cta_label": { "type": "static", "value": "Read More" },
+  "cardType": { "type": "manual" },
   "category": { "type": "taxonomy", "taxonomy": "category", "format": "first" }
 }
 ```
+
+#### Mapping Source Types
+
+| Type | Syntax | Description |
+|------|--------|-------------|
+| Simple string | `"post_title"` | Maps to a core post field or date part |
+| Static | `{ "type": "static", "value": "..." }` | Hardcoded value, fixed at compile time |
+| Manual | `{ "type": "manual" }` | User-editable via sidebar control (see below) |
+| Meta | `{ "type": "meta", "key": "..." }` | Reads from post meta |
+| Taxonomy | `{ "type": "taxonomy", "taxonomy": "...", "format": "first"\|"all" }` | Taxonomy term(s) |
+| Custom | `{ "type": "custom", "callback": "..." }` | PHP callback function |
+
+#### Manual Field Mapping
+
+When a field mapping uses `{ "type": "manual" }`, the field is not resolved from post data. Instead:
+
+1. **Compile time**: The compiler reads the field's property definition from the Handoff component schema (the array item's `properties`) and generates an `advancedFields` entry for the `DynamicPostSelector` component.
+2. **Control type**: Derived automatically from the property's type — `select` → dropdown, `boolean` → toggle, `number` → number input, anything else → text input.
+3. **Editor UI**: The control appears in the **Advanced Options** section of the `DynamicPostSelector` sidebar panel, below Order & Limit.
+4. **Runtime**: The value is stored in the block's `{arrayName}ItemOverrides` attribute. When mapping posts to template items, manual fields return `null` from the resolver; the item override value is then applied to every item in the array.
+
+This is the recommended approach for fields like card type or button labels that should be uniform across all items but editable by the user (unlike `static`, which is fixed at compile time).
 
 ### Editor Preview
 

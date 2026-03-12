@@ -98,6 +98,10 @@ function handoff_resolve_complex_field($post_id, $source) {
             // Static value - return as-is
             return isset($source['value']) ? $source['value'] : '';
             
+        case 'manual':
+            // User-editable via sidebar — value comes from itemOverrides, not the post
+            return null;
+            
         case 'meta':
             // Post meta field
             $key = isset($source['key']) ? $source['key'] : '';

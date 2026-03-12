@@ -31,7 +31,7 @@ import * as https from 'https';
 import * as http from 'http';
 import * as prettier from 'prettier';
 
-import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig, ImportConfig, ComponentImportConfig } from './types';
+import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig, ImportConfig, ComponentImportConfig, FieldPreferences, isDynamicArrayConfig } from './types';
 
 /**
  * Auth credentials for HTTP requests
@@ -337,9 +337,6 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
   for (const [fieldName, dynConfig] of Object.entries(componentDynamicArrays)) {
     const prop = component.properties[fieldName];
     if (prop?.type === 'array' && prop.pagination?.type === 'pagination') {
-      // The pagination property name in the Handlebars template is typically the
-      // key under which the pagination sub-property is accessed (e.g., "pagination").
-      // We scan the Handlebars for {{#field "fieldName.pagination"}} to find it.
       const paginationFieldRegex = new RegExp(
         `\\{\\{\\s*#field\\s+["']${fieldName}\\.pagination["']`
       );
@@ -348,11 +345,43 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
       }
     }
   }
+
+  // Determine which richtext field (if any) uses InnerBlocks
+  const fieldPrefs = extractFieldPreferences(component.id, component.type, resolvedConfig.import);
+  const richtextFields = Object.entries(component.properties)
+    .filter(([, prop]) => prop.type === 'richtext')
+    .map(([key]) => key);
+
+  // Check explicit config overrides first
+  const explicitInnerBlocks = Object.entries(fieldPrefs)
+    .filter(([, prefs]) => prefs.innerBlocks === true)
+    .map(([key]) => key);
+
+  let innerBlocksField: string | null;
+  if (explicitInnerBlocks.length > 1) {
+    throw new Error(
+      `Component "${component.id}": only one richtext field per block can use InnerBlocks, ` +
+      `but ${explicitInnerBlocks.length} are marked: ${explicitInnerBlocks.join(', ')}`
+    );
+  } else if (explicitInnerBlocks.length === 1) {
+    const field = explicitInnerBlocks[0];
+    const prop = component.properties[field];
+    if (!prop || prop.type !== 'richtext') {
+      throw new Error(
+        `Component "${component.id}": field "${field}" is marked as innerBlocks but is not a richtext field`
+      );
+    }
+    innerBlocksField = field;
+  } else if (richtextFields.length === 1) {
+    innerBlocksField = richtextFields[0];
+  } else {
+    innerBlocksField = null;
+  }
   
   return {
-    blockJson: generateBlockJson(component, hasScreenshot, apiUrl, componentDynamicArrays),
-    indexJs: generateIndexJs(component, componentDynamicArrays),
-    renderPhp: generateRenderPhp(component, componentDynamicArrays),
+    blockJson: generateBlockJson(component, hasScreenshot, apiUrl, componentDynamicArrays, innerBlocksField),
+    indexJs: generateIndexJs(component, componentDynamicArrays, innerBlocksField),
+    renderPhp: generateRenderPhp(component, componentDynamicArrays, innerBlocksField),
     editorScss: generateEditorScss(component),
     styleScss: generateStyleScss(component),
     readme: generateReadme(component),
@@ -477,6 +506,23 @@ const shouldImportComponent = (componentId: string, componentType: string, impor
 };
 
 /**
+ * Get the raw per-field config object for a component from the import config.
+ */
+const getComponentFieldConfigs = (
+  componentId: string,
+  componentType: string,
+  importConfig: ImportConfig
+): Record<string, DynamicArrayConfig | FieldPreferences> => {
+  const typeConfig = importConfig[componentType];
+  if (!typeConfig || typeof typeConfig === 'boolean') return {};
+
+  const componentConfig = typeConfig[componentId];
+  if (!componentConfig || typeof componentConfig === 'boolean') return {};
+
+  return componentConfig as Record<string, DynamicArrayConfig | FieldPreferences>;
+};
+
+/**
  * Extract dynamic array configs for a component from the import config.
  */
 const extractDynamicArrayConfigs = (
@@ -484,14 +530,32 @@ const extractDynamicArrayConfigs = (
   componentType: string,
   importConfig: ImportConfig
 ): Record<string, DynamicArrayConfig> => {
-  const typeConfig = importConfig[componentType];
-  if (!typeConfig || typeof typeConfig === 'boolean') return {};
+  const allConfigs = getComponentFieldConfigs(componentId, componentType, importConfig);
+  const result: Record<string, DynamicArrayConfig> = {};
+  for (const [key, config] of Object.entries(allConfigs)) {
+    if (isDynamicArrayConfig(config)) {
+      result[key] = config;
+    }
+  }
+  return result;
+};
 
-  const componentConfig = typeConfig[componentId];
-  if (!componentConfig || typeof componentConfig === 'boolean') return {};
-
-  // componentConfig is Record<string, DynamicArrayConfig>
-  return componentConfig as Record<string, DynamicArrayConfig>;
+/**
+ * Extract field preferences for a component from the import config.
+ */
+const extractFieldPreferences = (
+  componentId: string,
+  componentType: string,
+  importConfig: ImportConfig
+): Record<string, FieldPreferences> => {
+  const allConfigs = getComponentFieldConfigs(componentId, componentType, importConfig);
+  const result: Record<string, FieldPreferences> = {};
+  for (const [key, config] of Object.entries(allConfigs)) {
+    if (!isDynamicArrayConfig(config)) {
+      result[key] = config;
+    }
+  }
+  return result;
 };
 
 /**

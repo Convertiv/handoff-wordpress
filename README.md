@@ -341,6 +341,25 @@ Format options: `"first"` (single term name), `"all"` (array of term objects), `
 
 The callback receives `($post_id, $source_config)` and should return the resolved value.
 
+**Manual (User-Editable)**
+```json
+{
+  "type": { "type": "manual" },
+  "buttonLabel": { "type": "manual" }
+}
+```
+
+Fields mapped with `type: "manual"` are not resolved from post data. Instead, they appear as editable controls in the block sidebar under **Advanced Options**, allowing the editor to set a single value that applies to every item in the array. The control type (text input, select dropdown, toggle, or number) is automatically derived from the field's property definition in the Handoff component schema:
+
+| Property Type | Control |
+|---------------|---------|
+| `text` (default) | Text input |
+| `select` | Dropdown with options from the property |
+| `boolean` | Toggle switch |
+| `number` | Number input |
+
+This is useful for fields like card type, button labels, or flags that should be consistent across all items but customizable by the editor — unlike `static` where the value is fixed at compile time.
+
 ### Example Configurations
 
 #### Blog Post Grid

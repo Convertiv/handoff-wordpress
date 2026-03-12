@@ -268,7 +268,8 @@ const generateBlockJson = (
   component: HandoffComponent, 
   hasScreenshot: boolean = false, 
   apiUrl?: string,
-  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>,
+  innerBlocksField?: string | null
 ): string => {
   const blockName = toBlockName(component.id);
   
@@ -284,7 +285,13 @@ const generateBlockJson = (
     // Pass preview value for this property to use as fallback default
     const previewValue = genericPreviewValues[key];
     const mapped = mapPropertyType(property, previewValue);
-    // richtext returns null – no attribute (content stored via InnerBlocks)
+
+    // Only the innerBlocksField richtext returns null (content stored via InnerBlocks);
+    // other richtext fields are string attributes.
+    if (mapped === null && property.type === 'richtext' && key !== innerBlocksField) {
+      attributes[attrName] = { type: 'string', default: previewValue ?? '' };
+      continue;
+    }
     if (mapped === null) continue;
     attributes[attrName] = mapped;
     
@@ -409,7 +416,7 @@ const generateBlockJson = (
   if (apiUrl) {
     // Remove /api suffix if present and construct component page URL
     const baseUrl = apiUrl.replace(/\/api\/?$/, '');
-    handoffMetadata.handoffUrl = `${baseUrl}/system/components/${component.id}`;
+    handoffMetadata.handoffUrl = `${baseUrl}/system/component/${component.id}`;
   } else if (component.preview) {
     // Fall back to component's preview URL if available
     handoffMetadata.handoffUrl = component.preview;

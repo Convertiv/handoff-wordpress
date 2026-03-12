@@ -1042,12 +1042,12 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
 /**
  * Generate attribute extraction code
  */
-const generateAttributeExtraction = (properties: Record<string, HandoffProperty>, hasOverlay: boolean): string => {
+const generateAttributeExtraction = (properties: Record<string, HandoffProperty>, hasOverlay: boolean, innerBlocksField?: string | null): string => {
   const extractions: string[] = [];
   
   for (const [key, property] of Object.entries(properties)) {
-    // richtext properties use InnerBlocks/$content — no attribute to extract
-    if (property.type === 'richtext') continue;
+    // Only the innerBlocksField richtext uses $content — skip attribute extraction for it
+    if (property.type === 'richtext' && key === innerBlocksField) continue;
     // pagination items are auto-generated from WP_Query — no attribute to extract
     if (property.type === 'pagination') continue;
 
@@ -1095,6 +1095,9 @@ const fieldMappingToPhp = (mapping: Record<string, FieldMappingValue>): string =
       switch (value.type) {
         case 'static':
           entries.push(`    '${key}' => ['type' => 'static', 'value' => '${(value as any).value || ''}']`);
+          break;
+        case 'manual':
+          entries.push(`    '${key}' => ['type' => 'manual']`);
           break;
         case 'meta':
           entries.push(`    '${key}' => ['type' => 'meta', 'key' => '${(value as any).key || ''}']`);
@@ -1350,20 +1353,20 @@ ${loadResolver}
  */
 const generateRenderPhp = (
   component: HandoffComponent,
-  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>,
+  innerBlocksField?: string | null
 ): string => {
   const hasOverlay = component.code.includes('overlay');
 
-  // Collect richtext property keys (original snake_case and camelCase) for $content substitution
+  // Only the innerBlocksField richtext uses $content (InnerBlocks);
+  // other richtext fields are rendered from their string attributes.
   const richtextProps = new Set<string>();
-  for (const [key, prop] of Object.entries(component.properties)) {
-    if (prop.type === 'richtext') {
-      richtextProps.add(key);
-      richtextProps.add(toCamelCase(key));
-    }
+  if (innerBlocksField) {
+    richtextProps.add(innerBlocksField);
+    richtextProps.add(toCamelCase(innerBlocksField));
   }
 
-  const attributeExtraction = generateAttributeExtraction(component.properties, hasOverlay);
+  const attributeExtraction = generateAttributeExtraction(component.properties, hasOverlay, innerBlocksField);
   const templatePhp = handlebarsToPhp(component.code, component.properties, richtextProps);
   
   // Generate dynamic array extraction code

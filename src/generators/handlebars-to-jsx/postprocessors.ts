@@ -22,7 +22,7 @@ export const postprocessTemplateLiterals = (jsx: string): string => {
 /**
  * Post-process JSX to convert markers back to JSX logic
  */
-export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLoopVar: string = 'item'): string => {
+export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLoopVar: string = 'item', innerBlocksField?: string | null): string => {
   let result = jsx;
   
   // Convert top-level loop markers WITH alias (properties.xxx or properties.xxx.yyy as |alias|) to JSX map expressions
@@ -359,8 +359,6 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
   
   // Convert editable field markers to appropriate components based on field type
   // Handle both hyphenated and camelCase attribute names
-  // Track whether <InnerBlocks /> has been emitted for richtext (only one allowed per block)
-  let innerBlocksEmitted = false;
   result = result.replace(
     /<editable-field-marker\s+(?:data-field|dataField)="([^"]+)"\s*(?:\/>|><\/editable-field-marker>)/gi,
     (_, encodedFieldInfo) => {
@@ -445,45 +443,78 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
             size="large"
           />`;
         } else if (type === 'richtext') {
-          if (innerBlocksEmitted) {
-            // Only one InnerBlocks is allowed per block; subsequent richtext positions
-            // also output $content in PHP so this placeholder is intentionally empty.
-            return `{/* richtext: content rendered via InnerBlocks above */}`;
+          // Extract the top-level field name from the path (e.g. "content" from "content")
+          const topLevelField = path.split('.')[0];
+          if (innerBlocksField && topLevelField === innerBlocksField) {
+            return `<InnerBlocks allowedBlocks={CONTENT_BLOCKS} />`;
           }
-          innerBlocksEmitted = true;
-          return `<InnerBlocks allowedBlocks={CONTENT_BLOCKS} />`;
-        } else if (type === 'link') {
-          // Link fields: RichText for label + Popover with LinkControl for URL
-          const safeId = path.replace(/\./g, '_');
-          const labelValueExpr = valueExpr.replace(/ \|\| ''$/, '?.label || \'\'');
-          const objRef = valueExpr.replace(/ \|\| ''$/, '');
-          const labelOnChange = onChangeExpr
-            .replace('value)', '{ ...' + objRef + ', label: value })');
-          const linkOnChange = onChangeExpr
-            .replace('value)', '{ ...' + objRef + ', url: value.url || \'\', opensInNewTab: value.opensInNewTab || false })');;
-          return `<HandoffLinkField
-            fieldId="${safeId}"
-            label={${labelValueExpr}}
-            url={${objRef}?.url || ''}
-            opensInNewTab={${objRef}?.opensInNewTab || false}
-            onLabelChange={${labelOnChange}}
-            onLinkChange={${linkOnChange}}
-            isSelected={isSelected}
+          // Richtext without InnerBlocks: use RichText with formatting allowed
+          return `<RichText
+            tagName="div"
+            className="handoff-editable-field"
+            value={${valueExpr}}
+            onChange={${onChangeExpr}}
+            placeholder={__('Enter content...', 'handoff')}
           />`;
-        } else if (type === 'button') {
-          // Button fields: RichText for label + Popover with LinkControl for href
+        } else if (type === 'link' || type === 'button') {
           const safeId = path.replace(/\./g, '_');
-          const labelValueExpr = valueExpr.replace(/ \|\| ''$/, '?.label || \'\'');
           const objRef = valueExpr.replace(/ \|\| ''$/, '');
-          const labelOnChange = onChangeExpr
-            .replace('value)', '{ ...' + objRef + ', label: value })');
-          const linkOnChange = onChangeExpr
-            .replace('value)', '{ ...' + objRef + ', href: value.url || \'#\', target: value.opensInNewTab ? \'_blank\' : \'\', rel: value.opensInNewTab ? \'noopener noreferrer\' : \'\' })');
+          const labelValueExpr = `${objRef}?.label || ''`;
+
+          const isLink = type === 'link';
+          const urlExpr = isLink ? `${objRef}?.url || ''` : `${objRef}?.href || '#'`;
+          const newTabExpr = isLink ? `${objRef}?.opensInNewTab || false` : `${objRef}?.target === '_blank'`;
+          const labelMerge = `{ ...${objRef}, label: value }`;
+          const linkMerge = isLink
+            ? `{ ...${objRef}, url: value.url || '', opensInNewTab: value.opensInNewTab || false }`
+            : `{ ...${objRef}, href: value.url || '#', target: value.opensInNewTab ? '_blank' : '', rel: value.opensInNewTab ? 'noopener noreferrer' : '' }`;
+
+          // Build onChange handlers from scratch based on field context
+          let labelOnChange: string;
+          let linkOnChange: string;
+          if (pathParts.length === 1) {
+            const propName = toCamelCase(pathParts[0]);
+            labelOnChange = `(value) => setAttributes({ ${propName}: ${labelMerge} })`;
+            linkOnChange = `(value) => setAttributes({ ${propName}: ${linkMerge} })`;
+          } else if (pathParts.length === 2) {
+            const parentName = toCamelCase(pathParts[0]);
+            const fieldName = pathParts[1];
+            const parentProp = context.properties[pathParts[0]] || context.properties[parentName];
+            if (parentProp?.type === 'array') {
+              labelOnChange = `(value) => {
+              const newItems = [...${parentName}];
+              newItems[index] = { ...newItems[index], ${fieldName}: ${labelMerge} };
+              setAttributes({ ${parentName}: newItems });
+            }`;
+              linkOnChange = `(value) => {
+              const newItems = [...${parentName}];
+              newItems[index] = { ...newItems[index], ${fieldName}: ${linkMerge} };
+              setAttributes({ ${parentName}: newItems });
+            }`;
+            } else {
+              labelOnChange = `(value) => setAttributes({ ${parentName}: { ...${parentName}, ${fieldName}: ${labelMerge} } })`;
+              linkOnChange = `(value) => setAttributes({ ${parentName}: { ...${parentName}, ${fieldName}: ${linkMerge} } })`;
+            }
+          } else {
+            const propName = toCamelCase(pathParts[0]);
+            const lastField = pathParts[pathParts.length - 1];
+            labelOnChange = `(value) => {
+              const newItems = [...${propName}];
+              newItems[index] = { ...newItems[index], ${lastField}: ${labelMerge} };
+              setAttributes({ ${propName}: newItems });
+            }`;
+            linkOnChange = `(value) => {
+              const newItems = [...${propName}];
+              newItems[index] = { ...newItems[index], ${lastField}: ${linkMerge} };
+              setAttributes({ ${propName}: newItems });
+            }`;
+          }
+
           return `<HandoffLinkField
             fieldId="${safeId}"
             label={${labelValueExpr}}
-            url={${objRef}?.href || '#'}
-            opensInNewTab={${objRef}?.target === '_blank'}
+            url={${urlExpr}}
+            opensInNewTab={${newTabExpr}}
             onLabelChange={${labelOnChange}}
             onLinkChange={${linkOnChange}}
             isSelected={isSelected}

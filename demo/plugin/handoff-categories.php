@@ -31,13 +31,33 @@ function handoff_get_block_categories() {
       'icon' => 'admin-customizer',
     ],
     [
+      'slug' => 'handoff-atomic-elements',
+      'title' => __('Atomic Elements', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
       'slug' => 'handoff-ctas',
       'title' => __('Ctas', 'handoff'),
       'icon' => 'admin-customizer',
     ],
     [
+      'slug' => 'handoff-cards',
+      'title' => __('Cards', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
       'slug' => 'handoff-content',
       'title' => __('Content', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-downloads',
+      'title' => __('Downloads', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-elements',
+      'title' => __('Elements', 'handoff'),
       'icon' => 'admin-customizer',
     ],
     [
@@ -53,6 +73,11 @@ function handoff_get_block_categories() {
     [
       'slug' => 'handoff-heroes',
       'title' => __('Heroes', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-map',
+      'title' => __('Map', 'handoff'),
       'icon' => 'admin-customizer',
     ],
     [

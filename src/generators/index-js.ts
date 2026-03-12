@@ -428,73 +428,17 @@ const generateArrayHelpers = (properties: Record<string, HandoffProperty>): stri
   return '';
 };
 
-/**
- * Generate validation rules from properties
- * Returns an object with field paths and their validation rules
- */
-const generateValidationRules = (properties: Record<string, HandoffProperty>): { rules: string; hasValidation: boolean } => {
-  const rules: string[] = [];
-
-  const processProperty = (key: string, prop: HandoffProperty, path: string = '') => {
-    const fieldPath = path ? `${path}.${key}` : key;
-    const camelKey = toCamelCase(key);
-    const valuePath = path ? `${path}?.${camelKey}` : camelKey;
-
-    if (prop.rules?.required) {
-      const label = prop.name || toTitleCase(key);
-
-      if (prop.type === 'text' || prop.type === 'richtext') {
-        rules.push(`    { field: '${valuePath}', label: '${label}', validate: (v) => !!v && v.trim() !== '' }`);
-      } else if (prop.type === 'image') {
-        rules.push(`    { field: '${valuePath}', label: '${label}', validate: (v) => !!v?.src }`);
-      } else if (prop.type === 'link') {
-        rules.push(`    { field: '${valuePath}', label: '${label}', validate: (v) => !!v?.url }`);
-      } else if (prop.type === 'array') {
-        rules.push(`    { field: '${valuePath}', label: '${label}', validate: (v) => Array.isArray(v) && v.length > 0 }`);
-      } else if (prop.type === 'boolean') {
-        // Booleans are always valid (false is a valid value)
-      } else {
-        rules.push(`    { field: '${valuePath}', label: '${label}', validate: (v) => v !== undefined && v !== null && v !== '' }`);
-      }
-    }
-
-    // Process nested properties in objects
-    if (prop.type === 'object' && prop.properties) {
-      for (const [nestedKey, nestedProp] of Object.entries(prop.properties)) {
-        processProperty(nestedKey, nestedProp, valuePath);
-      }
-    }
-
-    // Process item properties in arrays (these validate per-item)
-    if (prop.type === 'array' && prop.items?.properties) {
-      for (const [itemKey, itemProp] of Object.entries(prop.items.properties)) {
-        if (itemProp.rules?.required) {
-          const itemLabel = itemProp.name || toTitleCase(itemKey);
-          const arrayName = toCamelCase(key);
-          rules.push(`    { field: '${arrayName}[].${itemKey}', label: '${itemLabel}', isArrayItem: true, arrayField: '${arrayName}', itemField: '${itemKey}', validate: (v) => !!v && v !== '' }`);
-        }
-      }
-    }
-  };
-
-  for (const [key, prop] of Object.entries(properties)) {
-    processProperty(key, prop);
-  }
-
-  return {
-    rules: rules.length > 0 ? `[\n${rules.join(',\n')}\n  ]` : '[]',
-    hasValidation: rules.length > 0
-  };
-};
 
 /**
  * Generate complete index.js file
  * @param component - The Handoff component data
  * @param dynamicArrayConfigs - Optional dynamic array configurations keyed by field name
+ * @param innerBlocksField - The richtext field that uses InnerBlocks, or null if none
  */
 const generateIndexJs = (
   component: HandoffComponent,
-  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>,
+  innerBlocksField?: string | null
 ): string => {
   const blockName = toBlockName(component.id);
   const properties = component.properties;
@@ -517,12 +461,13 @@ const generateIndexJs = (
     return Object.values(properties).some(checkProperty);
   };
 
-  // Detect richtext properties (they use InnerBlocks, not attributes) — check recursively
-  const hasRichtext = hasPropertyType('richtext');
+  // The innerBlocksField uses InnerBlocks (content stored in post_content, not an attribute).
+  // All other richtext fields become string attributes with RichText editing.
+  const useInnerBlocks = !!innerBlocksField;
 
-  // Get all attribute names – exclude richtext and pagination (no attributes; content generated dynamically)
+  // Get all attribute names – exclude innerBlocksField and pagination
   const attrNames = Object.keys(properties)
-    .filter(k => properties[k].type !== 'richtext' && properties[k].type !== 'pagination')
+    .filter(k => k !== innerBlocksField && properties[k].type !== 'pagination')
     .map(toCamelCase);
   
   // Add dynamic array attribute names
@@ -561,8 +506,8 @@ const generateIndexJs = (
   if (needsMediaUpload) {
     blockEditorImports.push('MediaUpload', 'MediaUploadCheck', 'MediaReplaceFlow');
   }
-  // InnerBlocks for richtext content areas
-  if (hasRichtext) {
+  // InnerBlocks for the designated richtext content area
+  if (useInnerBlocks) {
     blockEditorImports.push('InnerBlocks');
   }
   // Add LinkControl for link and button fields (internal page search + URL validation)
@@ -601,7 +546,8 @@ const generateIndexJs = (
     component.code,
     properties,
     component.id,
-    component.title
+    component.title,
+    innerBlocksField
   );
   let previewJsx = previewResult.jsx;
   const inlineEditableFields = previewResult.inlineEditableFields;
@@ -631,14 +577,48 @@ const generateIndexJs = (
     if (property.type === 'array' && dynamicConfig) {
       const defaultMode = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
       const itemOverridesConfig = dynamicConfig.itemOverridesConfig || {};
-      const advancedFields = Object.entries(itemOverridesConfig)
-        .filter(([, c]: [string, ItemOverrideFieldConfig]) => c.mode === 'ui')
-        .map(([name, c]: [string, ItemOverrideFieldConfig]) =>
-          c.mode === 'ui'
-            ? { name, label: c.label, type: 'select' as const, options: c.options, default: c.default }
-            : null
-        )
-        .filter(Boolean) as Array<{ name: string; label: string; type: 'select'; options: Array<{ label: string; value: string }>; default?: string }>;
+      const advancedFields: Array<{ name: string; label: string; type: string; options?: Array<{ label: string; value: string }>; default?: any }> = [];
+
+      // Fields from itemOverridesConfig (legacy)
+      for (const [name, c] of Object.entries(itemOverridesConfig) as Array<[string, ItemOverrideFieldConfig]>) {
+        if (c.mode === 'ui') {
+          advancedFields.push({ name, label: c.label, type: 'select', options: c.options, default: c.default });
+        }
+      }
+
+      // Fields from fieldMapping with type: "manual" — derive control type from item properties
+      const itemProps = property.items?.properties || {};
+      const fieldMapping = dynamicConfig.fieldMapping || {};
+      for (const [fieldPath, mappingValue] of Object.entries(fieldMapping)) {
+        if (typeof mappingValue === 'object' && mappingValue !== null && (mappingValue as any).type === 'manual') {
+          const topKey = fieldPath.split('.')[0];
+          const itemProp = itemProps[topKey];
+          const fieldLabel = itemProp?.name || toTitleCase(topKey);
+          let controlType = 'text';
+          let options: Array<{ label: string; value: string }> | undefined;
+          let defaultVal: any = itemProp?.default ?? '';
+          if (itemProp) {
+            switch (itemProp.type) {
+              case 'select':
+                controlType = 'select';
+                options = itemProp.options;
+                break;
+              case 'boolean':
+                controlType = 'toggle';
+                defaultVal = itemProp.default ?? false;
+                break;
+              case 'number':
+                controlType = 'number';
+                defaultVal = itemProp.default ?? 0;
+                break;
+              default:
+                controlType = 'text';
+                break;
+            }
+          }
+          advancedFields.push({ name: fieldPath, label: fieldLabel, type: controlType, options, default: defaultVal });
+        }
+      }
       const paginationToggle = dynamicConfig.pagination
         ? `
                 <ToggleControl
@@ -866,74 +846,6 @@ ${previewJsx}
     blockEditorImports.push('InnerBlocks');
   }
 
-  // Generate validation rules from properties
-  const { rules: validationRules, hasValidation } = generateValidationRules(properties);
-
-  // Generate validation code if there are rules
-  const validationCode = hasValidation ? `
-    // Validation rules for required fields
-    const validationRules = ${validationRules};
-    
-    // Unique lock name for this block instance
-    const lockName = \`handoff-${blockName}-\${attributes.clientId || 'block'}\`;
-    
-    // Get editor dispatch functions
-    const { lockPostSaving, unlockPostSaving } = wp.data.dispatch('core/editor');
-    const { createNotice, removeNotice } = wp.data.dispatch('core/notices');
-    
-    // Validate function
-    const validateBlock = () => {
-      const errors = [];
-      
-      for (const rule of validationRules) {
-        if (rule.isArrayItem) {
-          // Validate each item in the array
-          const arr = attributes[rule.arrayField] || [];
-          arr.forEach((item, index) => {
-            if (!rule.validate(item[rule.itemField])) {
-              errors.push(\`\${rule.label} is required in item \${index + 1}\`);
-            }
-          });
-        } else {
-          // Get nested value using the field path
-          const getValue = (obj, path) => {
-            return path.split('?.').reduce((o, key) => o?.[key], obj);
-          };
-          const value = getValue(attributes, rule.field);
-          if (!rule.validate(value)) {
-            errors.push(\`\${rule.label} is required\`);
-          }
-        }
-      }
-      
-      return errors;
-    };
-    
-    // Run validation on mount and attribute changes
-    wp.element.useEffect(() => {
-      const errors = validateBlock();
-      const noticeId = \`handoff-validation-${blockName}\`;
-      
-      if (errors.length > 0) {
-        lockPostSaving(lockName);
-        createNotice(
-          'error',
-          \`${component.title}: \${errors.join(', ')}\`,
-          { id: noticeId, isDismissible: false }
-        );
-      } else {
-        unlockPostSaving(lockName);
-        removeNotice(noticeId);
-      }
-      
-      // Cleanup on unmount
-      return () => {
-        unlockPostSaving(lockName);
-        removeNotice(noticeId);
-      };
-    }, [${attrNames.join(', ')}]);
-` : '';
-
   // Build the 10up import if needed (Image for preview, Repeater for arrays)
   if (previewUses10upImage) {
     tenUpImports.push('Image');
@@ -1069,11 +981,10 @@ registerBlockType(metadata.name, {
   ...metadata,
   edit: ({ attributes, setAttributes, isSelected }) => {
     const blockProps = useBlockProps();
-${hasRichtext || previewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
+${useInnerBlocks || previewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
     const { ${attrNames.join(', ')} } = attributes;
 ${dynamicArrayResolutionCode}
 ${arrayHelpers}
-${validationCode}
     return (
       <Fragment>
         <InspectorControls>
@@ -1089,7 +1000,7 @@ ${previewContent}
     );
   },
   save: () => {
-${hasRichtext || previewUsesInnerBlocks ? '    // InnerBlocks content must be saved so it is persisted in post content\n    return <InnerBlocks.Content />;' : '    // Server-side rendering via render.php\n    return null;'}
+${useInnerBlocks || previewUsesInnerBlocks ? '    // InnerBlocks content must be saved so it is persisted in post content\n    return <InnerBlocks.Content />;' : '    // Server-side rendering via render.php\n    return null;'}
   },
 });
 `;

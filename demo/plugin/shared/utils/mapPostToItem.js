@@ -28,6 +28,7 @@ export function mapPostEntityToItem(record, fieldMapping, itemOverrides = {}, em
     if (typeof source === 'object') {
       const type = source.type || '';
       if (type === 'static') return source.value ?? '';
+      if (type === 'manual') return null;
       if (type === 'meta') return record.meta?.[source.key] ?? null;
       return null;
     }

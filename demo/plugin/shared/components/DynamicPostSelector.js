@@ -519,25 +519,74 @@ export function DynamicPostSelector({ value = {}, onChange, options = {} }) {
                       __nextHasNoMarginBottom
                     />
                   )}
-                  {advancedFields.map((field) =>
-                    field.type === 'select' ? (
-                      <SelectControl
-                        key={field.name}
-                        label={field.label}
-                        value={itemOverrides[field.name] ?? field.default ?? ''}
-                        options={[
-                          { label: __('Select…', textDomain), value: '' },
-                          ...(field.options || []),
-                        ]}
-                        onChange={(v) =>
-                          updateValue({
-                            itemOverrides: { ...itemOverrides, [field.name]: v || undefined },
-                          })
-                        }
-                        __nextHasNoMarginBottom
-                      />
-                    ) : null
-                  )}
+                  {advancedFields.map((field) => {
+                    if (field.type === 'select') {
+                      return (
+                        <SelectControl
+                          key={field.name}
+                          label={field.label}
+                          value={itemOverrides[field.name] ?? field.default ?? ''}
+                          options={[
+                            { label: __('Select…', textDomain), value: '' },
+                            ...(field.options || []),
+                          ]}
+                          onChange={(v) =>
+                            updateValue({
+                              itemOverrides: { ...itemOverrides, [field.name]: v || undefined },
+                            })
+                          }
+                          __nextHasNoMarginBottom
+                        />
+                      );
+                    }
+                    if (field.type === 'text') {
+                      return (
+                        <TextControl
+                          key={field.name}
+                          label={field.label}
+                          value={itemOverrides[field.name] ?? field.default ?? ''}
+                          onChange={(v) =>
+                            updateValue({
+                              itemOverrides: { ...itemOverrides, [field.name]: v },
+                            })
+                          }
+                          __nextHasNoMarginBottom
+                        />
+                      );
+                    }
+                    if (field.type === 'toggle') {
+                      return (
+                        <ToggleControl
+                          key={field.name}
+                          label={field.label}
+                          checked={itemOverrides[field.name] ?? field.default ?? false}
+                          onChange={(v) =>
+                            updateValue({
+                              itemOverrides: { ...itemOverrides, [field.name]: v },
+                            })
+                          }
+                          __nextHasNoMarginBottom
+                        />
+                      );
+                    }
+                    if (field.type === 'number') {
+                      return (
+                        <TextControl
+                          key={field.name}
+                          label={field.label}
+                          type="number"
+                          value={String(itemOverrides[field.name] ?? field.default ?? 0)}
+                          onChange={(v) =>
+                            updateValue({
+                              itemOverrides: { ...itemOverrides, [field.name]: parseInt(v, 10) || 0 },
+                            })
+                          }
+                          __nextHasNoMarginBottom
+                        />
+                      );
+                    }
+                    return null;
+                  })}
                 </div>
               )}
             </div>
