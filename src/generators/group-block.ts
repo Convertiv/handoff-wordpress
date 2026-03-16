@@ -69,6 +69,24 @@ const typesAreCompatible = (a: GutenbergAttribute, b: GutenbergAttribute): boole
 };
 
 /**
+ * Convert a variant ID (e.g. "hero-basic", "hero_search") into a valid camelCase
+ * identifier for use in prefixed attribute names. Ensures generated JS can destructure
+ * attributes without quoting (no hyphens in names).
+ */
+const variantIdToCamel = (variantId: string): string => {
+  const s = (variantId ?? '')
+    .replace(/[-_]([a-z])/g, (_, l: string) => l.toUpperCase())
+    .replace(/[-_]/g, '');
+  return s.charAt(0).toLowerCase() + s.slice(1);
+};
+
+/** Variant ID to PascalCase for JS import/component name (e.g. hero-article -> HeroArticle). */
+const variantIdToPascal = (variantId: string): string => {
+  const camel = variantIdToCamel(variantId);
+  return camel.charAt(0).toUpperCase() + camel.slice(1);
+};
+
+/**
  * Merge attributes from N components into a superset schema.
  *
  * 1. Shared fields (same name, compatible type): kept as-is.
@@ -147,9 +165,10 @@ export const buildSupersetAttributes = (
         }
       }
     } else {
-      // Conflicting — prefix with variant slug
+      // Conflicting — prefix with variant slug (must be valid JS identifier for destructuring)
       for (const entry of entries) {
-        const prefixed = toCamelCase(entry.variantId) + entry.attrName.charAt(0).toUpperCase() + entry.attrName.slice(1);
+        const variantCamel = variantIdToCamel(entry.variantId);
+        const prefixed = variantCamel + entry.attrName.charAt(0).toUpperCase() + entry.attrName.slice(1);
         attributes[prefixed] = entry.attr;
         if (!key.startsWith('__dyn_')) {
           fieldMaps[entry.variantId][key] = prefixed;
@@ -160,6 +179,21 @@ export const buildSupersetAttributes = (
 
   // Always add align
   attributes.align = { type: 'string', default: 'full' };
+
+  // Synthetic overlayOpacity when template uses overlay but component has no overlayOpacity property
+  // (single-block generator adds this in block-json; merged block must add it here and map for preview)
+  for (const variant of variants) {
+    const comp = variant.component;
+    if (!comp.code || !comp.code.includes('overlay')) continue;
+    const hasInProps = Object.keys(comp.properties || {}).some(
+      (k) => toCamelCase(k) === 'overlayOpacity' || k === 'overlayOpacity'
+    );
+    if (hasInProps) continue;
+    const variantCamel = variantIdToCamel(comp.id);
+    const attrName = variantCamel + 'OverlayOpacity';
+    attributes[attrName] = { type: 'number', default: 0.6 };
+    fieldMaps[comp.id]['overlayOpacity'] = attrName;
+  }
 
   return { attributes, fieldMaps };
 };
@@ -219,7 +253,8 @@ const generateMergedBlockJson = (
       description: (comp.description || '').replace(/\n\s+/g, ' ').trim(),
       attributes: variantDefaults,
       isActive: ['handoffVariant'],
-      scope: ['inserter', 'block', 'transform'],
+      // Only show in inserter; variation switching is done via the sidebar control only (no Transform to variation)
+      scope: ['inserter'],
       icon: chooseVariantIcon(comp),
     };
   });
@@ -252,13 +287,18 @@ const generateMergedBlockJson = (
 
 // ─── Merged index.js ────────────────────────────────────────────────────────
 
+interface MergedIndexResult {
+  indexJs: string;
+  variationJs: Record<string, string>;
+}
+
 const generateMergedIndexJs = (
   groupSlug: string,
   groupTitle: string,
   variants: VariantInfo[],
   supersetAttrs: Record<string, GutenbergAttribute>,
   fieldMaps: Record<string, FieldMap>,
-): string => {
+): MergedIndexResult => {
   const blockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
   // Collect all unique features needed across variants
@@ -317,15 +357,15 @@ const generateMergedIndexJs = (
     if (hasDynamic) { anyHasDynamicArrays = true; needsSelectControl = true; }
     if (variant.innerBlocksField) anyUsesInnerBlocks = true;
 
-    // Generate preview
+    // Generate preview (guard against missing code/title from API)
     const previewResult: JsxPreviewResult = generateJsxPreview(
-      comp.code,
+      comp.code ?? '',
       properties,
-      comp.id,
-      comp.title,
+      comp.id ?? comp.title ?? 'variant',
+      comp.title ?? comp.id ?? 'Variant',
       variant.innerBlocksField,
     );
-    let previewJsx = previewResult.jsx;
+    let previewJsx = previewResult.jsx ?? '';
     const inlineEditableFields = previewResult.inlineEditableFields;
 
     const varHasLinkField = previewJsx.includes('<HandoffLinkField');
@@ -427,6 +467,21 @@ const generateMergedIndexJs = (
       }
     }
 
+    // Synthetic overlay opacity panel (when template uses overlay but component has no overlayOpacity property)
+    if (fieldMap['overlayOpacity']) {
+      const mergedAttrName = fieldMap['overlayOpacity'];
+      panels.push(`              <PanelBody title={__('Overlay', 'handoff')} initialOpen={false}>
+                <RangeControl
+                  label={__('Overlay Opacity', 'handoff')}
+                  value={${mergedAttrName} ?? 0.6}
+                  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
+                  min={0}
+                  max={1}
+                  step={0.1}
+                />
+              </PanelBody>`);
+    }
+
     // Dynamic array resolution code
     let dynamicResolution = '';
     const resolvingFlags: string[] = [];
@@ -515,7 +570,7 @@ const generateMergedIndexJs = (
     blockEditorImports.push('RichText');
   }
 
-  const componentImports = ['PanelBody', 'TextControl', 'Button', 'SelectControl'];
+  const componentImports = ['PanelBody', 'TextControl', 'Button', 'SelectControl', 'DropdownMenu'];
   if (needsRangeControl) componentImports.push('RangeControl');
   if (needsToggleControl) componentImports.push('ToggleControl');
   if (anyHasDynamicArrays) componentImports.push('Spinner');
@@ -554,29 +609,77 @@ const generateMergedIndexJs = (
     }
   }
 
-  // Variant selector options
-  const variantOptions = variants
-    .map((v) => `          { label: '${v.component.title.replace(/'/g, "\\'")}', value: '${v.component.id}' }`)
+  // Toolbar variation switcher controls (for BlockControls DropdownMenu)
+  const toolbarVariantControls = variants
+    .map(
+      (v) =>
+        `        { title: '${(v.component.title ?? v.component.id ?? '').toString().replace(/'/g, "\\'")}', onClick: () => setAttributes({ handoffVariant: '${v.component.id ?? ''}' }) }`,
+    )
     .join(',\n');
 
-  // Build variant-conditional panels
-  const variantPanelBlocks = variants.map((v) => {
-    const result = variantResults[v.component.id];
-    if (!result.panels.trim()) return '';
-    return `        {handoffVariant === '${v.component.id}' && (
-          <>
-${result.panels}
-          </>
-        )}`;
-  }).filter(Boolean).join('\n\n');
+  // Collect all merged attribute names that are array type (across all variants) so we emit each helper once
+  const allArrayMergedNames = new Set<string>();
+  for (const v of variants) {
+    const fieldMap = fieldMaps[v.component.id];
+    for (const [key, prop] of Object.entries(v.component.properties)) {
+      if (prop.type === 'array') allArrayMergedNames.add(fieldMap[key] || toCamelCase(key));
+    }
+  }
+  const sharedArrayHelpers = generateSharedArrayHelpers(allArrayMergedNames);
 
-  // Build variant-conditional previews
-  const variantPreviewBlocks = variants.map((v) => {
+  // Variation include imports and component usage (one file per variant)
+  const variantImportLines = variants.map(
+    (v) => `import * as ${variantIdToPascal(v.component.id)} from './variations/${v.component.id}';`,
+  );
+  const helperNamesList = [...allArrayMergedNames].map(
+    (a) => `update${a.charAt(0).toUpperCase() + a.slice(1)}Item`,
+  );
+  if (anyPreviewUsesLinkField) helperNamesList.push('HandoffLinkField');
+  if (anyUsesInnerBlocks || anyPreviewUsesInnerBlocks) helperNamesList.push('CONTENT_BLOCKS');
+  const helpersObjectLine =
+    helperNamesList.length > 0
+      ? `    const helpers = { ${helperNamesList.join(', ')} };`
+      : '    const helpers = {};';
+
+  const variantPanelBlocks = variants
+    .map((v) => {
+      const result = variantResults[v.component.id];
+      if (!result.panels.trim()) return '';
+      const Pascal = variantIdToPascal(v.component.id);
+      return `        {handoffVariant === '${v.component.id}' && <${Pascal}.Panels attributes={attributes} setAttributes={setAttributes} helpers={helpers} />}`;
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  const variantPreviewBlocks = variants
+    .map((v) => {
+      const Pascal = variantIdToPascal(v.component.id);
+      return `          {handoffVariant === '${v.component.id}' && <${Pascal}.Preview attributes={attributes} setAttributes={setAttributes} helpers={helpers} />}`;
+    })
+    .join('\n');
+
+  // Per-variant JS include file contents (written to variations/<id>.js)
+  const variationJs: Record<string, string> = {};
+  for (const v of variants) {
     const result = variantResults[v.component.id];
-    return `          {handoffVariant === '${v.component.id}' && (
-${result.previewJsx}
-          )}`;
-  }).join('\n');
+    const fieldMap = fieldMaps[v.component.id];
+    const helperNames = [...allArrayMergedNames]
+      .filter((attrName) => {
+        for (const [key, prop] of Object.entries(v.component.properties)) {
+          if (prop.type === 'array' && (fieldMaps[v.component.id][key] || toCamelCase(key)) === attrName)
+            return true;
+        }
+        return false;
+      })
+      .map((a) => `update${a.charAt(0).toUpperCase() + a.slice(1)}Item`);
+    variationJs[v.component.id] = generateVariantJsFileContent(
+      v,
+      result,
+      fieldMap,
+      helperNames,
+      anyPreviewUsesLinkField,
+    );
+  }
 
   // Build variant-conditional dynamic resolution + array helpers
   const variantDynamicBlocks = variants.map((v) => {
@@ -593,12 +696,12 @@ ${code}
   const allResolvingFlags = variants.flatMap((v) => variantResults[v.component.id].resolvingFlags);
   const hasAnyResolving = allResolvingFlags.length > 0;
 
-  // Generate dynamic resolution and array helpers per variant (wrapped in variant conditionals)
-  let combinedDynamicCode = '';
+  // Generate dynamic resolution per variant; array helpers are emitted once above (sharedArrayHelpers)
+  let combinedDynamicCode = sharedArrayHelpers.trim() ? `\n${sharedArrayHelpers}` : '';
   for (const v of variants) {
     const result = variantResults[v.component.id];
-    if (result.dynamicResolution.trim() || result.arrayHelpers.trim()) {
-      combinedDynamicCode += result.dynamicResolution + result.arrayHelpers;
+    if (result.dynamicResolution.trim()) {
+      combinedDynamicCode += result.dynamicResolution;
     }
   }
 
@@ -643,7 +746,7 @@ function HandoffLinkField({ fieldId, label, url, opensInNewTab, onLabelChange, o
 
   const attrNamesList = Array.from(allAttrNames);
 
-  return `import { registerBlockType } from '@wordpress/blocks';
+  const indexJsTemplate = `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
 } from '@wordpress/block-editor';
@@ -655,6 +758,7 @@ import { ${elementImports.join(', ')} } from '@wordpress/element';
 ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${anyHasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
+${variantImportLines.join('\n')}
 ${linkFieldComponent}
 registerBlockType(metadata.name, {
   ...metadata,
@@ -663,22 +767,19 @@ registerBlockType(metadata.name, {
 ${anyUsesInnerBlocks || anyPreviewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
     const { ${attrNamesList.join(', ')} } = attributes;
 ${combinedDynamicCode}
+${helpersObjectLine}
     return (
       <Fragment>
+        <BlockControls group="block">
+          <DropdownMenu
+            icon="layout"
+            label={__('Variation', 'handoff')}
+            controls={[
+${toolbarVariantControls}
+            ]}
+          />
+        </BlockControls>
         <InspectorControls>
-          {/* Variant Selector */}
-          <PanelBody title={__('Block Type', 'handoff')} initialOpen={true}>
-            <SelectControl
-              label={__('Variation', 'handoff')}
-              value={handoffVariant}
-              options={[
-${variantOptions}
-              ]}
-              onChange={(v) => setAttributes({ handoffVariant: v })}
-              __nextHasNoMarginBottom
-            />
-          </PanelBody>
-
 ${variantPanelBlocks}
         </InspectorControls>
 
@@ -694,9 +795,123 @@ ${anyUsesInnerBlocks || anyPreviewUsesInnerBlocks ? '    return <InnerBlocks.Con
   },
 });
 `;
+  return { indexJs: indexJsTemplate, variationJs };
 };
 
 // ─── Helper generators for merged context ─────────────────────────────────────
+
+/**
+ * Generate Repeater item field controls for use inside the Repeater render prop.
+ * Uses setItem({ ...item, fieldKey: value }) for updates.
+ */
+const generateRepeaterItemFieldsMerged = (
+  itemProps: Record<string, HandoffProperty>,
+  indent: string,
+): string => {
+  const lines: string[] = [];
+  for (const [fieldKey, fieldProp] of Object.entries(itemProps)) {
+    const subLabel = fieldProp.name || toTitleCase(fieldKey);
+    if (fieldProp.type === 'link' || (fieldProp.type === 'object' && fieldProp.properties?.url)) {
+      lines.push(`<TextControl
+${indent}  label={__('${subLabel} - Label', 'handoff')}
+${indent}  value={item.${fieldKey}?.label || ''}
+${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, label: value } })}
+${indent}  __nextHasNoMarginBottom
+${indent}/>
+${indent}<TextControl
+${indent}  label={__('${subLabel} - URL', 'handoff')}
+${indent}  value={item.${fieldKey}?.url || ''}
+${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, url: value } })}
+${indent}  __nextHasNoMarginBottom
+${indent}/>`);
+    } else if (fieldProp.type === 'object' && fieldProp.properties) {
+      for (const [subKey, subProp] of Object.entries(fieldProp.properties)) {
+        const subSubLabel = subProp.name || toTitleCase(subKey);
+        lines.push(`<TextControl
+${indent}  label={__('${subSubLabel}', 'handoff')}
+${indent}  value={item.${fieldKey}?.${subKey} || ''}
+${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: value } })}
+${indent}  __nextHasNoMarginBottom
+${indent}/>`);
+      }
+    } else {
+      lines.push(`<TextControl
+${indent}  label={__('${subLabel}', 'handoff')}
+${indent}  value={item.${fieldKey} ?? ''}
+${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: value })}
+${indent}  __nextHasNoMarginBottom
+${indent}/>`);
+    }
+  }
+  return lines.join(`\n${indent}`);
+};
+
+/**
+ * Generate array (repeater) control for merged block. Uses 10up Repeater.
+ */
+const generateRepeaterControlMerged = (
+  key: string,
+  property: HandoffProperty,
+  mergedAttrName: string,
+  label: string,
+  indent: string,
+): string => {
+  const itemProps = property.items?.properties || {};
+  const itemFields = generateRepeaterItemFieldsMerged(itemProps, indent + '      ');
+  const firstTextField = Object.entries(itemProps).find(([, p]) => p.type === 'text');
+  const titleAccessor = firstTextField ? `item.${firstTextField[0]} || ` : '';
+  const addButtonJsx = `(addItem) => (
+${indent}    <div className="repeater-add-button-wrapper">
+${indent}      <Button
+${indent}        variant="tertiary"
+${indent}        onClick={addItem}
+${indent}        icon={
+${indent}          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+${indent}            <path d="M11 12.5V17.5H12.5V12.5H17.5V11H12.5V6H11V11H6V12.5H11Z"/>
+${indent}          </svg>
+${indent}        }
+${indent}        className="repeater-add-button"
+${indent}      >
+${indent}        {__('Add ${label}', 'handoff')}
+${indent}      </Button>
+${indent}    </div>
+${indent}  )`;
+  return `${indent}<Repeater
+${indent}  attribute="${mergedAttrName}"
+${indent}  allowReordering={true}
+${indent}  defaultValue={{}}
+${indent}  addButton={${addButtonJsx}}
+${indent}>
+${indent}  {(item, index, setItem, removeItem) => (
+${indent}    <div className="repeater-item">
+${indent}      <details className="repeater-item__collapse">
+${indent}        <summary className="repeater-item__header">
+${indent}          <span className="repeater-item__title">{${titleAccessor}'${label}'}</span>
+${indent}          <span className="repeater-item__actions" onClick={(e) => e.stopPropagation()}>
+${indent}            <Button
+${indent}              onClick={removeItem}
+${indent}              icon={
+${indent}                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+${indent}                  <path d="M5 6.5V18a2 2 0 002 2h10a2 2 0 002-2V6.5h-2.5V18a.5.5 0 01-.5.5H8a.5.5 0 01-.5-.5V6.5H5zM9 9v8h1.5V9H9zm4.5 0v8H15V9h-1.5z"/>
+${indent}                  <path d="M20 5h-5V3.5A1.5 1.5 0 0013.5 2h-3A1.5 1.5 0 009 3.5V5H4v1.5h16V5zm-6.5 0h-3V3.5h3V5z"/>
+${indent}                </svg>
+${indent}              }
+${indent}              label={__('Remove item', 'handoff')}
+${indent}              isDestructive
+${indent}              size="small"
+${indent}            />
+${indent}          </span>
+${indent}        </summary>
+${indent}        <div className="repeater-item__fields">
+${indent}          <Flex direction="column" gap={2}>
+${itemFields}
+${indent}          </Flex>
+${indent}        </div>
+${indent}      </details>
+${indent}    </div>
+${indent}  )}
+${indent}</Repeater>`;
+};
 
 /**
  * Generate a property control for the merged block context.
@@ -719,14 +934,20 @@ ${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
 ${indent}  __nextHasNoMarginBottom
 ${indent}/>`;
 
-    case 'number':
+    case 'number': {
+      const isOpacity = key.toLowerCase().includes('opacity');
+      const min = isOpacity ? 0 : 0;
+      const max = isOpacity ? 1 : 100;
+      const step = isOpacity ? 0.1 : undefined;
+      const stepAttr = step !== undefined ? `\n${indent}  step={${step}}` : '';
       return `<RangeControl
 ${indent}  label={__('${label}', 'handoff')}
-${indent}  value={${mergedAttrName} || 0}
+${indent}  value={${mergedAttrName} ?? ${isOpacity ? '0.6' : '0'}}
 ${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
-${indent}  min={0}
-${indent}  max={100}
+${indent}  min={${min}}
+${indent}  max={${max}}${stepAttr}
 ${indent}/>`;
+    }
 
     case 'boolean':
       return `<ToggleControl
@@ -737,7 +958,7 @@ ${indent}  __nextHasNoMarginBottom
 ${indent}/>`;
 
     case 'select':
-      const opts = (property.options || []).map((o) => `{ label: '${o.label.replace(/'/g, "\\'")}', value: '${o.value}' }`).join(', ');
+      const opts = (property.options || []).map((o) => `{ label: '${(o.label ?? '').toString().replace(/'/g, "\\'")}', value: '${o.value ?? ''}' }`).join(', ');
       return `<SelectControl
 ${indent}  label={__('${label}', 'handoff')}
 ${indent}  value={${mergedAttrName} || ''}
@@ -788,6 +1009,9 @@ ${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: { ...${merged
 ${indent}  __nextHasNoMarginBottom
 ${indent}/>`;
 
+    case 'array':
+      return generateRepeaterControlMerged(key, property, mergedAttrName, label, indent);
+
     case 'object':
       if (!property.properties) return `{/* Object: ${label} */}`;
       const objectControls = Object.entries(property.properties)
@@ -831,7 +1055,122 @@ const generateArrayHelpersMerged = (
   return helpers.join('\n');
 };
 
+/** Generate array update helpers once per merged attribute name (avoids duplicate declarations across variants). */
+const generateSharedArrayHelpers = (mergedArrayAttrNames: Set<string>): string => {
+  const helpers: string[] = [];
+  for (const attrName of mergedArrayAttrNames) {
+    const helperName = `update${attrName.charAt(0).toUpperCase() + attrName.slice(1)}Item`;
+    helpers.push(`
+    const ${helperName} = (index, field, value) => {
+      const newItems = [...(${attrName} || [])];
+      newItems[index] = { ...newItems[index], [field]: value };
+      setAttributes({ ${attrName}: newItems });
+    };`);
+  }
+  return helpers.join('\n');
+};
+
+/** Generate the JS content for one variation include file (exports Panels and Preview). */
+const generateVariantJsFileContent = (
+  variant: VariantInfo,
+  result: { panels: string; previewJsx: string },
+  fieldMap: FieldMap,
+  helperNames: string[],
+  anyPreviewUsesLinkField: boolean,
+): string => {
+  const comp = variant.component;
+  const attrNames = [...new Set(Object.values(fieldMap))];
+  const helpersDestruct = [...helperNames];
+  if (anyPreviewUsesLinkField) helpersDestruct.push('HandoffLinkField');
+  if (variant.innerBlocksField) helpersDestruct.push('CONTENT_BLOCKS');
+
+  const attrDestruct = attrNames.length ? `  const { ${attrNames.join(', ')} } = attributes;\n  ` : '';
+  const helpersDestructLine =
+    helpersDestruct.length > 0 ? `  const { ${helpersDestruct.join(', ')} } = helpers;\n  ` : '';
+
+  const panelsExport =
+    result.panels.trim() === ''
+      ? `export function Panels() { return null; }`
+      : `export function Panels({ attributes, setAttributes, helpers }) {
+${attrDestruct}${helpersDestructLine}  return (
+    <>
+${result.panels}
+    </>
+  );
+}`;
+
+  return `/**
+ * Variation: ${comp.title} (${comp.id})
+ * Generated – do not edit by hand.
+ */
+import { Fragment } from '@wordpress/element';
+import {
+  PanelBody,
+  TextControl,
+  Button,
+  SelectControl,
+  RangeControl,
+  ToggleControl,
+  Flex,
+  Popover,
+} from '@wordpress/components';
+import { MediaUpload, MediaUploadCheck, MediaReplaceFlow, LinkControl, RichText, InnerBlocks } from '@wordpress/block-editor';
+import { __ } from '@wordpress/i18n';
+import { Repeater, Image } from '@10up/block-components';
+
+${panelsExport}
+
+export function Preview({ attributes, setAttributes, helpers }) {
+${attrDestruct}${helpersDestructLine}  return (
+${result.previewJsx}
+  );
+}
+`;
+};
+
 // ─── Merged render.php ──────────────────────────────────────────────────────
+
+/** Generate the PHP fragment for one variant (extractions + template). Used in variation include file. */
+const generateVariantPhpFragment = (
+  variant: VariantInfo,
+  fieldMaps: Record<string, FieldMap>,
+): string => {
+  const comp = variant.component;
+  const fieldMap = fieldMaps[comp.id];
+
+  const richtextProps = new Set<string>();
+  if (variant.innerBlocksField) {
+    richtextProps.add(variant.innerBlocksField);
+    richtextProps.add(toCamelCase(variant.innerBlocksField));
+  }
+
+  const extractions: string[] = [];
+  for (const [key, property] of Object.entries(comp.properties)) {
+    if (property.type === 'richtext' && key === variant.innerBlocksField) continue;
+    if (property.type === 'pagination') continue;
+    const mergedAttrName = fieldMap[key] || toCamelCase(key);
+    const origCamel = toCamelCase(key);
+    const defaultValue = getPhpDefaultValue(property);
+    extractions.push(`$${origCamel} = isset($attributes['${mergedAttrName}']) ? $attributes['${mergedAttrName}'] : ${defaultValue};`);
+  }
+  // Synthetic overlayOpacity (when template uses overlay but component has no overlayOpacity property)
+  if (fieldMap['overlayOpacity']) {
+    const mergedAttrName = fieldMap['overlayOpacity'];
+    extractions.push(`$overlayOpacity = isset($attributes['${mergedAttrName}']) ? $attributes['${mergedAttrName}'] : 0.6;`);
+  }
+
+  const templatePhp = handlebarsToPhp(comp.code ?? '', comp.properties, richtextProps);
+  const className = (comp.id ?? '').replace(/_/g, '-');
+
+  return `<?php
+// Attribute extraction for variant: ${comp.id}
+${extractions.join('\n')}
+?>
+<div class="${className}">
+${templatePhp}
+</div>
+`;
+};
 
 const generateMergedRenderPhp = (
   groupSlug: string,
@@ -841,43 +1180,11 @@ const generateMergedRenderPhp = (
   const blockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const defaultVariant = variants[0].component.id;
 
-  const cases: string[] = [];
-
-  for (const variant of variants) {
-    const comp = variant.component;
-    const fieldMap = fieldMaps[comp.id];
-
-    const richtextProps = new Set<string>();
-    if (variant.innerBlocksField) {
-      richtextProps.add(variant.innerBlocksField);
-      richtextProps.add(toCamelCase(variant.innerBlocksField));
-    }
-
-    // Generate attribute extraction for this variant using merged attribute names
-    const extractions: string[] = [];
-    for (const [key, property] of Object.entries(comp.properties)) {
-      if (property.type === 'richtext' && key === variant.innerBlocksField) continue;
-      if (property.type === 'pagination') continue;
-      const mergedAttrName = fieldMap[key] || toCamelCase(key);
-      const origCamel = toCamelCase(key);
-      const defaultValue = getPhpDefaultValue(property);
-      // Extract from $attributes using the merged name, assign to the original variable name for template compatibility
-      extractions.push(`    $${origCamel} = isset($attributes['${mergedAttrName}']) ? $attributes['${mergedAttrName}'] : ${defaultValue};`);
-    }
-
-    // Convert the Handlebars template to PHP
-    const templatePhp = handlebarsToPhp(comp.code, comp.properties, richtextProps);
-    const className = comp.id.replace(/_/g, '-');
-
-    cases.push(`  case '${comp.id}':
-${extractions.join('\n')}
-    ?>
-    <div class="${className}">
-${templatePhp}
-    </div>
-    <?php
-    break;`);
-  }
+  const cases: string[] = variants.map(
+    (v) => `  case '${v.component.id}':
+    include __DIR__ . '/variations/${v.component.id}.php';
+    break;`,
+  );
 
   return `<?php
 /**
@@ -902,7 +1209,7 @@ $variant = isset($attributes['handoffVariant']) ? $attributes['handoffVariant'] 
 <div <?php echo get_block_wrapper_attributes(['class' => '${blockName}']); ?>>
 <?php
 switch ($variant) {
-${cases.join('\n\n')}
+${cases.join('\n')}
 
   default:
     echo '<!-- Unknown variant: ' . esc_html($variant) . ' -->';
@@ -920,7 +1227,7 @@ const getPhpDefaultValue = (property: HandoffProperty): string => {
     case 'text':
     case 'richtext':
     case 'select':
-      return `'${(property.default || '').replace(/'/g, "\\'")}'`;
+      return `'${String(property.default ?? '').replace(/'/g, "\\'")}'`;
     case 'number':
       return `${property.default ?? 0}`;
     case 'boolean':
@@ -1011,7 +1318,7 @@ ${variantList}
 
 ## Usage
 
-Select the desired variation from the "Block Type" panel in the sidebar inspector.
+Select the desired variation from the block toolbar (Variation dropdown).
 Each variation has its own set of controls and renders its own template.
 `;
 };
@@ -1020,6 +1327,7 @@ Each variation has its own set of controls and renders its own template.
 
 /**
  * Generate a merged block for a group of components.
+ * Variation markup is split into include files: variations/<variant-id>.js and variations/<variant-id>.php.
  */
 export const generateMergedBlock = (
   groupSlug: string,
@@ -1031,14 +1339,31 @@ export const generateMergedBlock = (
   const supersetResult = buildSupersetAttributes(variantInfos, groupSlug);
   const { attributes: supersetAttrs, fieldMaps } = supersetResult;
 
+  const { indexJs, variationJs } = generateMergedIndexJs(
+    groupSlug,
+    groupTitle,
+    variantInfos,
+    supersetAttrs,
+    fieldMaps,
+  );
+
+  const variationPhp: Record<string, string> = {};
+  for (const variant of variantInfos) {
+    variationPhp[variant.component.id] = generateVariantPhpFragment(variant, fieldMaps);
+  }
+
   return {
     blockJson: generateMergedBlockJson(groupSlug, groupTitle, variantInfos, supersetAttrs),
-    indexJs: generateMergedIndexJs(groupSlug, groupTitle, variantInfos, supersetAttrs, fieldMaps),
+    indexJs,
     renderPhp: generateMergedRenderPhp(groupSlug, variantInfos, fieldMaps),
     editorScss: generateMergedEditorScss(variantInfos),
     styleScss: generateMergedStyleScss(variantInfos),
     readme: generateMergedReadme(groupSlug, groupTitle, variantInfos),
     migrationSchema: generateMergedMigrationSchema(groupSlug, groupTitle, variantInfos),
+    variationFiles: {
+      js: variationJs,
+      php: variationPhp,
+    },
   };
 };
 

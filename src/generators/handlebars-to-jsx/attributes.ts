@@ -12,8 +12,14 @@ import { parseStyleToObject } from './styles';
  * Convert conditionals inside an attribute value to JSX template literal syntax
  * Called from convertAttributes after HTML parsing
  * Example: "prefix{{#if cond}}value{{/if}}suffix" -> `prefix${cond ? 'value' : ''}suffix`
+ * @param loopArray - Name of the array being iterated (for @last / @first); when inside {{#each arr}}, use 'arr'.
  */
-export const convertAttributeValue = (value: string, loopVar: string = 'item'): ConvertedAttributeValue => {
+export const convertAttributeValue = (
+  value: string,
+  loopVar: string = 'item',
+  loopArray?: string
+): ConvertedAttributeValue => {
+  const arrayName = loopArray || 'items';
   let result = value;
   let isExpression = false;
   
@@ -61,7 +67,7 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
       return 'index === 0';
     }
     if (prop === '@last') {
-      return 'index === items?.length - 1';
+      return `index === ${arrayName}?.length - 1`;
     }
     if (prop === '@index') {
       return 'index';
@@ -151,7 +157,7 @@ export const convertAttributeValue = (value: string, loopVar: string = 'item'): 
       isExpression = true;
       const unlessExpr = convertInnerToExpr(collapseWhitespace(unlessVal));
       // @last means it's NOT the last item, so we check index < array.length - 1
-      return "${index < items?.length - 1 ? " + unlessExpr + " : ''}";
+      return '${index < ' + arrayName + '?.length - 1 ? ' + unlessExpr + " : ''}";
     }
   );
   
@@ -380,6 +386,10 @@ export const preprocessAttributeConditionals = (template: string): string => {
   return result;
 };
 
+/** Ensure className always receives a string (React warns on boolean). */
+const ensureClassNameExpr = (jsxName: string, expr: string): string =>
+  jsxName === 'className' ? `String(${expr} ?? '')` : expr;
+
 /**
  * Convert HTML attributes to JSX attributes
  */
@@ -400,9 +410,10 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
     
     // Check if value contains block conditionals {{#if...}}
     if (value.includes('{{#if')) {
-      const { jsxValue, isExpression } = convertAttributeValue(value, loopVar);
+      const { jsxValue, isExpression } = convertAttributeValue(value, loopVar, context.loopArray);
       if (isExpression) {
-        attrs.push(`${jsxName}={\`${jsxValue}\`}`);
+        const wrapped = jsxName === 'className' ? `\${String(${jsxValue} ?? '')}` : jsxValue;
+        attrs.push(`${jsxName}={\`${wrapped}\`}`);
         continue;
       }
     }
@@ -429,16 +440,17 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
     
     // Handle other attributes with handlebars (including simple expressions)
     if (value.includes('{{')) {
-      const { jsxValue, isExpression } = convertAttributeValue(value, loopVar);
+      const { jsxValue, isExpression } = convertAttributeValue(value, loopVar, context.loopArray);
       if (isExpression) {
         // Check if it's a pure expression or needs template literal
         if (jsxValue.startsWith('${') && jsxValue.endsWith('}') && !jsxValue.includes('${', 2)) {
           // Simple expression like ${prop} - extract just the expression
           const expr = jsxValue.slice(2, -1);
-          attrs.push(`${jsxName}={${expr}}`);
+          attrs.push(`${jsxName}={${ensureClassNameExpr(jsxName, expr)}}`);
         } else {
           // Template literal with static parts or multiple expressions
-          attrs.push(`${jsxName}={\`${jsxValue}\`}`);
+          const wrapped = jsxName === 'className' ? jsxValue.replace(/\$\{([^}]+)\}/g, (_, e) => `\${String(${e} ?? '')}`) : jsxValue;
+          attrs.push(`${jsxName}={\`${wrapped}\`}`);
         }
         continue;
       }
@@ -447,7 +459,7 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
       const match = value.match(/\{\{+\s*([^}]+?)\s*\}+\}/);
       if (match) {
         const expr = transpileExpression(match[1], context, loopVar);
-        attrs.push(`${jsxName}={${expr}}`);
+        attrs.push(`${jsxName}={${ensureClassNameExpr(jsxName, expr)}}`);
         continue;
       }
     }
@@ -465,7 +477,7 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
       if (cleanValue.startsWith('{') && cleanValue.endsWith('}')) {
         cleanValue = cleanValue.slice(1, -1);
       }
-      attrs.push(`${jsxName}={${cleanValue}}`);
+      attrs.push(`${jsxName}={${ensureClassNameExpr(jsxName, cleanValue)}}`);
       continue;
     }
     
@@ -474,7 +486,7 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
       const condMatch = value.match(/__COND_ATTR__([A-Za-z0-9+/=]+)__END_COND_ATTR__/);
       if (condMatch) {
         const decoded = Buffer.from(condMatch[1], 'base64').toString();
-        attrs.push(`${jsxName}={${decoded}}`);
+        attrs.push(`${jsxName}={${ensureClassNameExpr(jsxName, decoded)}}`);
         continue;
       }
     }

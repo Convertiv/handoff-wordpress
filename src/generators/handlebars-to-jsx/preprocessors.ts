@@ -23,7 +23,7 @@ export interface PreprocessFieldsResult {
  * Only creates markers for supported field types that are NOT inside attribute values
  */
 export const preprocessFields = (template: string, properties: Record<string, HandoffProperty>): PreprocessFieldsResult => {
-  let result = template;
+  let result = template ?? '';
   const inlineEditableFields = new Set<string>();
   
   // Match {{#field "path"}}content{{/field}} or {{#field path}}content{{/field}}
@@ -88,7 +88,7 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
  * Clean and preprocess the Handlebars template
  */
 export const cleanTemplate = (template: string): string => {
-  let cleaned = template;
+  let cleaned = template ?? '';
   
   // Remove HTML/body wrapper
   cleaned = cleaned.replace(/<html>[\s\S]*?<body[^>]*>/gi, '');
@@ -221,8 +221,10 @@ const processIfBlock = (condition: string, inner: string, startPos: number, full
 /**
  * Pre-process template to handle block helpers before HTML parsing
  * Uses iterative approach to handle nested blocks properly
+ * @param template - Template string
+ * @param currentLoopArray - When processing inner content of {{#each properties.xxx}}, pass the array name (e.g. "ctas") so {{#unless @last}} markers get data-array for correct expansion at replace time
  */
-export const preprocessBlocks = (template: string): string => {
+export const preprocessBlocks = (template: string, currentLoopArray?: string): string => {
   let result = template;
   
   // Process {{#each properties.xxx.yyy as |alias|}} or {{#each properties.xxx as |alias index|}} blocks with named alias FIRST
@@ -310,19 +312,20 @@ export const preprocessBlocks = (template: string): string => {
     }
   }
   
-  // Process {{#unless @last}} blocks
+  // Process {{#unless @last}} blocks (optionally embed current loop array for correct expansion when marker is replaced without loop context)
   const unlessLastRegex = /\{\{#unless\s+@last\}\}/g;
   let unlessMatch;
+  const dataArrayAttr = currentLoopArray ? ` data-array="${currentLoopArray}"` : '';
   while ((unlessMatch = unlessLastRegex.exec(result)) !== null) {
     const startPos = unlessMatch.index;
     const openTagEnd = startPos + unlessMatch[0].length;
     const closePos = findMatchingClose(result, '{{#unless', '{{/unless}}', openTagEnd);
-    
+
     if (closePos !== -1) {
       const inner = result.substring(openTagEnd, closePos);
       const escaped = Buffer.from(inner).toString('base64');
-      const replacement = `<unless-last-marker data-content="${escaped}"></unless-last-marker>`;
-      
+      const replacement = `<unless-last-marker data-content="${escaped}"${dataArrayAttr}></unless-last-marker>`;
+
       result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/unless}}'.length);
       unlessLastRegex.lastIndex = startPos + replacement.length;
     }

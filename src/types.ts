@@ -97,6 +97,11 @@ export interface GeneratedBlock {
   readme: string;
   migrationSchema: string;
   screenshotUrl?: string;  // URL to fetch the screenshot from
+  /** Per-variant include files for merged group blocks (key = variant id, e.g. 'hero-article') */
+  variationFiles?: {
+    js: Record<string, string>;
+    php: Record<string, string>;
+  };
 }
 
 export interface CompilerOptions {
@@ -282,7 +287,7 @@ export interface HandoffWpConfig {
 
   /**
    * Group compilation mode.
-   * Keys are group names (matching HandoffComponent.group).
+   * Keys are group names (matched case-insensitively to HandoffComponent.group).
    * - "merged" : all components in the group compile into one block with WP variations
    * - "individual" (or omitted) : each component is its own block (default)
    */

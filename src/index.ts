@@ -605,6 +605,37 @@ const fetchComponentList = async (apiUrl: string, importConfig: ImportConfig, au
 };
 
 /**
+ * Fetch full list of all components from API (no import filter). Used to resolve group names.
+ */
+const fetchAllComponentsList = async (apiUrl: string, auth?: AuthCredentials): Promise<HandoffComponent[]> => {
+  const url = `${apiUrl}/api/components.json`;
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
+    const options = buildRequestOptions(url, auth);
+    protocol.get(options, (res) => {
+      if (res.statusCode === 401) {
+        reject(new Error(`Authentication failed: HTTP 401. Check your username and password.`));
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`Failed to fetch component list: HTTP ${res.statusCode}`));
+        return;
+      }
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const components = JSON.parse(data) as Array<HandoffComponent>;
+          resolve(components);
+        } catch (e) {
+          reject(new Error(`Failed to parse components list: ${e}`));
+        }
+      });
+    }).on('error', (e) => reject(new Error(`Failed to fetch components: ${e.message}`)));
+  });
+};
+
+/**
  * Compile all components
  */
 /**
@@ -665,6 +696,65 @@ const buildVariantInfo = (component: HandoffComponent, resolvedConfig: ResolvedC
   };
 };
 
+/**
+ * Compile a single merged group (e.g. Hero with multiple variants). Used by single-name CLI when name matches a group.
+ */
+const compileGroup = async (
+  apiUrl: string,
+  outputDir: string,
+  groupSlug: string,
+  groupComponents: HandoffComponent[],
+  auth?: AuthCredentials,
+): Promise<void> => {
+  console.log(`\n🔀 Generating merged group block: ${groupSlug} (${groupComponents.length} variants)`);
+  const variantInfos: VariantInfo[] = groupComponents.map((c) => buildVariantInfo(c, config));
+  const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos);
+  const groupBlockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const groupDir = path.join(outputDir, groupBlockName);
+  if (!fs.existsSync(groupDir)) {
+    fs.mkdirSync(groupDir, { recursive: true });
+  }
+
+  const formattedBlockJson = await formatCode(mergedBlock.blockJson, 'json');
+  const formattedIndexJs = await formatCode(mergedBlock.indexJs, 'babel');
+  const formattedRenderPhp = await formatCode(mergedBlock.renderPhp, 'php');
+  const formattedEditorScss = await formatCode(mergedBlock.editorScss, 'scss');
+  const formattedStyleScss = await formatCode(mergedBlock.styleScss, 'scss');
+
+  fs.writeFileSync(path.join(groupDir, 'block.json'), formattedBlockJson);
+  fs.writeFileSync(path.join(groupDir, 'index.js'), formattedIndexJs);
+  fs.writeFileSync(path.join(groupDir, 'render.php'), formattedRenderPhp);
+  fs.writeFileSync(path.join(groupDir, 'editor.scss'), formattedEditorScss);
+  fs.writeFileSync(path.join(groupDir, 'style.scss'), formattedStyleScss);
+  fs.writeFileSync(path.join(groupDir, 'README.md'), mergedBlock.readme);
+  fs.writeFileSync(path.join(groupDir, 'migration-schema.json'), mergedBlock.migrationSchema);
+
+  if (mergedBlock.variationFiles) {
+    const variationsDir = path.join(groupDir, 'variations');
+    if (!fs.existsSync(variationsDir)) {
+      fs.mkdirSync(variationsDir, { recursive: true });
+    }
+    for (const [variantId, content] of Object.entries(mergedBlock.variationFiles.js)) {
+      const formatted = await formatCode(content, 'babel');
+      fs.writeFileSync(path.join(variationsDir, `${variantId}.js`), formatted);
+    }
+    for (const [variantId, content] of Object.entries(mergedBlock.variationFiles.php)) {
+      const formatted = await formatCode(content, 'php');
+      fs.writeFileSync(path.join(variationsDir, `${variantId}.php`), formatted);
+    }
+  }
+
+  console.log(`✅ Generated merged block: ${groupBlockName} (${groupComponents.length} variants)`);
+  console.log(`   📁 ${groupDir}`);
+
+  const pluginDir = path.dirname(outputDir);
+  const categoriesPhp = generateCategoriesPhp(groupComponents);
+  const formattedCategoriesPhp = await formatCode(categoriesPhp, 'php');
+  const categoriesPath = path.join(pluginDir, 'handoff-categories.php');
+  fs.writeFileSync(categoriesPath, formattedCategoriesPhp);
+  console.log(`   📄 ${categoriesPath}`);
+};
+
 const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredentials): Promise<void> => {
   console.log(`\n🔧 Gutenberg Compiler - Batch Mode`);
   console.log(`   API: ${apiUrl}`);
@@ -706,15 +796,24 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     }
 
     // Partition components: merged groups vs individual
-    const mergedGroups = config.groups;
+    // Build case-insensitive lookup: config may say "Hero" but API often returns "hero"
+    const mergedGroupConfigKeyByLower = new Map<string, string>();
+    for (const [key, mode] of Object.entries(config.groups)) {
+      if (mode === 'merged') mergedGroupConfigKeyByLower.set(key.toLowerCase(), key);
+    }
     const groupBuckets: Record<string, HandoffComponent[]> = {};
     const individualComponents: HandoffComponent[] = [];
 
     for (const component of allComponents) {
       const group = component.group;
-      if (group && mergedGroups[group] === 'merged') {
-        if (!groupBuckets[group]) groupBuckets[group] = [];
-        groupBuckets[group].push(component);
+      if (!group) {
+        individualComponents.push(component);
+        continue;
+      }
+      const configKey = mergedGroupConfigKeyByLower.get(group.toLowerCase());
+      if (configKey) {
+        if (!groupBuckets[configKey]) groupBuckets[configKey] = [];
+        groupBuckets[configKey].push(component);
       } else {
         individualComponents.push(component);
       }
@@ -736,34 +835,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     // Compile merged groups
     for (const [groupSlug, groupComponents] of Object.entries(groupBuckets)) {
       try {
-        console.log(`\n🔀 Generating merged group block: ${groupSlug} (${groupComponents.length} variants)`);
-        const variantInfos: VariantInfo[] = groupComponents.map((c) => buildVariantInfo(c, config));
-
-        const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos);
-        const groupBlockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        const groupDir = path.join(outputDir, groupBlockName);
-        if (!fs.existsSync(groupDir)) {
-          fs.mkdirSync(groupDir, { recursive: true });
-        }
-
-        const formattedBlockJson = await formatCode(mergedBlock.blockJson, 'json');
-        const formattedIndexJs = await formatCode(mergedBlock.indexJs, 'babel');
-        const formattedRenderPhp = await formatCode(mergedBlock.renderPhp, 'php');
-        const formattedEditorScss = await formatCode(mergedBlock.editorScss, 'scss');
-        const formattedStyleScss = await formatCode(mergedBlock.styleScss, 'scss');
-
-        fs.writeFileSync(path.join(groupDir, 'block.json'), formattedBlockJson);
-        fs.writeFileSync(path.join(groupDir, 'index.js'), formattedIndexJs);
-        fs.writeFileSync(path.join(groupDir, 'render.php'), formattedRenderPhp);
-        fs.writeFileSync(path.join(groupDir, 'editor.scss'), formattedEditorScss);
-        fs.writeFileSync(path.join(groupDir, 'style.scss'), formattedStyleScss);
-        fs.writeFileSync(path.join(groupDir, 'README.md'), mergedBlock.readme);
-        fs.writeFileSync(path.join(groupDir, 'migration-schema.json'), mergedBlock.migrationSchema);
-
-        console.log(`✅ Generated merged block: ${groupBlockName} (${groupComponents.length} variants)`);
-        console.log(`   📁 ${groupDir}`);
-
-        // Add all group components to compiled list for category generation
+        await compileGroup(apiUrl, outputDir, groupSlug, groupComponents, auth);
         compiledComponents.push(...groupComponents);
         success += groupComponents.length;
       } catch (error) {
@@ -1679,36 +1751,77 @@ program
       }
       console.log(`   ✅ Manifest updated\n`);
     } else if (componentName) {
-      // Validate single component first unless forced
-      if (!opts.force) {
-        const result = await validate(apiUrl, output, componentName, auth);
-        if (!result.isValid) {
-          console.log(`\n⚠️  Component has breaking changes. Use --force to compile anyway.\n`);
+      // Try component first, then fall back to group (e.g. "hero" -> Hero merged block)
+      let resolvedAsComponent = false;
+      try {
+        const component = await fetchComponent(apiUrl, componentName, auth);
+        resolvedAsComponent = true;
+        if (!opts.force) {
+          const result = await validate(apiUrl, output, componentName, auth);
+          if (!result.isValid) {
+            console.log(`\n⚠️  Component has breaking changes. Use --force to compile anyway.\n`);
+            process.exit(1);
+          }
+        }
+        await compile({
+          apiUrl,
+          outputDir: output,
+          componentName,
+          auth,
+        });
+        updateManifestForComponent(output, component);
+        console.log(`   📝 Manifest updated\n`);
+      } catch (componentError) {
+        // No component with this name – try as group
+        console.log(`   No component "${componentName}" found, checking groups...\n`);
+        const allComponents = await fetchAllComponentsList(apiUrl, auth);
+        const nameLower = componentName.toLowerCase();
+        const groupMatches = allComponents.filter(
+          (c) => c.group && c.group.toLowerCase() === nameLower,
+        );
+        if (groupMatches.length === 0) {
+          console.error(`Error: No component or group found for "${componentName}".`);
+          console.error(`       Component fetch: ${componentError instanceof Error ? componentError.message : componentError}`);
           process.exit(1);
         }
+        const mergedGroupConfigKeyByLower = new Map<string, string>();
+        for (const [key, mode] of Object.entries(config.groups)) {
+          if (mode === 'merged') mergedGroupConfigKeyByLower.set(key.toLowerCase(), key);
+        }
+        const groupKey =
+          mergedGroupConfigKeyByLower.get(nameLower) ?? groupMatches[0].group;
+        const fullGroupComponents: HandoffComponent[] = [];
+        for (const c of groupMatches) {
+          try {
+            const full = await fetchComponent(apiUrl, c.id, auth);
+            const templateValidation = validateTemplateVariables(full);
+            if (!templateValidation.isValid) {
+              console.warn(`   ⚠️  Skipping ${c.id} (template validation failed)`);
+              continue;
+            }
+            fullGroupComponents.push(full);
+          } catch (err) {
+            console.error(`   ❌ Failed to fetch ${c.id}: ${err instanceof Error ? err.message : err}`);
+          }
+        }
+        if (fullGroupComponents.length === 0) {
+          console.error(`Error: Could not fetch any components for group "${componentName}".`);
+          process.exit(1);
+        }
+        await compileGroup(apiUrl, output, groupKey, fullGroupComponents, auth);
+        console.log(`   ✅ Group "${groupKey}" compiled (${fullGroupComponents.length} variants).\n`);
       }
-      
-      await compile({
-        apiUrl: apiUrl,
-        outputDir: output,
-        componentName,
-        auth
-      });
-      
-      // Update manifest after successful compilation
-      const component = await fetchComponent(apiUrl, componentName, auth);
-      updateManifestForComponent(output, component);
-      console.log(`   📝 Manifest updated\n`);
     } else {
-      console.error('Error: Please specify a component name, use --all flag, --theme flag, or --validate-all flag');
+      console.error('Error: Please specify a component name, group name, use --all flag, --theme flag, or --validate-all flag');
       console.log('\nUsage:');
-      console.log('  npx gutenberg-compile hero-article');
+      console.log('  npx gutenberg-compile <component-name>   Compile one component (e.g. hero-article)');
+      console.log('  npx gutenberg-compile <group-name>      Or compile a merged group (e.g. hero)');
       console.log('  npx gutenberg-compile --all');
       console.log('  npx gutenberg-compile --theme');
       console.log('  npx gutenberg-compile --validate hero-article');
       console.log('  npx gutenberg-compile --validate-all');
       console.log('  npx gutenberg-compile --all --force');
-      console.log('  npx gutenberg-compile hero-article --api-url http://localhost:4000 --output ./blocks');
+      console.log('  npx gutenberg-compile hero --api-url http://localhost:4000 --output ./blocks');
       process.exit(1);
     }
   });

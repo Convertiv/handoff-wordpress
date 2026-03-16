@@ -70,9 +70,9 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         inLoop: true
       };
       
-      // Parse and convert inner content
+      // Parse and convert inner content (pass propPath so {{#unless @last}} get data-array for correct array name)
       const cleanedInner = cleanTemplate(innerContent);
-      const preprocessed = preprocessBlocks(cleanedInner);
+      const preprocessed = preprocessBlocks(cleanedInner, propPath);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, loopContext);
       innerJsx = postprocessJsx(innerJsx, loopContext, loopVarName);
@@ -101,9 +101,9 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         inLoop: true
       };
       
-      // Parse and convert inner content
+      // Parse and convert inner content (pass propPath for unless-last data-array)
       const cleanedInner = cleanTemplate(innerContent);
-      const preprocessed = preprocessBlocks(cleanedInner);
+      const preprocessed = preprocessBlocks(cleanedInner, propPath);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, loopContext);
       innerJsx = postprocessJsx(innerJsx, loopContext, 'item');
@@ -145,9 +145,9 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         inLoop: true
       };
       
-      // Parse and convert inner content with the nested loop variable
+      // Parse and convert inner content with the nested loop variable (pass arrayRef for unless-last data-array)
       const cleanedInner = cleanTemplate(innerContent);
-      const preprocessed = preprocessBlocks(cleanedInner);
+      const preprocessed = preprocessBlocks(cleanedInner, arrayRef);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, nestedContext);
       
@@ -184,18 +184,18 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         inLoop: true
       };
       
-      // Parse and convert inner content with the nested loop variable
+      // Parse and convert inner content with the nested loop variable (pass arrayRef for unless-last data-array)
       const cleanedInner = cleanTemplate(innerContent);
-      const preprocessed = preprocessBlocks(cleanedInner);
+      const preprocessed = preprocessBlocks(cleanedInner, arrayRef);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, nestedContext);
-      
+
       // Replace references to use the nested variable
       innerJsx = innerJsx.replace(/\{item\./g, `{${nestedVar}.`);
       innerJsx = innerJsx.replace(/\{item\}/g, `{${nestedVar}}`);
-      
+
       innerJsx = postprocessJsx(innerJsx, nestedContext, nestedVar);
-      
+
       return `{${arrayRef} && ${arrayRef}.map((${nestedVar}, ${nestedIndex}) => (
         <Fragment key={${nestedIndex}}>
           ${innerJsx.trim()}
@@ -203,14 +203,14 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       ))}`;
     }
   );
-  
-  // Convert unless-last markers
-  // Handle both hyphenated and camelCase attribute names
+
+  // Convert unless-last markers (data-array when present comes from preprocessor when inside {{#each}} so expansion works without loop context)
+  // Handle both hyphenated and camelCase attribute names; attribute order: data-content then optional data-array
   result = result.replace(
-    /<unless-last-marker\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/unless-last-marker>)/gi,
-    (_, encodedContent) => {
+    /<unless-last-marker\s+(?:data-content|dataContent)="([^"]+)"\s*(?:(?:data-array|dataArray)="([^"]+)"\s*)?(?:\/>|><\/unless-last-marker>)/gi,
+    (_, encodedContent, dataArray) => {
       const innerContent = Buffer.from(encodedContent, 'base64').toString();
-      const arrayName = context.loopArray || 'items';
+      const arrayName = dataArray || context.loopArray || 'items';
       
       // Parse inner content
       const cleanedInner = cleanTemplate(innerContent);
