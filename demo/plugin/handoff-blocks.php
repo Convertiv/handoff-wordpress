@@ -19,6 +19,29 @@ define('HANDOFF_BLOCKS_PATH', plugin_dir_path(__FILE__));
 define('HANDOFF_BLOCKS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
 
+/**
+ * Returns true when running in a local/development environment.
+ *
+ * In development mode the REST API permission callbacks are relaxed so that
+ * tools like Postman can hit the endpoints without a WordPress session cookie
+ * or Application Password.
+ *
+ * Detection order:
+ *   1. HANDOFF_DEV_AUTH constant — define( 'HANDOFF_DEV_AUTH', true ) in wp-config.php
+ *      to force-enable regardless of environment.
+ *   2. PHP_ENV server variable (set by Docker / the server) equals "development".
+ *
+ * NEVER enable this in production. The constant check exists so you can explicitly
+ * turn it on/off in wp-config.php without relying on the env var.
+ */
+function handoff_is_dev_env() {
+    if (defined('HANDOFF_DEV_AUTH') && HANDOFF_DEV_AUTH === true) {
+        return true;
+    }
+    $env = isset($_SERVER['PHP_ENV']) ? $_SERVER['PHP_ENV'] : getenv('PHP_ENV');
+    return $env === 'development';
+}
+
 // Include the auto-generated categories file if it exists
 if (file_exists(HANDOFF_BLOCKS_PATH . 'handoff-categories.php')) {
   require_once HANDOFF_BLOCKS_PATH . 'handoff-categories.php';
@@ -245,7 +268,7 @@ function handoff_blocks_migration_assets($hook) {
       'version'      => HANDOFF_BLOCKS_VERSION,
     ];
   }
-
+  
   wp_enqueue_script(
     'handoff-migration',
     HANDOFF_BLOCKS_URL . 'build/migration/index.js',

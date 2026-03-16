@@ -1,8 +1,11 @@
 /**
  * FieldMapper — two-column mapping UI.
  *
- * Left: ACF field names with value previews.
+ * Left:  source field keys (dotted, with value previews).
  * Right: dropdown to select the Handoff schema field to map to.
+ *
+ * sourceFields is a flat { key → value } map where keys are dotted source paths,
+ * e.g. "core.post_title", "acf.cynosure_hero.headline", "meta.some_key".
  */
 
 import { useMemo } from '@wordpress/element';
@@ -10,8 +13,7 @@ import { __ } from '@wordpress/i18n';
 import { SelectControl } from '@wordpress/components';
 
 /**
- * Flatten a migration schema's properties into a list of
- * dot-notation paths with labels and types.
+ * Flatten a migration schema's properties into selectable dotted paths.
  */
 function flattenSchemaProps(properties, prefix = '') {
   const result = [];
@@ -25,7 +27,6 @@ function flattenSchemaProps(properties, prefix = '') {
       result.push(...flattenSchemaProps(prop.properties, path));
     }
     if (prop.type === 'link' || prop.type === 'button') {
-      // Expose sub-fields for links/buttons
       const subFields = prop.type === 'link'
         ? { label: 'Label', url: 'URL', opensInNewTab: 'Opens in New Tab' }
         : { label: 'Label', href: 'URL', target: 'Target' };
@@ -38,18 +39,15 @@ function flattenSchemaProps(properties, prefix = '') {
   return result;
 }
 
-/**
- * Truncate a value for display preview.
- */
 function previewValue(val) {
   if (val === null || val === undefined) return '(empty)';
   if (typeof val === 'object') return JSON.stringify(val).slice(0, 80);
   const s = String(val);
-  return s.length > 60 ? s.slice(0, 60) + '…' : s;
+  return s.length > 80 ? s.slice(0, 80) + '…' : s;
 }
 
-export default function FieldMapper({ acfData, schema, fieldMappings, onChange }) {
-  const acfFields = useMemo(() => Object.keys(acfData || {}), [acfData]);
+export default function FieldMapper({ sourceFields, schema, fieldMappings, onChange }) {
+  const sourceKeys = useMemo(() => Object.keys(sourceFields || {}), [sourceFields]);
 
   const handoffOptions = useMemo(() => {
     const flat = flattenSchemaProps(schema.properties);
@@ -62,41 +60,43 @@ export default function FieldMapper({ acfData, schema, fieldMappings, onChange }
     ];
   }, [schema]);
 
-  const update = (acfKey, handoffPath) => {
+  const update = (sourceKey, handoffPath) => {
     const next = { ...fieldMappings };
     if (handoffPath) {
-      next[acfKey] = handoffPath;
+      next[sourceKey] = handoffPath;
     } else {
-      delete next[acfKey];
+      delete next[sourceKey];
     }
     onChange(next);
   };
 
-  if (acfFields.length === 0) {
-    return <p>{__('No ACF field data found in this block.', 'handoff')}</p>;
+  if (sourceKeys.length === 0) {
+    return <p>{__('No source fields available to map.', 'handoff')}</p>;
   }
 
   return (
     <table className="widefat" style={{ tableLayout: 'fixed' }}>
       <thead>
         <tr>
-          <th style={{ width: '30%' }}>{__('ACF Field', 'handoff')}</th>
-          <th style={{ width: '25%' }}>{__('Value Preview', 'handoff')}</th>
-          <th style={{ width: '45%' }}>{__('Map To (Handoff)', 'handoff')}</th>
+          <th style={{ width: '35%' }}>{__('Source Field', 'handoff')}</th>
+          <th style={{ width: '20%' }}>{__('Value Preview', 'handoff')}</th>
+          <th style={{ width: '45%' }}>{__('Map To (Handoff Block Attribute)', 'handoff')}</th>
         </tr>
       </thead>
       <tbody>
-        {acfFields.map((acfKey) => (
-          <tr key={acfKey}>
-            <td><code>{acfKey}</code></td>
-            <td style={{ color: '#757575', fontSize: 12, wordBreak: 'break-all' }}>
-              {previewValue(acfData[acfKey])}
+        {sourceKeys.map((key) => (
+          <tr key={key} style={{ background: fieldMappings[key] ? '#f0f8ff' : undefined }}>
+            <td>
+              <code style={{ fontSize: 11, wordBreak: 'break-all' }}>{key}</code>
+            </td>
+            <td style={{ color: '#757575', fontSize: 11, wordBreak: 'break-all' }}>
+              {previewValue(sourceFields[key])}
             </td>
             <td>
               <SelectControl
-                value={fieldMappings[acfKey] || ''}
+                value={fieldMappings[key] || ''}
                 options={handoffOptions}
-                onChange={(val) => update(acfKey, val)}
+                onChange={(val) => update(key, val)}
                 __nextHasNoMarginBottom
               />
             </td>

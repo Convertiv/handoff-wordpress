@@ -50,92 +50,64 @@ class Handoff_Migration {
     }
 
     /* ------------------------------------------------------------------
-     * ACF block parser
+     * Page listing — all posts, no content filter
      * ----------------------------------------------------------------*/
 
     /**
-     * Parse a post's content and return the ACF blocks it contains.
+     * Return a paginated list of ALL pages/posts regardless of what content
+     * they contain. Each item includes a lightweight summary of available
+     * content sources so the UI can give a quick overview without loading
+     * full field data for every post.
      *
-     * Each entry includes:
-     *   - blockName  (e.g. "acf/testimonial")
-     *   - index      (position in the page)
-     *   - data       (ACF field data, internal _keys stripped)
-     *   - raw        (original parsed block array)
-     *
-     * @param int $post_id
-     * @return array
+     * @param string $post_type  'any' expands to ['page','post'].
+     * @param int    $per_page
+     * @param int    $page_num
+     * @return array { pages, total, totalPages }
      */
-    public static function parse_page_blocks($post_id) {
-        $post = get_post($post_id);
-        if (!$post) return [];
+    public static function get_all_pages($post_type = 'any', $per_page = 50, $page_num = 1) {
+        $post_types = $post_type === 'any' ? ['page', 'post'] : (array) $post_type;
 
-        $blocks  = parse_blocks($post->post_content);
-        $results = [];
-        $idx     = 0;
-
-        foreach ($blocks as $block) {
-            if (empty($block['blockName'])) continue;
-
-            if (strpos($block['blockName'], 'acf/') === 0) {
-                $data = isset($block['attrs']['data']) ? $block['attrs']['data'] : [];
-
-                // Strip ACF internal keys (prefixed with "_")
-                $clean = [];
-                foreach ($data as $key => $value) {
-                    if (strpos($key, '_') !== 0) {
-                        $clean[$key] = $value;
-                    }
-                }
-
-                $results[] = [
-                    'blockName' => $block['blockName'],
-                    'index'     => $idx,
-                    'data'      => $clean,
-                    'raw'       => $block,
-                ];
-            }
-
-            $idx++;
-        }
-
-        return $results;
-    }
-
-    /**
-     * List pages/posts that contain at least one ACF block.
-     *
-     * @param string $post_type  Defaults to 'page'.
-     * @param int    $per_page   Defaults to 50.
-     * @param int    $page_num   Defaults to 1.
-     * @return array
-     */
-    public static function get_pages_with_acf_blocks($post_type = 'any', $per_page = 50, $page_num = 1) {
-        $args = [
-            'post_type'      => $post_type === 'any' ? ['page', 'post'] : $post_type,
+        $query = new WP_Query([
+            'post_type'      => $post_types,
             'post_status'    => ['publish', 'draft', 'private'],
             'posts_per_page' => $per_page,
             'paged'          => $page_num,
-            's'              => 'wp:acf/',
-        ];
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+        ]);
 
-        $query   = new WP_Query($args);
         $results = [];
-
         foreach ($query->posts as $post) {
-            $acf_blocks = self::parse_page_blocks($post->ID);
-            if (empty($acf_blocks)) continue;
+            $sources = [];
 
-            // Count unique ACF block types
-            $types = array_unique(array_column($acf_blocks, 'blockName'));
+            if (!empty(trim($post->post_content))) {
+                $sources[] = has_blocks($post->post_content) ? 'blocks' : 'classic';
+            }
+            if (function_exists('get_fields')) {
+                $acf_check = get_fields($post->ID);
+                if (!empty($acf_check)) {
+                    $sources[] = 'acf';
+                }
+            }
+            if (!in_array('acf', $sources, true)) {
+                $all_meta   = get_post_meta($post->ID);
+                $public_cnt = count(array_filter(
+                    array_keys($all_meta),
+                    fn($k) => strpos($k, '_') !== 0
+                ));
+                if ($public_cnt > 0) {
+                    $sources[] = 'meta';
+                }
+            }
 
             $results[] = [
-                'id'            => $post->ID,
-                'title'         => $post->post_title,
-                'postType'      => $post->post_type,
-                'status'        => $post->post_status,
-                'editUrl'       => get_edit_post_link($post->ID, 'raw'),
-                'acfBlockCount' => count($acf_blocks),
-                'acfBlockTypes' => array_values($types),
+                'id'             => $post->ID,
+                'title'          => $post->post_title ?: __('(no title)', 'handoff'),
+                'postType'       => $post->post_type,
+                'status'         => $post->post_status,
+                'editUrl'        => get_edit_post_link($post->ID, 'raw'),
+                'contentSources' => array_values(array_unique($sources)),
+                'template'       => get_page_template_slug($post->ID) ?: null,
             ];
         }
 
@@ -144,6 +116,166 @@ class Handoff_Migration {
             'total'      => (int) $query->found_posts,
             'totalPages' => (int) $query->max_num_pages,
         ];
+    }
+
+    /* ------------------------------------------------------------------
+     * Page content inspector
+     * ----------------------------------------------------------------*/
+
+    /**
+     * Return all inspectable content for a single post, organised by source.
+     *
+     * Sources:
+     *   core   — standard WP post fields (title, content, excerpt, author, image …)
+     *   acf    — ACF fields decoded by get_fields() (requires ACF plugin)
+     *   blocks — Gutenberg blocks already in post_content
+     *   meta   — public custom post meta not already covered by ACF
+     *
+     * Each source also provides a `flatFields` map (dotted-key → scalar preview)
+     * ready for the FieldMapper component.
+     *
+     * @param int $post_id
+     * @return array|null  Null when post does not exist.
+     */
+    public static function get_page_content($post_id) {
+        $post = get_post($post_id);
+        if (!$post) return null;
+
+        $sources = [];
+
+        // ── 1. Core post fields ────────────────────────────────────────
+        $thumbnail_id = get_post_thumbnail_id($post->ID);
+        $core_fields  = [
+            'post_title'     => $post->post_title,
+            'post_content'   => $post->post_content,
+            'post_excerpt'   => $post->post_excerpt,
+            'post_date'      => $post->post_date,
+            'post_author'    => get_the_author_meta('display_name', $post->post_author),
+            'permalink'      => get_permalink($post->ID),
+            'featured_image' => $thumbnail_id
+                ? wp_get_attachment_image_url($thumbnail_id, 'large')
+                : null,
+        ];
+        $sources['core'] = [
+            'label'      => 'Core Post Fields',
+            'fields'     => $core_fields,
+            'flatFields' => self::flatten_for_mapper($core_fields, 'core'),
+        ];
+
+        // ── 2. ACF fields ──────────────────────────────────────────────
+        if (function_exists('get_fields')) {
+            $acf_raw = get_fields($post->ID);
+            if (is_array($acf_raw) && !empty($acf_raw)) {
+                $sources['acf'] = [
+                    'label'      => 'ACF Fields',
+                    'fields'     => $acf_raw,
+                    'flatFields' => self::flatten_for_mapper($acf_raw, 'acf'),
+                ];
+            }
+        }
+
+        // ── 3. Existing Gutenberg blocks ───────────────────────────────
+        if (!empty(trim($post->post_content)) && has_blocks($post->post_content)) {
+            $parsed     = parse_blocks($post->post_content);
+            $block_list = [];
+            $block_flat = [];
+            foreach ($parsed as $idx => $block) {
+                if (empty($block['blockName'])) continue;
+                $block_list[] = [
+                    'index'     => $idx,
+                    'blockName' => $block['blockName'],
+                    'attrs'     => $block['attrs'],
+                ];
+                $block_flat["blocks.{$idx}.blockName"] = $block['blockName'];
+                foreach ($block['attrs'] as $ak => $av) {
+                    $block_flat["blocks.{$idx}.{$ak}"] = is_scalar($av)
+                        ? $av
+                        : wp_json_encode($av);
+                }
+            }
+            $sources['blocks'] = [
+                'label'      => 'Existing Blocks',
+                'blocks'     => $block_list,
+                'flatFields' => $block_flat,
+            ];
+        }
+
+        // ── 4. Other public post meta ──────────────────────────────────
+        $all_meta  = get_post_meta($post->ID);
+        $acf_keys  = isset($sources['acf']) ? array_keys($sources['acf']['fields']) : [];
+        $pub_meta  = [];
+        foreach ($all_meta as $key => $values) {
+            if (strpos($key, '_') === 0) continue;
+            if (in_array($key, $acf_keys, true)) continue;
+            $pub_meta[$key] = count($values) === 1
+                ? maybe_unserialize($values[0])
+                : array_map('maybe_unserialize', $values);
+        }
+        if (!empty($pub_meta)) {
+            $sources['meta'] = [
+                'label'      => 'Post Meta',
+                'fields'     => $pub_meta,
+                'flatFields' => self::flatten_for_mapper($pub_meta, 'meta'),
+            ];
+        }
+
+        return [
+            'id'       => $post->ID,
+            'title'    => $post->post_title,
+            'postType' => $post->post_type,
+            'status'   => $post->post_status,
+            'sources'  => $sources,
+        ];
+    }
+
+    /**
+     * Flatten a nested field array into a one-level dotted-key map for the FieldMapper.
+     * Indexed arrays (repeaters, flexible content) expose their first item's sub-keys
+     * with a ".0." segment, and store the whole array as a JSON preview at the top-key.
+     *
+     * @param array  $data
+     * @param string $prefix    Source prefix, e.g. "acf" or "core".
+     * @param int    $max_depth Maximum nesting depth (default 3).
+     * @return array  Flat map of dotted-key → scalar or json-string.
+     */
+    private static function flatten_for_mapper($data, $prefix = '', $max_depth = 3) {
+        $flat = [];
+        self::flatten_recursive($data, $prefix, 0, $max_depth, $flat);
+        return $flat;
+    }
+
+    private static function flatten_recursive($data, $prefix, $depth, $max_depth, &$flat) {
+        if (!is_array($data) && !is_object($data)) {
+            $flat[$prefix] = $data;
+            return;
+        }
+
+        $data = (array) $data;
+        if (empty($data)) {
+            $flat[$prefix] = null;
+            return;
+        }
+
+        $is_sequential = !empty($data) && array_keys($data) === range(0, count($data) - 1);
+
+        // Store top-level as JSON preview regardless of depth
+        $flat[$prefix] = wp_json_encode($data);
+
+        if ($depth >= $max_depth) {
+            return;
+        }
+
+        if ($is_sequential) {
+            // Expose first-item sub-keys so the user can map into repeater items
+            if (isset($data[0]) && (is_array($data[0]) || is_object($data[0]))) {
+                self::flatten_recursive($data[0], "{$prefix}.0", $depth + 1, $max_depth, $flat);
+            }
+        } else {
+            foreach ($data as $key => $value) {
+                $child = $prefix ? "{$prefix}.{$key}" : (string) $key;
+                self::flatten_recursive($value, $child, $depth + 1, $max_depth, $flat);
+            }
+        }
     }
 
     /* ------------------------------------------------------------------
@@ -290,38 +422,36 @@ class Handoff_Migration {
     }
 
     /**
-     * Apply a complete field mapping to an ACF data array,
-     * producing the Handoff block attributes object.
+     * Apply a field mapping to a flat source-data map, producing Handoff block attributes.
      *
-     * @param array  $acf_data        Raw ACF field data (cleaned).
-     * @param array  $field_mappings   ACF key → Handoff dot-path map.
-     * @param array  $schema_props     The "properties" section of the migration schema for the target block.
-     * @return array  Gutenberg-ready attributes keyed by camelCase names.
+     * $source_data is the flat dotted-key map produced by flatten_for_mapper (or any
+     * flat key→value structure).  Field mapping keys are source dotted paths;
+     * values are Handoff schema dotted paths.
+     *
+     * @param array  $source_data     Flat map of source-key → value (e.g. "acf.hero.title").
+     * @param array  $field_mappings  source-key → Handoff dot-path map.
+     * @param array  $schema_props    The "properties" section of the target block's migration schema.
+     * @return array  Gutenberg-ready attributes.
      */
-    public static function apply_mapping($acf_data, $field_mappings, $schema_props) {
+    public static function apply_mapping($source_data, $field_mappings, $schema_props) {
         $attributes = [];
 
-        foreach ($field_mappings as $acf_key => $handoff_path) {
-            $acf_value = isset($acf_data[$acf_key]) ? $acf_data[$acf_key] : null;
-            if ($acf_value === null) continue;
+        foreach ($field_mappings as $source_key => $handoff_path) {
+            $value = isset($source_data[$source_key]) ? $source_data[$source_key] : null;
+            if ($value === null) continue;
 
-            // Resolve the target type from the migration schema
             $target_type = self::resolve_target_type($handoff_path, $schema_props);
-            $transformed = self::transform_field($acf_value, $target_type);
+            $transformed = self::transform_field($value, $target_type);
 
-            // Resolve the attributeName for the top-level key
             $path_parts = explode('.', $handoff_path);
             $top_key    = $path_parts[0];
-
-            $attr_name = $top_key;
-            if (isset($schema_props[$top_key]['attributeName'])) {
-                $attr_name = $schema_props[$top_key]['attributeName'];
-            }
+            $attr_name  = isset($schema_props[$top_key]['attributeName'])
+                ? $schema_props[$top_key]['attributeName']
+                : $top_key;
 
             if (count($path_parts) === 1) {
                 $attributes[$attr_name] = $transformed;
             } else {
-                // Nested path: merge into existing object
                 if (!isset($attributes[$attr_name]) || !is_array($attributes[$attr_name])) {
                     $attributes[$attr_name] = [];
                 }
@@ -330,6 +460,91 @@ class Handoff_Migration {
         }
 
         return $attributes;
+    }
+
+    /**
+     * Read a value from a post by its source-prefixed dotted key.
+     * Keys follow the convention set by get_page_content():
+     *   core.<wp_field>           — post object field
+     *   acf.<field>[.<sub>…]      — ACF field (requires get_fields())
+     *   meta.<meta_key>           — raw post meta
+     *   blocks.<idx>.<attr_key>   — Gutenberg block attribute
+     *
+     * @param int    $post_id
+     * @param string $dotted_key
+     * @return mixed|null
+     */
+    private static function resolve_source_value($post_id, $dotted_key) {
+        $parts  = explode('.', $dotted_key, 2);
+        $source = $parts[0];
+        $rest   = isset($parts[1]) ? $parts[1] : '';
+
+        $post = get_post($post_id);
+        if (!$post) return null;
+
+        switch ($source) {
+            case 'core': {
+                $thumbnail_id = get_post_thumbnail_id($post_id);
+                $core = [
+                    'post_title'     => $post->post_title,
+                    'post_content'   => $post->post_content,
+                    'post_excerpt'   => $post->post_excerpt,
+                    'post_date'      => $post->post_date,
+                    'post_author'    => get_the_author_meta('display_name', $post->post_author),
+                    'permalink'      => get_permalink($post_id),
+                    'featured_image' => $thumbnail_id
+                        ? wp_get_attachment_image_url($thumbnail_id, 'large')
+                        : null,
+                ];
+                return self::dot_get($core, $rest);
+            }
+
+            case 'acf': {
+                if (!function_exists('get_fields')) return null;
+                $acf = get_fields($post_id);
+                return is_array($acf) ? self::dot_get($acf, $rest) : null;
+            }
+
+            case 'meta': {
+                $sub_parts = explode('.', $rest, 2);
+                $meta_key  = $sub_parts[0];
+                $value     = get_post_meta($post_id, $meta_key, true);
+                if (isset($sub_parts[1]) && is_array($value)) {
+                    return self::dot_get($value, $sub_parts[1]);
+                }
+                return $value;
+            }
+
+            case 'blocks': {
+                $blocks = parse_blocks($post->post_content);
+                $sub    = explode('.', $rest, 2);
+                $idx    = (int) $sub[0];
+                $attr   = isset($sub[1]) ? $sub[1] : '';
+                if (!isset($blocks[$idx])) return null;
+                if ($attr === 'blockName') return $blocks[$idx]['blockName'];
+                return $attr ? self::dot_get($blocks[$idx]['attrs'], $attr) : $blocks[$idx]['attrs'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Navigate a nested array using a dot-notation path.
+     */
+    private static function dot_get($data, $path) {
+        if ($path === '' || $path === null) return $data;
+        $keys = explode('.', $path);
+        foreach ($keys as $key) {
+            if (is_array($data) && array_key_exists($key, $data)) {
+                $data = $data[$key];
+            } elseif (is_object($data) && property_exists($data, $key)) {
+                $data = $data->{$key};
+            } else {
+                return null;
+            }
+        }
+        return $data;
     }
 
     /**
@@ -373,63 +588,68 @@ class Handoff_Migration {
      * ----------------------------------------------------------------*/
 
     /**
-     * Migrate a page's ACF blocks to Handoff blocks.
+     * Migrate a page's content to Handoff Gutenberg blocks using a saved page mapping.
      *
-     * @param int    $post_id
-     * @param string $mode  'draft' | 'in-place'
-     * @return array { success, message, postId?, editUrl? }
+     * A page mapping (new format) contains:
+     *   - label:      display name
+     *   - metaCopy:   array of post field keys to copy verbatim (post_title, post_excerpt,
+     *                 post_name, featured_image, _wp_page_template)
+     *   - blocks:     ordered array of { id, label, targetBlock, fieldMappings }
+     *
+     * If $mapping_name is provided only that mapping is applied; otherwise the first
+     * mapping found is used.
+     *
+     * @param int         $post_id
+     * @param string      $mode          'draft' | 'in-place'
+     * @param string|null $mapping_name  Specific mapping key; null = use first available.
+     * @return array { success, message, postId?, editUrl?, migrated, skipped }
      */
-    public static function migrate_page($post_id, $mode = 'draft') {
+    public static function migrate_page($post_id, $mode = 'draft', $mapping_name = null) {
         $post = get_post($post_id);
         if (!$post) {
             return ['success' => false, 'message' => 'Post not found.'];
         }
 
-        $mappings     = self::get_mappings();
+        $all_mappings = self::get_mappings();
         $schemas      = self::get_schemas();
-        $blocks       = parse_blocks($post->post_content);
-        $new_blocks   = [];
-        $migrated     = 0;
-        $skipped      = 0;
 
-        foreach ($blocks as $block) {
-            $name = isset($block['blockName']) ? $block['blockName'] : '';
-
-            // Not an ACF block — keep as-is
-            if (strpos($name, 'acf/') !== 0) {
-                $new_blocks[] = $block;
-                continue;
+        // Select the mapping to apply
+        if ($mapping_name !== null) {
+            if (!isset($all_mappings[$mapping_name])) {
+                return ['success' => false, 'message' => "Mapping '{$mapping_name}' not found."];
             }
-
-            // No mapping for this ACF block type — keep as-is
-            if (!isset($mappings[$name])) {
-                $new_blocks[] = $block;
-                $skipped++;
-                continue;
+            $mapping = $all_mappings[$mapping_name];
+        } else {
+            if (empty($all_mappings)) {
+                return ['success' => false, 'message' => 'No mappings saved. Create a page mapping first.'];
             }
+            $mapping = reset($all_mappings);
+        }
 
-            $mapping       = $mappings[$name];
-            $target_block  = $mapping['targetBlock'];
-            $field_map     = isset($mapping['fieldMappings']) ? $mapping['fieldMappings'] : [];
+        // ── Build block list ──────────────────────────────────────────
+        $block_defs  = isset($mapping['blocks']) ? $mapping['blocks'] : [];
+        $new_blocks  = [];
+        $migrated    = 0;
+        $skipped     = 0;
 
-            if (!isset($schemas[$target_block])) {
-                $new_blocks[] = $block;
+        foreach ($block_defs as $block_def) {
+            $target_block = isset($block_def['targetBlock']) ? $block_def['targetBlock'] : '';
+            $field_map    = isset($block_def['fieldMappings']) ? $block_def['fieldMappings'] : [];
+
+            if (empty($target_block) || !isset($schemas[$target_block])) {
                 $skipped++;
                 continue;
             }
 
             $schema_props = $schemas[$target_block]['properties'];
-            $acf_data     = isset($block['attrs']['data']) ? $block['attrs']['data'] : [];
 
-            // Strip ACF internal keys
-            $clean = [];
-            foreach ($acf_data as $k => $v) {
-                if (strpos($k, '_') !== 0) {
-                    $clean[$k] = $v;
-                }
+            // Resolve each source field value from the live post
+            $source_data = [];
+            foreach ($field_map as $source_key => $handoff_path) {
+                $source_data[$source_key] = self::resolve_source_value($post_id, $source_key);
             }
 
-            $attributes = self::apply_mapping($clean, $field_map, $schema_props);
+            $attributes = self::apply_mapping($source_data, $field_map, $schema_props);
 
             $new_blocks[] = [
                 'blockName'    => $target_block,
@@ -441,40 +661,83 @@ class Handoff_Migration {
             $migrated++;
         }
 
-        $new_content = serialize_blocks($new_blocks);
-
-        if ($mode === 'in-place') {
-            wp_update_post([
-                'ID'           => $post_id,
-                'post_content' => $new_content,
-            ]);
-
+        if ($migrated === 0 && empty($block_defs)) {
             return [
-                'success'  => true,
-                'message'  => sprintf('Migrated %d block(s), skipped %d.', $migrated, $skipped),
-                'postId'   => $post_id,
-                'editUrl'  => get_edit_post_link($post_id, 'raw'),
+                'success' => false,
+                'message' => 'This mapping has no blocks defined. Add at least one block recipe.',
             ];
         }
 
-        // Draft mode — create a copy
-        $new_post_id = wp_insert_post([
-            'post_title'   => $post->post_title . ' (Migrated)',
+        $new_content = serialize_blocks($new_blocks);
+        $meta_copy   = isset($mapping['metaCopy']) && is_array($mapping['metaCopy'])
+            ? $mapping['metaCopy']
+            : [];
+
+        // ── Build wp_insert_post / wp_update_post args ─────────────────
+        $post_args = [
             'post_content' => $new_content,
             'post_status'  => 'draft',
             'post_type'    => $post->post_type,
             'post_author'  => get_current_user_id(),
-        ]);
+        ];
 
-        if (is_wp_error($new_post_id)) {
-            return ['success' => false, 'message' => $new_post_id->get_error_message()];
+        // Apply scalar meta-copy fields to the post args
+        if (in_array('post_title', $meta_copy, true)) {
+            $post_args['post_title'] = $post->post_title;
+        } else {
+            $post_args['post_title'] = $post->post_title . ' (Migrated)';
         }
+
+        if (in_array('post_excerpt', $meta_copy, true)) {
+            $post_args['post_excerpt'] = $post->post_excerpt;
+        }
+
+        if (in_array('post_name', $meta_copy, true)) {
+            // Append -migrated to avoid slug collision in draft mode
+            $post_args['post_name'] = $post->post_name . ($mode === 'draft' ? '-migrated' : '');
+        }
+
+        // ── Execute ────────────────────────────────────────────────────
+        if ($mode === 'in-place') {
+            $update_args = array_merge(
+                ['ID' => $post_id],
+                array_intersect_key($post_args, array_flip(['post_content', 'post_title', 'post_excerpt']))
+            );
+            wp_update_post($update_args);
+            $target_id = $post_id;
+        } else {
+            $new_post_id = wp_insert_post($post_args);
+            if (is_wp_error($new_post_id)) {
+                return ['success' => false, 'message' => $new_post_id->get_error_message()];
+            }
+            $target_id = $new_post_id;
+        }
+
+        // ── Apply post-save meta ───────────────────────────────────────
+        if (in_array('featured_image', $meta_copy, true)) {
+            $thumb_id = get_post_thumbnail_id($post_id);
+            if ($thumb_id) {
+                set_post_thumbnail($target_id, $thumb_id);
+            }
+        }
+
+        if (in_array('_wp_page_template', $meta_copy, true)) {
+            $tpl = get_post_meta($post_id, '_wp_page_template', true);
+            if ($tpl) {
+                update_post_meta($target_id, '_wp_page_template', $tpl);
+            }
+        }
+
+        $block_label  = $migrated === 1 ? 'block' : 'blocks';
+        $skipped_note = $skipped > 0 ? " ({$skipped} skipped — no matching schema)" : '';
 
         return [
             'success'  => true,
-            'message'  => sprintf('Migrated %d block(s) into new draft (skipped %d).', $migrated, $skipped),
-            'postId'   => $new_post_id,
-            'editUrl'  => get_edit_post_link($new_post_id, 'raw'),
+            'message'  => sprintf('Created %d Handoff %s%s.', $migrated, $block_label, $skipped_note),
+            'postId'   => $target_id,
+            'editUrl'  => get_edit_post_link($target_id, 'raw'),
+            'migrated' => $migrated,
+            'skipped'  => $skipped,
         ];
     }
 }

@@ -65,10 +65,17 @@ function handoff_register_rest_routes()
 /**
  * Permission check for Handoff REST endpoints.
  *
- * @return bool|WP_Error True if user can edit posts, error otherwise.
+ * Returns true unconditionally in development environments so that tools like
+ * Postman can hit the endpoints without a WordPress session or Application Password.
+ * In all other environments the caller must have the edit_posts capability.
+ *
+ * @return bool|WP_Error
  */
 function handoff_rest_permission_check()
 {
+    if (handoff_is_dev_env()) {
+        return true;
+    }
     if (!current_user_can('edit_posts')) {
         return new WP_Error(
             'rest_forbidden',
@@ -94,7 +101,6 @@ function handoff_rest_get_post_types($request)
         ),
         'objects'
     );
-
     // Exclude attachment
     unset($post_types['attachment']);
 
