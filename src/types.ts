@@ -22,7 +22,8 @@ export interface HandoffProperty {
     properties?: Record<string, HandoffProperty>;
   };
   properties?: Record<string, HandoffProperty>;
-  options?: Array<{ label: string; value: string }>;
+  /** Select options: array of { value, label } or array of strings (string used as value and humanized as label) */
+  options?: Array<{ label?: string; value?: string } | string>;
   /** Pagination sub-property for array fields (type: "pagination", with items defining label/url/active) */
   pagination?: HandoffProperty;
 }
@@ -167,7 +168,8 @@ export type ItemOverrideFieldConfig =
   | {
       mode: 'ui';
       label: string;
-      options: Array<{ label: string; value: string }>;
+      /** Option objects { value, label } or strings (value and humanized label) */
+      options?: Array<{ label: string; value: string } | string>;
       default?: string;
     };
 

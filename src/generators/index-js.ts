@@ -5,6 +5,7 @@
 import { HandoffComponent, HandoffProperty, DynamicArrayConfig, ItemOverrideFieldConfig } from '../types';
 import { toBlockName } from './block-json';
 import { generateJsxPreview, toCamelCase } from './handlebars-to-jsx';
+import { normalizeSelectOptions } from './handlebars-to-jsx/utils';
 
 /**
  * Convert snake_case to Title Case
@@ -174,16 +175,17 @@ ${indent}    onChange={(value) => ${onChangeHandler(`{ ...${valueAccessor}, disa
 ${indent}  />
 ${indent}</div>`;
 
-    case 'select':
-      const options = property.options?.map(opt =>
-        `{ label: '${opt.label}', value: '${opt.value}' }`
-      ).join(', ') || '';
+    case 'select': {
+      const options = normalizeSelectOptions(property.options).map(opt =>
+        `{ label: '${opt.label.replace(/'/g, "\\'")}', value: '${opt.value}' }`
+      ).join(', ');
       return `${indent}<SelectControl
 ${indent}  label={__('${label}', 'handoff')}
 ${indent}  value={${valueAccessor} || ''}
 ${indent}  options={[${options}]}
 ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}/>`;
+    }
 
     case 'array':
       // Handle simple string arrays with a repeatable list control
@@ -582,7 +584,7 @@ const generateIndexJs = (
       // Fields from itemOverridesConfig (legacy)
       for (const [name, c] of Object.entries(itemOverridesConfig) as Array<[string, ItemOverrideFieldConfig]>) {
         if (c.mode === 'ui') {
-          advancedFields.push({ name, label: c.label, type: 'select', options: c.options, default: c.default });
+          advancedFields.push({ name, label: c.label, type: 'select', options: normalizeSelectOptions(c.options), default: c.default });
         }
       }
 
@@ -601,7 +603,7 @@ const generateIndexJs = (
             switch (itemProp.type) {
               case 'select':
                 controlType = 'select';
-                options = itemProp.options;
+                options = normalizeSelectOptions(itemProp.options);
                 break;
               case 'boolean':
                 controlType = 'toggle';

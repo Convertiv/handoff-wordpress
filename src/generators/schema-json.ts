@@ -8,7 +8,7 @@
  */
 
 import { HandoffComponent, HandoffProperty } from '../types';
-import { toCamelCase } from './handlebars-to-jsx/utils';
+import { toCamelCase, normalizeSelectOptions } from './handlebars-to-jsx/utils';
 import { groupToCategory } from './block-json';
 
 export interface MigrationPropertySchema {
@@ -51,7 +51,7 @@ export const extractMigrationProperty = (prop: HandoffProperty, includeAttribute
   }
 
   if (prop.options && prop.options.length > 0) {
-    schema.options = prop.options;
+    schema.options = normalizeSelectOptions(prop.options);
   }
 
   if (prop.type === 'object' && prop.properties) {

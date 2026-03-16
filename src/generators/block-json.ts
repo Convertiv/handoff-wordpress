@@ -3,7 +3,7 @@
  */
 
 import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata, DynamicArrayConfig } from '../types';
-import { sanitizeReservedName } from './handlebars-to-jsx/utils';
+import { sanitizeReservedName, normalizeSelectOptions } from './handlebars-to-jsx/utils';
 
 /**
  * Convert a group name to a category slug
@@ -201,11 +201,13 @@ const mapPropertyType = (property: HandoffProperty, previewValue?: any): Gutenbe
         default: singleItemDefault
       };
     
-    case 'select':
-      return { 
-        type: 'string', 
-        default: getDefault(property.options?.[0]?.value || '')
+    case 'select': {
+      const opts = normalizeSelectOptions(property.options);
+      return {
+        type: 'string',
+        default: getDefault(opts[0]?.value ?? '')
       };
+    }
     
     default:
       return { type: 'string', default: getDefault('') };

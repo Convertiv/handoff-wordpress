@@ -18,6 +18,7 @@ import {
   HandoffMetadata,
 } from '../types';
 import { toCamelCase, generateJsxPreview, JsxPreviewResult } from './handlebars-to-jsx';
+import { normalizeSelectOptions, type NormalizedSelectOption } from './handlebars-to-jsx/utils';
 import { mapPropertyType, groupToCategory, toBlockName } from './block-json';
 import { generateRenderPhp, handlebarsToPhp, arrayToPhp } from './render-php';
 import { generateEditorScss, generateStyleScss } from './styles';
@@ -403,7 +404,7 @@ const generateMergedIndexJs = (
         const advancedFields: Array<{ name: string; label: string; type: string; options?: Array<{ label: string; value: string }>; default?: any }> = [];
 
         for (const [name, c] of Object.entries(itemOverridesConfig) as Array<[string, ItemOverrideFieldConfig]>) {
-          if (c.mode === 'ui') advancedFields.push({ name, label: c.label, type: 'select', options: c.options, default: c.default });
+          if (c.mode === 'ui') advancedFields.push({ name, label: c.label, type: 'select', options: normalizeSelectOptions(c.options), default: c.default });
         }
 
         const itemProps = property.items?.properties || {};
@@ -418,7 +419,7 @@ const generateMergedIndexJs = (
             let defaultVal: any = itemProp?.default ?? '';
             if (itemProp) {
               switch (itemProp.type) {
-                case 'select': controlType = 'select'; options = itemProp.options; break;
+                case 'select': controlType = 'select'; options = normalizeSelectOptions(itemProp.options); break;
                 case 'boolean': controlType = 'toggle'; defaultVal = itemProp.default ?? false; break;
                 case 'number': controlType = 'number'; defaultVal = itemProp.default ?? 0; break;
                 default: controlType = 'text'; break;
@@ -646,7 +647,7 @@ const generateMergedIndexJs = (
       const result = variantResults[v.component.id];
       if (!result.panels.trim()) return '';
       const Pascal = variantIdToPascal(v.component.id);
-      return `        {handoffVariant === '${v.component.id}' && <${Pascal}.Panels attributes={attributes} setAttributes={setAttributes} helpers={helpers} />}`;
+      return `        {handoffVariant === '${v.component.id}' && <${Pascal}.Panels attributes={attributes} setAttributes={setAttributes} helpers={helpers} isSelected={isSelected} />}`;
     })
     .filter(Boolean)
     .join('\n');
@@ -654,7 +655,7 @@ const generateMergedIndexJs = (
   const variantPreviewBlocks = variants
     .map((v) => {
       const Pascal = variantIdToPascal(v.component.id);
-      return `          {handoffVariant === '${v.component.id}' && <${Pascal}.Preview attributes={attributes} setAttributes={setAttributes} helpers={helpers} />}`;
+      return `          {handoffVariant === '${v.component.id}' && <${Pascal}.Preview attributes={attributes} setAttributes={setAttributes} helpers={helpers} isSelected={isSelected} />}`;
     })
     .join('\n');
 
@@ -803,6 +804,7 @@ ${anyUsesInnerBlocks || anyPreviewUsesInnerBlocks ? '    return <InnerBlocks.Con
 /**
  * Generate Repeater item field controls for use inside the Repeater render prop.
  * Uses setItem({ ...item, fieldKey: value }) for updates.
+ * Handles image, link, button, and nested object properties so they render as proper controls, not [object Object] text.
  */
 const generateRepeaterItemFieldsMerged = (
   itemProps: Record<string, HandoffProperty>,
@@ -811,7 +813,51 @@ const generateRepeaterItemFieldsMerged = (
   const lines: string[] = [];
   for (const [fieldKey, fieldProp] of Object.entries(itemProps)) {
     const subLabel = fieldProp.name || toTitleCase(fieldKey);
-    if (fieldProp.type === 'link' || (fieldProp.type === 'object' && fieldProp.properties?.url)) {
+    if (fieldProp.type === 'image') {
+      lines.push(`<MediaUploadCheck>
+${indent}  <MediaUpload
+${indent}    onSelect={(media) => setItem({ ...item, ${fieldKey}: { id: media.id, src: media.url, alt: media.alt || '' } })}
+${indent}    allowedTypes={['image']}
+${indent}    value={item.${fieldKey}?.id}
+${indent}    render={({ open }) => (
+${indent}      <Flex direction="column" gap={2}>
+${indent}        <span className="components-base-control__label">{__('${subLabel}', 'handoff')}</span>
+${indent}        {item.${fieldKey}?.src && (
+${indent}          <img src={item.${fieldKey}.src} alt={item.${fieldKey}.alt || ''} style={{ maxWidth: '100%', height: 'auto' }} />
+${indent}        )}
+${indent}        <Button onClick={open} variant="secondary" size="small">
+${indent}          {item.${fieldKey}?.src ? __('Replace ${subLabel}', 'handoff') : __('Select ${subLabel}', 'handoff')}
+${indent}        </Button>
+${indent}        {item.${fieldKey}?.src && (
+${indent}          <Button onClick={() => setItem({ ...item, ${fieldKey}: { id: null, src: '', alt: '' } })} variant="link" isDestructive size="small">
+${indent}            {__('Remove', 'handoff')}
+${indent}          </Button>
+${indent}        )}
+${indent}      </Flex>
+${indent}    )}
+${indent}  />
+${indent}</MediaUploadCheck>`);
+    } else if (fieldProp.type === 'button') {
+      lines.push(`<div className="components-base-control">
+${indent}  <label className="components-base-control__label">{__('${subLabel}', 'handoff')}</label>
+${indent}  <TextControl
+${indent}    label={__('Button Label', 'handoff')}
+${indent}    hideLabelFromVision={true}
+${indent}    value={item.${fieldKey}?.label || ''}
+${indent}    onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, label: value } })}
+${indent}    __nextHasNoMarginBottom
+${indent}  />
+${indent}  <div style={{ marginTop: '8px' }}>
+${indent}    <LinkControl
+${indent}      value={{ url: item.${fieldKey}?.href || '#', title: item.${fieldKey}?.label || '', opensInNewTab: item.${fieldKey}?.target === '_blank' }}
+${indent}      onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, href: value?.url || '#', target: value?.opensInNewTab ? '_blank' : '', rel: value?.opensInNewTab ? 'noopener noreferrer' : '' } })}
+${indent}      settings={[{ id: 'opensInNewTab', title: __('Open in new tab', 'handoff') }]}
+${indent}      showSuggestions={true}
+${indent}      suggestionsQuery={{ type: 'post', subtype: 'any' }}
+${indent}    />
+${indent}  </div>
+${indent}</div>`);
+    } else if (fieldProp.type === 'link' || (fieldProp.type === 'object' && fieldProp.properties?.url)) {
       lines.push(`<TextControl
 ${indent}  label={__('${subLabel} - Label', 'handoff')}
 ${indent}  value={item.${fieldKey}?.label || ''}
@@ -827,17 +873,57 @@ ${indent}/>`);
     } else if (fieldProp.type === 'object' && fieldProp.properties) {
       for (const [subKey, subProp] of Object.entries(fieldProp.properties)) {
         const subSubLabel = subProp.name || toTitleCase(subKey);
-        lines.push(`<TextControl
+        if (subProp.type === 'image') {
+          lines.push(`<MediaUploadCheck>
+${indent}  <MediaUpload
+${indent}    onSelect={(media) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: { id: media.id, src: media.url, alt: media.alt || '' } } })}
+${indent}    allowedTypes={['image']}
+${indent}    value={item.${fieldKey}?.${subKey}?.id}
+${indent}    render={({ open }) => (
+${indent}      <Flex direction="column" gap={2}>
+${indent}        <span className="components-base-control__label">{__('${subSubLabel}', 'handoff')}</span>
+${indent}        {item.${fieldKey}?.${subKey}?.src && (
+${indent}          <img src={item.${fieldKey}.${subKey}.src} alt={item.${fieldKey}.${subKey}.alt || ''} style={{ maxWidth: '100%', height: 'auto' }} />
+${indent}        )}
+${indent}        <Button onClick={open} variant="secondary" size="small">
+${indent}          {item.${fieldKey}?.${subKey}?.src ? __('Replace', 'handoff') : __('Select', 'handoff')}
+${indent}        </Button>
+${indent}        {item.${fieldKey}?.${subKey}?.src && (
+${indent}          <Button onClick={() => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: { id: null, src: '', alt: '' } } })} variant="link" isDestructive size="small">
+${indent}            {__('Remove', 'handoff')}
+${indent}          </Button>
+${indent}        )}
+${indent}      </Flex>
+${indent}    )}
+${indent}  />
+${indent}</MediaUploadCheck>`);
+        } else if (subProp.type === 'link' || subProp.type === 'button' || (subProp.type === 'object' && (subProp as HandoffProperty).properties?.url)) {
+          const urlKey = subProp.type === 'button' ? 'href' : 'url';
+          lines.push(`<TextControl
+${indent}  label={__('${subSubLabel} - Label', 'handoff')}
+${indent}  value={item.${fieldKey}?.${subKey}?.label || ''}
+${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: { ...item.${fieldKey}?.${subKey}, label: value } } })}
+${indent}  __nextHasNoMarginBottom
+${indent}/>
+${indent}<TextControl
+${indent}  label={__('${subSubLabel} - URL', 'handoff')}
+${indent}  value={item.${fieldKey}?.${subKey}?.${urlKey} || ''}
+${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: { ...item.${fieldKey}?.${subKey}, ${urlKey}: value } } })}
+${indent}  __nextHasNoMarginBottom
+${indent}/>`);
+        } else {
+          lines.push(`<TextControl
 ${indent}  label={__('${subSubLabel}', 'handoff')}
-${indent}  value={item.${fieldKey}?.${subKey} || ''}
+${indent}  value={item.${fieldKey}?.${subKey} ?? ''}
 ${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: value } })}
 ${indent}  __nextHasNoMarginBottom
 ${indent}/>`);
+        }
       }
     } else {
       lines.push(`<TextControl
 ${indent}  label={__('${subLabel}', 'handoff')}
-${indent}  value={item.${fieldKey} ?? ''}
+${indent}  value={typeof item.${fieldKey} === 'object' ? (item.${fieldKey}?.label ?? item.${fieldKey}?.src ?? '') : (item.${fieldKey} ?? '')}
 ${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: value })}
 ${indent}  __nextHasNoMarginBottom
 ${indent}/>`);
@@ -958,7 +1044,7 @@ ${indent}  __nextHasNoMarginBottom
 ${indent}/>`;
 
     case 'select':
-      const opts = (property.options || []).map((o) => `{ label: '${(o.label ?? '').toString().replace(/'/g, "\\'")}', value: '${o.value ?? ''}' }`).join(', ');
+      const opts = normalizeSelectOptions(property.options).map((o: NormalizedSelectOption) => `{ label: '${o.label.replace(/'/g, "\\'")}', value: '${o.value}' }`).join(', ');
       return `<SelectControl
 ${indent}  label={__('${label}', 'handoff')}
 ${indent}  value={${mergedAttrName} || ''}
@@ -1070,6 +1156,19 @@ const generateSharedArrayHelpers = (mergedArrayAttrNames: Set<string>): string =
   return helpers.join('\n');
 };
 
+/** Collect attribute names referenced in JSX (setAttributes({ x: or value={x}) so we destructure them even if not in fieldMap. */
+const collectAttrNamesFromJsx = (jsx: string): Set<string> => {
+  const names = new Set<string>();
+  const setAttrRegex = /setAttributes\s*\(\s*\{\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g;
+  let m: RegExpExecArray | null;
+  while ((m = setAttrRegex.exec(jsx)) !== null) names.add(m[1]);
+  const valueRegex = /value=\{\s*([a-zA-Z_$][a-zA-Z0-9_$]*)(?:\s*[\|\?\&\|\!]|[\s\n\r]*\?\?|[\s\n\r]*\|\|)/g;
+  while ((m = valueRegex.exec(jsx)) !== null) names.add(m[1]);
+  const condRegex = /\{\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*&&/g;
+  while ((m = condRegex.exec(jsx)) !== null) names.add(m[1]);
+  return names;
+};
+
 /** Generate the JS content for one variation include file (exports Panels and Preview). */
 const generateVariantJsFileContent = (
   variant: VariantInfo,
@@ -1079,7 +1178,13 @@ const generateVariantJsFileContent = (
   anyPreviewUsesLinkField: boolean,
 ): string => {
   const comp = variant.component;
-  const attrNames = [...new Set(Object.values(fieldMap))];
+  const fromFieldMap = new Set(Object.values(fieldMap));
+  const fromPreview = collectAttrNamesFromJsx(result.previewJsx);
+  const reserved = new Set(['index', 'value', 'item', 'e', 'key', 'open']);
+  fromPreview.forEach((name) => {
+    if (!reserved.has(name)) fromFieldMap.add(name);
+  });
+  const attrNames = [...fromFieldMap];
   const helpersDestruct = [...helperNames];
   if (anyPreviewUsesLinkField) helpersDestruct.push('HandoffLinkField');
   if (variant.innerBlocksField) helpersDestruct.push('CONTENT_BLOCKS');
@@ -1088,10 +1193,11 @@ const generateVariantJsFileContent = (
   const helpersDestructLine =
     helpersDestruct.length > 0 ? `  const { ${helpersDestruct.join(', ')} } = helpers;\n  ` : '';
 
+  const propsList = anyPreviewUsesLinkField ? '{ attributes, setAttributes, helpers, isSelected }' : '{ attributes, setAttributes, helpers }';
   const panelsExport =
     result.panels.trim() === ''
       ? `export function Panels() { return null; }`
-      : `export function Panels({ attributes, setAttributes, helpers }) {
+      : `export function Panels(${propsList}) {
 ${attrDestruct}${helpersDestructLine}  return (
     <>
 ${result.panels}
@@ -1120,7 +1226,7 @@ import { Repeater, Image } from '@10up/block-components';
 
 ${panelsExport}
 
-export function Preview({ attributes, setAttributes, helpers }) {
+export function Preview(${propsList}) {
 ${attrDestruct}${helpersDestructLine}  return (
 ${result.previewJsx}
   );

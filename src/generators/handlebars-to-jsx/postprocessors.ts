@@ -70,8 +70,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         inLoop: true
       };
       
-      // Parse and convert inner content (pass propPath so {{#unless @last}} get data-array for correct array name)
-      const cleanedInner = cleanTemplate(innerContent);
+      // Parse and convert inner content (pass propPath so attribute conditionals and {{#unless @last}} get correct array name)
+      const cleanedInner = cleanTemplate(innerContent, propPath);
       const preprocessed = preprocessBlocks(cleanedInner, propPath);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, loopContext);
@@ -101,8 +101,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         inLoop: true
       };
       
-      // Parse and convert inner content (pass propPath for unless-last data-array)
-      const cleanedInner = cleanTemplate(innerContent);
+      // Parse and convert inner content (pass propPath for attribute conditionals and unless-last data-array)
+      const cleanedInner = cleanTemplate(innerContent, propPath);
       const preprocessed = preprocessBlocks(cleanedInner, propPath);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, loopContext);
@@ -145,8 +145,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         inLoop: true
       };
       
-      // Parse and convert inner content with the nested loop variable (pass arrayRef for unless-last data-array)
-      const cleanedInner = cleanTemplate(innerContent);
+      // Parse and convert inner content with the nested loop variable (pass arrayRef for attribute conditionals and unless-last data-array)
+      const cleanedInner = cleanTemplate(innerContent, arrayRef);
       const preprocessed = preprocessBlocks(cleanedInner, arrayRef);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, nestedContext);
@@ -184,8 +184,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         inLoop: true
       };
       
-      // Parse and convert inner content with the nested loop variable (pass arrayRef for unless-last data-array)
-      const cleanedInner = cleanTemplate(innerContent);
+      // Parse and convert inner content with the nested loop variable (pass arrayRef for attribute conditionals and unless-last data-array)
+      const cleanedInner = cleanTemplate(innerContent, arrayRef);
       const preprocessed = preprocessBlocks(cleanedInner, arrayRef);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, nestedContext);
@@ -211,12 +211,14 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
     (_, encodedContent, dataArray) => {
       const innerContent = Buffer.from(encodedContent, 'base64').toString();
       const arrayName = dataArray || context.loopArray || 'items';
+      // Use context with loopArray so attribute values (e.g. className) that reference @last get the correct array name
+      const expandContext = { ...context, loopArray: arrayName };
       
       // Parse inner content
       const cleanedInner = cleanTemplate(innerContent);
       const root = parseHTML(cleanedInner, { lowerCaseTagName: false, comment: false });
-      let innerJsx = nodeToJsx(root, context);
-      innerJsx = postprocessJsx(innerJsx, context, parentLoopVar);
+      let innerJsx = nodeToJsx(root, expandContext);
+      innerJsx = postprocessJsx(innerJsx, expandContext, parentLoopVar);
       
       return `{index < ${arrayName}?.length - 1 && (
         <Fragment>

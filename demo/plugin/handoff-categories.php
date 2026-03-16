@@ -26,8 +26,68 @@ function handoff_get_block_categories() {
       'icon' => 'admin-customizer',
     ],
     [
+      'slug' => 'handoff-banner',
+      'title' => __('Banner', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-cta',
+      'title' => __('Cta', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-content',
+      'title' => __('Content', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-downloads',
+      'title' => __('Downloads', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-features',
+      'title' => __('Features', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
       'slug' => 'handoff-hero',
       'title' => __('Hero', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-listing',
+      'title' => __('Listing', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-map',
+      'title' => __('Map', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-notification',
+      'title' => __('Notification', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-resources',
+      'title' => __('Resources', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-testimonials',
+      'title' => __('Testimonials', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-video',
+      'title' => __('Video', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-wysiwyg',
+      'title' => __('Wysiwyg', 'handoff'),
       'icon' => 'admin-customizer',
     ],
   ];

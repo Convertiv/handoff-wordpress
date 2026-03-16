@@ -14,7 +14,8 @@ import { nodeToJsx } from './node-converter';
 import { postprocessJsx, postprocessTemplateLiterals } from './postprocessors';
 
 // Re-export utilities that are used by other parts of the codebase
-export { toCamelCase, isReservedWord, sanitizeReservedName } from './utils';
+export { toCamelCase, isReservedWord, sanitizeReservedName, humanizeLabel, normalizeSelectOptions } from './utils';
+export type { NormalizedSelectOption } from './utils';
 
 /**
  * Main transpiler function - converts Handlebars template to JSX
@@ -34,9 +35,8 @@ export const transpileHandlebarsToJsx = (
   // Preprocess fields FIRST (before cleanTemplate strips them)
   const { template: processed, inlineEditableFields } = preprocessFields(template, properties);
   
-  // Clean and preprocess template
-  const cleaned = cleanTemplate(processed);
-  const preprocessed = preprocessBlocks(cleaned);
+  // Clean and preprocess template (cleanTemplate runs preprocessBlocks when processing full template so loop inner content stays raw for correct array name when expanded)
+  const preprocessed = cleanTemplate(processed);
   
   // Parse as HTML
   const root = parseHTML(preprocessed, {

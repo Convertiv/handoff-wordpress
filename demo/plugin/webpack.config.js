@@ -30,6 +30,18 @@ blockFolders.forEach(block => {
   entry[`${block}/index`] = path.resolve(blocksDir, block, 'index.js');
 });
 
+// Add entry points for block variations (merged blocks with variations/ folder) so they are built to build/{block}/variations/{name}.js
+blockFolders.forEach(block => {
+  const variationsDir = path.join(blocksDir, block, 'variations');
+  if (fs.existsSync(variationsDir)) {
+    const variationFiles = fs.readdirSync(variationsDir).filter(f => f.endsWith('.js'));
+    variationFiles.forEach(file => {
+      const name = file.replace(/\.js$/, '');
+      entry[`${block}/variations/${name}`] = path.join(variationsDir, file);
+    });
+  }
+});
+
 // Migration admin page entry point
 const migrationEntry = path.resolve(__dirname, 'src/migration/index.js');
 if (fs.existsSync(migrationEntry)) {
@@ -64,7 +76,19 @@ const copyPatterns = blockFolders.flatMap(block => {
       to: path.join(block, 'migration-schema.json'),
     });
   }
-  
+
+  // Copy variations/*.php (server-side variation includes) so they are in build/{block}/variations/
+  const variationsDir = path.join(blockPath, 'variations');
+  if (fs.existsSync(variationsDir)) {
+    const variationPhp = fs.readdirSync(variationsDir).filter(f => f.endsWith('.php'));
+    variationPhp.forEach(file => {
+      patterns.push({
+        from: path.join(variationsDir, file),
+        to: path.join(block, 'variations', file),
+      });
+    });
+  }
+
   return patterns;
 });
 

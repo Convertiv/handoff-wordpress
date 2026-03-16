@@ -210,8 +210,8 @@ export const convertAttributeValue = (
 export const preprocessConditionalAttributes = (template: string): string => {
   let result = template;
   
-  // Pattern 1: {{#if condition}}attrName="value"{{/if}}
-  const condAttrRegex = /\{\{#if\s+([^}]+)\}\}(\w+(?:-\w+)*)="([^"]*)"\{\{\/if\}\}/g;
+  // Pattern 1: {{#if condition}} attrName="value" {{/if}} (allow optional whitespace so e.g. srcset is matched)
+  const condAttrRegex = /\{\{#if\s+([^}]+)\}\}\s*(\w+(?:-\w+)*)\s*="([^"]*)"\s*\{\{\/if\}\}/g;
   
   let match;
   while ((match = condAttrRegex.exec(result)) !== null) {
@@ -311,8 +311,9 @@ export const preprocessConditionalAttributes = (template: string): string => {
 /**
  * Pre-process attribute values that contain conditionals
  * This must run before preprocessBlocks to prevent if-markers from appearing inside attributes
+ * @param currentLoopArray - When processing loop inner content, pass the array name so {{#unless @last}} etc. get the correct array (e.g. "ctas") instead of default "items"
  */
-export const preprocessAttributeConditionals = (template: string): string => {
+export const preprocessAttributeConditionals = (template: string, currentLoopArray?: string): string => {
   let result = template;
   
   // First handle conditional attributes (entire attribute wrapped in {{#if}})
@@ -359,8 +360,8 @@ export const preprocessAttributeConditionals = (template: string): string => {
     
     // Check if this attribute contains a conditional
     if (attrValue.includes('{{#if') || attrValue.includes('{{#unless')) {
-      // Convert the attribute value using our helper
-      const { jsxValue, isExpression } = convertAttributeValue(attrValue, 'item');
+      // Convert the attribute value using our helper (pass currentLoopArray for @last / @first)
+      const { jsxValue, isExpression } = convertAttributeValue(attrValue, 'item', currentLoopArray);
       
       if (isExpression) {
         // Get the JSX attribute name

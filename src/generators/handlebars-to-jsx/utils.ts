@@ -108,6 +108,46 @@ export const collapseWhitespace = (str: string): string => {
 };
 
 /**
+ * Convert camelCase or snake_case to human-readable label (e.g. "someValue" -> "Some Value", "some_value" -> "Some Value").
+ */
+export const humanizeLabel = (str: string): string => {
+  const s = String(str).trim();
+  if (!s) return s;
+  const withSpaces = s
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+    .trim();
+  return withSpaces
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
+/** Normalized select option: always { label, value } */
+export type NormalizedSelectOption = { label: string; value: string };
+
+/**
+ * Normalize select options to always be Array<{ label, value }>.
+ * Handoff options can be either:
+ * - Array<{ value: string, label: string }>
+ * - Array<string> — string is used as both value and label; label is humanized (camel/snake -> title case).
+ */
+export const normalizeSelectOptions = (
+  options: Array<{ label?: string; value?: string } | string> | undefined
+): NormalizedSelectOption[] => {
+  if (!options || !Array.isArray(options) || options.length === 0) return [];
+  return options.map((o) => {
+    if (typeof o === 'string') {
+      return { value: o, label: humanizeLabel(o) };
+    }
+    const value = (o.value ?? '').toString();
+    const label = (o.label ?? value).toString();
+    return { value, label: label ? label : humanizeLabel(value) };
+  });
+};
+
+/**
  * Find matching closing tag for a block helper, handling nesting
  */
 export const findMatchingClose = (template: string, openTag: string, closeTag: string, startPos: number): number => {
