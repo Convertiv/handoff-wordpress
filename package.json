@@ -1,45 +1,46 @@
 {
-  "name": "handoff-wordpress",
-  "version": "1.0.0",
-  "description": "A compiler that will read the Handoff API and generate WordPress Gutenberg blocks and theme templates.",
-  "license": "MIT",
-  "author": "Brad Mering <brad@convertiv.com>",
-  "type": "commonjs",
-  "main": "dist/index.js",
-  "engines": {
-    "node": ">=22.0.0"
-  },
-  "bin": {
-    "handoff-wordpress": "dist/index.js"
-  },
-  "scripts": {
-    "build": "tsc",
-    "fetch": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
-    "wp-env": "wp-env",
-    "wp:start": "wp-env start",
-    "wp:stop": "wp-env stop",
-    "wp:destroy": "wp-env destroy",
-    "wp:clean": "wp-env clean",
-    "wp:logs": "wp-env logs",
-    "wp:cli": "wp-env run cli",
-    "build:plugin": "cd demo/plugin && npm run build",
-    "dev:plugin": "cd demo/plugin && npm run dev"
-  },
-  "dependencies": {
-    "@10up/block-components": "^1.22.1",
-    "@prettier/plugin-php": "^0.22.2",
-    "commander": "^11.0.0",
-    "handlebars": "^4.7.8",
-    "node-html-parser": "^6.1.13",
-    "prettier": "^3.2.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@wordpress/env": "^10.0.0",
-    "@wordpress/scripts": "^27.0.0",
-    "copy-webpack-plugin": "^11.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.0.0"
+    "name": "handoff-wordpress",
+    "version": "1.0.0",
+    "description": "A compiler that will read the Handoff API and generate WordPress Gutenberg blocks and theme templates.",
+    "license": "MIT",
+    "author": "Brad Mering <brad@convertiv.com>",
+    "type": "commonjs",
+    "main": "dist/index.js",
+    "engines": {
+      "node": ">=22.0.0"
+    },
+    "bin": {
+      "handoff-wordpress": "dist/index.js"
+    },
+    "scripts": {
+      "build": "tsc",
+      "fetch": "node dist/index.js",
+      "dev": "ts-node src/index.ts",
+      "wp-env": "wp-env",
+      "wp:start": "wp-env start",
+      "wp:stop": "wp-env stop",
+      "wp:destroy": "wp-env destroy",
+      "wp:clean": "wp-env clean",
+      "wp:logs": "wp-env logs",
+      "wp:cli": "wp-env run cli",
+      "build:plugin": "cd demo/plugin && npm run build",
+      "dev:plugin": "cd demo/plugin && npm run dev"
+    },
+    "dependencies": {
+      "@10up/block-components": "^1.22.1",
+      "@prettier/plugin-php": "^0.22.2",
+      "commander": "^11.0.0",
+      "handlebars": "^4.7.8",
+      "node-html-parser": "^6.1.13",
+      "prettier": "^3.2.0"
+    },
+    "devDependencies": {
+      "@types/node": "^22.0.0",
+      "@wordpress/env": "^10.0.0",
+      "@wordpress/scripts": "^27.0.0",
+      "copy-webpack-plugin": "^11.0.0",
+      "ts-node": "^10.9.2",
+      "typescript": "^5.0.0"
+    }
   }
-}
+  
