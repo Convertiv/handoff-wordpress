@@ -151,88 +151,94 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     return null;
   };
   
-  // Convert {{#if (eq/ne ...)}} helper expressions VERY EARLY using iterative approach
-  // This handles nested blocks properly by finding matching {{/if}} for each {{#if}}
-  const findMatchingIfClose = (str: string, startPos: number): { closePos: number; elsePos: number } => {
+  // Convert {{#if (eq/ne ...)}} ... {{else if (eq ...)}} ... {{else}} ... {{/if}} VERY EARLY
+  // Supports full if / else if / else if / else / endif chains (string switch pattern)
+  type HelperIfBranch = { condition: string | null; content: string };
+  const findHelperIfBranches = (
+    str: string,
+    startPos: number,
+    firstCondition: string
+  ): { branches: HelperIfBranch[]; closePos: number } | null => {
+    const branches: HelperIfBranch[] = [{ condition: firstCondition, content: '' }];
     let depth = 1;
     let pos = startPos;
-    let elsePos = -1;
-    
+    let contentStart = startPos;
+    const elseIfRegex = /\{\{else if\s+(\([^)]+\))\s*\}\}/g;
+
     while (pos < str.length && depth > 0) {
       const nextIf = str.indexOf('{{#if', pos);
       const nextEndif = str.indexOf('{{/if}}', pos);
       const nextElse = str.indexOf('{{else}}', pos);
-      
-      // Find the closest tag
-      const candidates = [
+      elseIfRegex.lastIndex = pos;
+      const elseIfMatch = elseIfRegex.exec(str);
+      const nextElseIf = elseIfMatch ? elseIfMatch.index : -1;
+
+      const candidates: { type: string; pos: number; expr?: string; tagLen?: number }[] = [
         { type: 'if', pos: nextIf },
         { type: 'endif', pos: nextEndif },
-        { type: 'else', pos: nextElse }
+        { type: 'else', pos: nextElse },
+        ...(nextElseIf !== -1 ? [{ type: 'elseif', pos: nextElseIf, expr: elseIfMatch![1], tagLen: elseIfMatch![0].length }] : [])
       ].filter(c => c.pos !== -1).sort((a, b) => a.pos - b.pos);
-      
+
       if (candidates.length === 0) break;
-      
+
       const closest = candidates[0];
-      
+
       if (closest.type === 'if') {
         depth++;
         pos = closest.pos + 5;
       } else if (closest.type === 'endif') {
         depth--;
         if (depth === 0) {
-          return { closePos: closest.pos, elsePos };
+          branches[branches.length - 1].content = str.substring(contentStart, closest.pos);
+          return { branches, closePos: closest.pos };
         }
-        pos = closest.pos + 7;
-      } else if (closest.type === 'else' && depth === 1) {
-        // Only capture else at our depth level
-        elsePos = closest.pos;
         pos = closest.pos + 8;
+      } else if ((closest.type === 'elseif' || closest.type === 'else') && depth === 1) {
+        const tagLen = closest.type === 'elseif' ? (closest.tagLen ?? 0) : 8;
+        branches[branches.length - 1].content = str.substring(contentStart, closest.pos);
+        branches.push({
+          condition: closest.type === 'elseif' ? closest.expr! : null,
+          content: ''
+        });
+        contentStart = closest.pos + tagLen;
+        pos = contentStart;
       } else {
         pos = closest.pos + 8;
       }
     }
-    
-    return { closePos: -1, elsePos: -1 };
+    return null;
   };
-  
-  // Process helper if expressions iteratively
+
   const helperIfRegex = /\{\{#if\s+(\([^)]+\))\s*\}\}/g;
   let helperMatch;
   while ((helperMatch = helperIfRegex.exec(php)) !== null) {
     const openPos = helperMatch.index;
     const openTagEnd = openPos + helperMatch[0].length;
-    const helperExpr = helperMatch[1];
-    
-    const { closePos, elsePos } = findMatchingIfClose(php, openTagEnd);
-    
-    if (closePos !== -1) {
-      const phpCondition = parseHelperVeryEarly(helperExpr);
-      let replacement: string;
-      
-      if (elsePos !== -1) {
-        // Has else
-        const ifContent = php.substring(openTagEnd, elsePos);
-        const elseContent = php.substring(elsePos + 8, closePos); // 8 = length of "{{else}}"
-        
-        if (phpCondition) {
-          replacement = `<?php if (${phpCondition}) : ?>${ifContent}<?php else : ?>${elseContent}<?php endif; ?>`;
-        } else {
-          replacement = `<?php if (false) : ?>${ifContent}<?php else : ?>${elseContent}<?php endif; ?>`;
-        }
+    const firstCondition = helperMatch[1];
+
+    const result = findHelperIfBranches(php, openTagEnd, firstCondition);
+    if (result === null) continue;
+    const { branches, closePos } = result;
+
+    const parts: string[] = [];
+    for (let i = 0; i < branches.length; i++) {
+      const branch = branches[i];
+      const phpCondition = branch.condition ? parseHelperVeryEarly(branch.condition) : null;
+      const cond = phpCondition ?? 'false';
+      if (i === 0) {
+        parts.push(`<?php if (${cond}) : ?>${branch.content}`);
+      } else if (branch.condition !== null) {
+        parts.push(`<?php elseif (${cond}) : ?>${branch.content}`);
       } else {
-        // No else
-        const ifContent = php.substring(openTagEnd, closePos);
-        
-        if (phpCondition) {
-          replacement = `<?php if (${phpCondition}) : ?>${ifContent}<?php endif; ?>`;
-        } else {
-          replacement = `<?php if (false) : ?>${ifContent}<?php endif; ?>`;
-        }
+        parts.push(`<?php else : ?>${branch.content}`);
       }
-      
-      php = php.substring(0, openPos) + replacement + php.substring(closePos + 7); // 7 = length of "{{/if}}"
-      helperIfRegex.lastIndex = openPos + replacement.length;
     }
+    parts.push('<?php endif; ?>');
+    const replacement = parts.join('');
+
+    php = php.substring(0, openPos) + replacement + php.substring(closePos + 8); // 8 = "{{/if}}"
+    helperIfRegex.lastIndex = openPos + replacement.length;
   }
   
   // Convert style with handlebars expressions
