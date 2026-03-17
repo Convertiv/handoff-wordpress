@@ -204,7 +204,9 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
         contentStart = closest.pos + tagLen;
         pos = contentStart;
       } else {
-        pos = closest.pos + 8;
+        // Skip full tag when inside nested #if (e.g. skip {{else if (expr)}} so we find the outer {{/if}})
+        const skipLen = closest.type === 'elseif' ? (closest.tagLen ?? 0) : 8;
+        pos = closest.pos + skipLen;
       }
     }
     return null;
@@ -238,7 +240,8 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     const replacement = parts.join('');
 
     php = php.substring(0, openPos) + replacement + php.substring(closePos + 8); // 8 = "{{/if}}"
-    helperIfRegex.lastIndex = openPos + replacement.length;
+    // Next exec from start of replacement so we catch nested {{#if}}...{{else if}}...{{/if}} inside it
+    helperIfRegex.lastIndex = openPos;
   }
   
   // Convert style with handlebars expressions
