@@ -22,6 +22,8 @@ const JS_RESERVED_WORDS = new Set([
   'await', 'async',
   // Common global objects that could cause issues
   'arguments', 'eval',
+  // Browser/DOM globals that shadow block attributes (e.g. document.body)
+  'body',
   // TypeScript keywords
   'any', 'as', 'boolean', 'constructor', 'declare', 'get', 'module', 'namespace',
   'never', 'readonly', 'require', 'number', 'object', 'set', 'string', 'symbol', 'type', 'from', 'of'

@@ -3,7 +3,7 @@
  */
 
 import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata, DynamicArrayConfig } from '../types';
-import { sanitizeReservedName, normalizeSelectOptions } from './handlebars-to-jsx/utils';
+import { sanitizeReservedName, normalizeSelectOptions, toCamelCase } from './handlebars-to-jsx/utils';
 
 /**
  * Convert a group name to a category slug
@@ -282,8 +282,8 @@ const generateBlockJson = (
   const attributes: Record<string, GutenbergAttribute> = {};
   
   for (const [key, property] of Object.entries(component.properties)) {
-    // Convert snake_case to camelCase for attribute names
-    const attrName = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    // Use toCamelCase so attribute names match index-js and avoid globals (e.g. body -> blockBody)
+    const attrName = toCamelCase(key);
     // Pass preview value for this property to use as fallback default
     const previewValue = genericPreviewValues[key];
     const mapped = mapPropertyType(property, previewValue);
@@ -396,7 +396,7 @@ const generateBlockJson = (
   // This provides realistic sample data for the block preview
   const exampleAttributes: Record<string, any> = {};
   for (const [key, property] of Object.entries(component.properties)) {
-    const attrName = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    const attrName = toCamelCase(key);
     const previewValue = genericPreviewValues[key];
     if (previewValue !== undefined) {
       exampleAttributes[attrName] = previewValue;
