@@ -3,7 +3,7 @@
  */
 
 import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata, DynamicArrayConfig } from '../types';
-import { sanitizeReservedName, normalizeSelectOptions, toCamelCase } from './handlebars-to-jsx/utils';
+import { sanitizeReservedName, normalizeSelectOptions, toCamelCase, getTemplateReferencedAttributeNames } from './handlebars-to-jsx/utils';
 
 /**
  * Convert a group name to a category slug
@@ -359,6 +359,13 @@ const generateBlockJson = (
           default: true
         };
       }
+    }
+  }
+
+  // Ensure any property referenced in the template has an attribute (API may omit from properties)
+  for (const attrName of getTemplateReferencedAttributeNames(component.code)) {
+    if (!(attrName in attributes)) {
+      attributes[attrName] = { type: 'string', default: '' };
     }
   }
   

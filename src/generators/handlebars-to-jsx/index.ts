@@ -14,7 +14,7 @@ import { nodeToJsx } from './node-converter';
 import { postprocessJsx, postprocessTemplateLiterals } from './postprocessors';
 
 // Re-export utilities that are used by other parts of the codebase
-export { toCamelCase, isReservedWord, sanitizeReservedName, humanizeLabel, normalizeSelectOptions } from './utils';
+export { toCamelCase, isReservedWord, sanitizeReservedName, humanizeLabel, normalizeSelectOptions, getTemplateReferencedAttributeNames } from './utils';
 export type { NormalizedSelectOption } from './utils';
 
 /**

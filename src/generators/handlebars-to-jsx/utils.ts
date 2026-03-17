@@ -57,6 +57,22 @@ export const toCamelCase = (str: string): string => {
 };
 
 /**
+ * Extract top-level property names referenced in a Handlebars template (e.g. {{properties.body}}, {{#if properties.heading}}).
+ * Returns the camelCase/sanitized attribute names that will appear in generated JSX, so they can be added to
+ * destructuring and block.json when the API omits them from component.properties.
+ */
+export const getTemplateReferencedAttributeNames = (template: string): string[] => {
+  const names = new Set<string>();
+  // properties.xxx or properties.xxx.yyy – take first segment only (top-level attr)
+  const propertiesRegex = /\{\{[\s#^/]*properties\.([a-zA-Z_][a-zA-Z0-9_]*)/g;
+  let m;
+  while ((m = propertiesRegex.exec(template)) !== null) {
+    names.add(toCamelCase(m[1]));
+  }
+  return [...names];
+};
+
+/**
  * Convert CSS property name to camelCase for React style objects
  */
 export const cssToCamelCase = (prop: string): string => {

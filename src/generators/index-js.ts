@@ -5,7 +5,7 @@
 import { HandoffComponent, HandoffProperty, DynamicArrayConfig, ItemOverrideFieldConfig } from '../types';
 import { toBlockName } from './block-json';
 import { generateJsxPreview, toCamelCase } from './handlebars-to-jsx';
-import { normalizeSelectOptions } from './handlebars-to-jsx/utils';
+import { normalizeSelectOptions, getTemplateReferencedAttributeNames } from './handlebars-to-jsx/utils';
 
 /**
  * Convert snake_case to Title Case
@@ -471,6 +471,12 @@ const generateIndexJs = (
   const attrNames = Object.keys(properties)
     .filter(k => k !== innerBlocksField && properties[k].type !== 'pagination')
     .map(toCamelCase);
+
+  // Include any attribute names referenced in the template but missing from API properties
+  // (e.g. body -> blockBody so JSX has a defined variable and no ReferenceError)
+  for (const name of getTemplateReferencedAttributeNames(component.code)) {
+    if (!attrNames.includes(name)) attrNames.push(name);
+  }
   
   // Add dynamic array attribute names
   if (dynamicArrayConfigs) {
