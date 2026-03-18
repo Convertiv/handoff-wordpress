@@ -9,7 +9,7 @@ import { parse as parseHTML } from 'node-html-parser';
 import { HandoffProperty } from '../../types';
 import { TranspilerContext, TranspileResult } from './types';
 import { toCamelCase } from './utils';
-import { preprocessFields, cleanTemplate, preprocessBlocks } from './preprocessors';
+import { preprocessFields, cleanTemplate } from './preprocessors';
 import { nodeToJsx } from './node-converter';
 import { postprocessJsx, postprocessTemplateLiterals } from './postprocessors';
 

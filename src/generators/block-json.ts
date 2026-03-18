@@ -362,11 +362,20 @@ const generateBlockJson = (
     }
   }
 
-  // Ensure any property referenced in the template has an attribute (API may omit from properties)
+  // Build a reverse lookup: camelCase attr name → property type, so we can skip excluded types below
+  const propTypeByAttr: Record<string, string> = {};
+  for (const [key, prop] of Object.entries(component.properties)) {
+    propTypeByAttr[toCamelCase(key)] = prop.type;
+  }
+
+  // Ensure any property referenced in the template has an attribute (API may omit from properties).
+  // Skip properties whose type is excluded from block attributes (pagination, richtext used as InnerBlocks).
+  const EXCLUDED_TYPES = new Set(['pagination']);
   for (const attrName of getTemplateReferencedAttributeNames(component.code)) {
-    if (!(attrName in attributes)) {
-      attributes[attrName] = { type: 'string', default: '' };
-    }
+    if (attrName in attributes) continue;
+    const propType = propTypeByAttr[attrName];
+    if (propType && EXCLUDED_TYPES.has(propType)) continue;
+    attributes[attrName] = { type: 'string', default: '' };
   }
   
   // Add overlay opacity if we detect a hero/subheader component

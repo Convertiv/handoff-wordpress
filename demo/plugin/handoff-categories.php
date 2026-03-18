@@ -36,6 +36,11 @@ function handoff_get_block_categories() {
       'icon' => 'admin-customizer',
     ],
     [
+      'slug' => 'handoff-comparison-slider',
+      'title' => __('Comparison Slider', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
       'slug' => 'handoff-content',
       'title' => __('Content', 'handoff'),
       'icon' => 'admin-customizer',
@@ -48,6 +53,11 @@ function handoff_get_block_categories() {
     [
       'slug' => 'handoff-features',
       'title' => __('Features', 'handoff'),
+      'icon' => 'admin-customizer',
+    ],
+    [
+      'slug' => 'handoff-full-width-content',
+      'title' => __('Full Width Content', 'handoff'),
       'icon' => 'admin-customizer',
     ],
     [

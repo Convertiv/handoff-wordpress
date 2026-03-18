@@ -518,11 +518,8 @@ const generateIndexJs = (
   if (useInnerBlocks) {
     blockEditorImports.push('InnerBlocks');
   }
-  // Add LinkControl for link and button fields (internal page search + URL validation)
+  // LinkControl for link/button fields (when not using shared HandoffLinkField)
   const needsLinkControl = hasPropertyType('link') || hasPropertyType('button');
-  if (needsLinkControl) {
-    blockEditorImports.push('LinkControl');
-  }
 
   const componentImports = ['PanelBody', 'TextControl', 'Button'];
   if (needsRangeControl) componentImports.push('RangeControl');
@@ -534,10 +531,6 @@ const generateIndexJs = (
   if (hasDynamicArrays) componentImports.push('Spinner');
 
   componentImports.push('Flex');
-  // Popover is needed for inline link/button editing
-  if (needsLinkControl) {
-    componentImports.push('Popover');
-  }
 
   // 10up block-components imports
   const tenUpImports: string[] = [];
@@ -838,14 +831,11 @@ ${previewJsx}
     blockEditorImports.push('RichText');
   }
 
-  // Add LinkControl if link field inline editing is used
-  if (previewUsesLinkField && !blockEditorImports.includes('LinkControl')) {
-    blockEditorImports.push('LinkControl');
-  }
-
-  // Add Popover if link field inline editing is used
-  if (previewUsesLinkField && !componentImports.includes('Popover')) {
-    componentImports.push('Popover');
+  // LinkControl is needed for sidebar link/button property panels; add unconditionally when present.
+  // (HandoffLinkField in the preview is separate — it's imported from the shared component and handles its own LinkControl internally.)
+  if (needsLinkControl) {
+    if (!blockEditorImports.includes('LinkControl')) blockEditorImports.push('LinkControl');
+    if (!componentImports.includes('Popover')) componentImports.push('Popover');
   }
 
   // Add InnerBlocks if used in preview but not already imported
@@ -927,50 +917,11 @@ ${imageFields.map(field => `          <MediaReplaceFlow
     ? `import { DynamicPostSelector, mapPostEntityToItem } from '../../shared';\nimport { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n` 
     : '';
 
-  // Build element imports
+  // Build element imports (link field uses shared component, so no useState/useRef/useCallback here)
   const elementImports = ['Fragment'];
-  if (previewUsesLinkField) {
-    elementImports.push('useState', 'useRef', 'useCallback');
-  }
 
-  // HandoffLinkField component: inline RichText for label + Popover with LinkControl for URL
-  const linkFieldComponent = previewUsesLinkField ? `
-function HandoffLinkField({ fieldId, label, url, opensInNewTab, onLabelChange, onLinkChange, isSelected }) {
-  const [isEditingUrl, setIsEditingUrl] = useState(false);
-  const ref = useRef(null);
-  const toggle = useCallback(() => setIsEditingUrl((v) => !v), []);
-
-  return (
-    <span ref={ref} className="handoff-editable-field handoff-link-field" onClick={toggle} role="button" tabIndex={0}>
-      <RichText
-        tagName="span"
-        value={label}
-        onChange={onLabelChange}
-        allowedFormats={[]}
-        withoutInteractiveFormatting
-        placeholder={__('Link text...', 'handoff')}
-      />
-      {isSelected && (isEditingUrl || url) && (
-        <Popover
-          placement="bottom"
-          onClose={() => setIsEditingUrl(false)}
-          anchor={ref.current}
-          focusOnMount={isEditingUrl ? 'firstElement' : false}
-          shift
-        >
-          <div style={{ minWidth: 280, padding: '8px' }}>
-            <LinkControl
-              value={{ url: url || '', opensInNewTab: opensInNewTab || false }}
-              onChange={(val) => onLinkChange({ url: val.url || '', opensInNewTab: val.opensInNewTab || false })}
-              settings={[{ id: 'opensInNewTab', title: __('Open in new tab', 'handoff') }]}
-            />
-          </div>
-        </Popover>
-      )}
-    </span>
-  );
-}
-` : '';
+  // Import shared HandoffLinkField when preview uses link/button inline editing
+  const linkFieldImport = previewUsesLinkField ? `import { HandoffLinkField } from '../../shared/components/LinkField';\n` : '';
 
   return `import { registerBlockType } from '@wordpress/blocks';
 import { 
@@ -984,7 +935,7 @@ import { ${elementImports.join(', ')} } from '@wordpress/element';
 ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${hasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
-${linkFieldComponent}
+${linkFieldImport}
 registerBlockType(metadata.name, {
   ...metadata,
   edit: ({ attributes, setAttributes, isSelected }) => {

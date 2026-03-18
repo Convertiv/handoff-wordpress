@@ -6,7 +6,7 @@ import { HTMLElement } from 'node-html-parser';
 import { TranspilerContext, ConvertedAttributeValue } from './types';
 import { toCamelCase, toJsxAttrName, normalizeWhitespace, collapseWhitespace } from './utils';
 import { transpileExpression, resolveParentPropertiesInExpression } from './expression-parser';
-import { parseStyleToObject } from './styles';
+import { parseStyleToObject, cssStringToReactObject } from './styles';
 
 /**
  * Convert conditionals inside an attribute value to JSX template literal syntax
@@ -241,6 +241,9 @@ export const preprocessConditionalAttributes = (template: string): string => {
       } else {
         valueExpr = `'${attrValue}'`;
       }
+    } else if (attrName === 'style') {
+      // For conditional style attributes, convert CSS string to a React style object
+      valueExpr = cssStringToReactObject(attrValue);
     } else {
       valueExpr = `'${attrValue}'`;
     }
@@ -399,6 +402,18 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
   const loopVar = context.loopVariable || 'item';
   
   for (const [name, value] of Object.entries(element.attributes)) {
+    // Check for conditional attribute marker FIRST — applies to any attribute including style.
+    // preprocessConditionalAttributes encodes {{#if cond}}attrName="value"{{/if}} into this marker.
+    if (value.includes('__COND_ATTR__')) {
+      const condMatch = value.match(/__COND_ATTR__([A-Za-z0-9+/=]+)__END_COND_ATTR__/);
+      if (condMatch) {
+        const decoded = Buffer.from(condMatch[1], 'base64').toString();
+        const jsxAttrForCond = name === 'class' ? 'className' : name === 'for' ? 'htmlFor' : toJsxAttrName(name);
+        attrs.push(`${jsxAttrForCond}={${ensureClassNameExpr(jsxAttrForCond, decoded)}}`);
+        continue;
+      }
+    }
+
     // Convert style to object (special handling)
     if (name === 'style') {
       const styleObj = parseStyleToObject(value, context);
@@ -480,16 +495,6 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
       }
       attrs.push(`${jsxName}={${ensureClassNameExpr(jsxName, cleanValue)}}`);
       continue;
-    }
-    
-    // Check for conditional attribute marker (entire attribute was conditionally wrapped)
-    if (value.includes('__COND_ATTR__')) {
-      const condMatch = value.match(/__COND_ATTR__([A-Za-z0-9+/=]+)__END_COND_ATTR__/);
-      if (condMatch) {
-        const decoded = Buffer.from(condMatch[1], 'base64').toString();
-        attrs.push(`${jsxName}={${ensureClassNameExpr(jsxName, decoded)}}`);
-        continue;
-      }
     }
     
     // Standard attributes

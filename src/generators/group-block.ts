@@ -583,12 +583,13 @@ const generateMergedIndexJs = (
   if (anyPreviewUses10upImage) tenUpImports.push('Image');
   const tenUpImport = tenUpImports.length > 0 ? `import { ${tenUpImports.join(', ')} } from '@10up/block-components';\n` : '';
 
-  const sharedComponentImport = anyHasDynamicArrays
-    ? `import { DynamicPostSelector, mapPostEntityToItem } from '../../shared';\nimport { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`
-    : '';
+  const sharedComponentImport =
+    (anyHasDynamicArrays
+      ? `import { DynamicPostSelector, mapPostEntityToItem } from '../../shared';\nimport { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`
+      : '') +
+    (anyPreviewUsesLinkField ? `import { HandoffLinkField } from '../../shared/components/LinkField';\n` : '');
 
   const elementImports = ['Fragment'];
-  if (anyPreviewUsesLinkField) elementImports.push('useState', 'useRef', 'useCallback');
 
   // All attribute names for destructuring
   const allAttrNames = new Set<string>();
@@ -706,45 +707,6 @@ ${code}
     }
   }
 
-  // HandoffLinkField component (if any variant uses it)
-  const linkFieldComponent = anyPreviewUsesLinkField ? `
-function HandoffLinkField({ fieldId, label, url, opensInNewTab, onLabelChange, onLinkChange, isSelected }) {
-  const [isEditingUrl, setIsEditingUrl] = useState(false);
-  const ref = useRef(null);
-  const toggle = useCallback(() => setIsEditingUrl((v) => !v), []);
-
-  return (
-    <span ref={ref} className="handoff-editable-field handoff-link-field" onClick={toggle} role="button" tabIndex={0}>
-      <RichText
-        tagName="span"
-        value={label}
-        onChange={onLabelChange}
-        allowedFormats={[]}
-        withoutInteractiveFormatting
-        placeholder={__('Link text...', 'handoff')}
-      />
-      {isSelected && (isEditingUrl || url) && (
-        <Popover
-          placement="bottom"
-          onClose={() => setIsEditingUrl(false)}
-          anchor={ref.current}
-          focusOnMount={isEditingUrl ? 'firstElement' : false}
-          shift
-        >
-          <div style={{ minWidth: 280, padding: '8px' }}>
-            <LinkControl
-              value={{ url: url || '', opensInNewTab: opensInNewTab || false }}
-              onChange={(val) => onLinkChange({ url: val.url || '', opensInNewTab: val.opensInNewTab || false })}
-              settings={[{ id: 'opensInNewTab', title: __('Open in new tab', 'handoff') }]}
-            />
-          </div>
-        </Popover>
-      )}
-    </span>
-  );
-}
-` : '';
-
   const attrNamesList = Array.from(allAttrNames);
 
   const indexJsTemplate = `import { registerBlockType } from '@wordpress/blocks';
@@ -760,7 +722,6 @@ ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${anyHasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
 ${variantImportLines.join('\n')}
-${linkFieldComponent}
 registerBlockType(metadata.name, {
   ...metadata,
   edit: ({ attributes, setAttributes, isSelected }) => {
