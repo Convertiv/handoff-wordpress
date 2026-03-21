@@ -66,6 +66,21 @@
 
       "content-page": {
         "content": { "innerBlocks": true }
+      },
+
+      "blog-post": {
+        "breadcrumbs": {
+          "arrayType": "breadcrumbs"
+        },
+        "tags": {
+          "arrayType": "taxonomy",
+          "taxonomies": ["post_tag", "category"],
+          "maxItems": 5
+        },
+        "pagination": {
+          "arrayType": "pagination",
+          "connectedField": "posts"
+        }
       }
     }
   },

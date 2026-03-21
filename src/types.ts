@@ -225,6 +225,39 @@ export interface DynamicArrayConfig {
 }
 
 /**
+ * Configuration for an array field populated automatically from the current page's breadcrumb trail.
+ * The editor only exposes an enabled/disabled toggle; the actual items are built server-side.
+ */
+export interface BreadcrumbsArrayConfig {
+  arrayType: 'breadcrumbs';
+}
+
+/**
+ * Configuration for an array field populated from the terms of a given taxonomy on the current post.
+ * The editor exposes an enabled/disabled toggle and a taxonomy selector.
+ */
+export interface TaxonomyArrayConfig {
+  arrayType: 'taxonomy';
+  /** Taxonomy slugs that the editor can choose from (e.g. ["post_tag", "category"]) */
+  taxonomies: string[];
+  /** Maximum number of terms to return (defaults to -1 = all) */
+  maxItems?: number;
+}
+
+/**
+ * Configuration for an array field that represents pagination links derived from a sibling
+ * DynamicArrayConfig field's WP_Query result. The editor only exposes an enabled/disabled toggle.
+ */
+export interface PaginationArrayConfig {
+  arrayType: 'pagination';
+  /**
+   * The field name (key in component.properties) of the DynamicArrayConfig array
+   * whose WP_Query this pagination should be derived from.
+   */
+  connectedField: string;
+}
+
+/**
  * Per-field preferences for non-array fields (e.g. richtext InnerBlocks opt-in).
  */
 export interface FieldPreferences {
@@ -233,14 +266,28 @@ export interface FieldPreferences {
 }
 
 /**
- * A per-field config entry: either a DynamicArrayConfig (for array fields)
- * or general field preferences (for other field types).
+ * A per-field config entry: either a DynamicArrayConfig (for array fields),
+ * one of the specialised array types, or general field preferences.
  */
-export type FieldConfig = DynamicArrayConfig | FieldPreferences;
+export type FieldConfig = DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig | FieldPreferences;
 
-/** Type guard: true when the config has DynamicArrayConfig-specific keys */
-export const isDynamicArrayConfig = (config: FieldConfig): config is DynamicArrayConfig =>
-  'postTypes' in config || 'renderMode' in config;
+/** Type guard: true when the config is any kind of dynamic/special array config */
+export const isDynamicArrayConfig = (
+  config: FieldConfig
+): config is DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig =>
+  'postTypes' in config || 'renderMode' in config || 'arrayType' in config;
+
+/** Type guard: true when the config is a BreadcrumbsArrayConfig */
+export const isBreadcrumbsConfig = (config: FieldConfig): config is BreadcrumbsArrayConfig =>
+  (config as any).arrayType === 'breadcrumbs';
+
+/** Type guard: true when the config is a TaxonomyArrayConfig */
+export const isTaxonomyConfig = (config: FieldConfig): config is TaxonomyArrayConfig =>
+  (config as any).arrayType === 'taxonomy';
+
+/** Type guard: true when the config is a PaginationArrayConfig */
+export const isPaginationConfig = (config: FieldConfig): config is PaginationArrayConfig =>
+  (config as any).arrayType === 'pagination';
 
 /**
  * Per-component import config.

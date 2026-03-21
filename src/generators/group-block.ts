@@ -12,10 +12,16 @@ import {
   HandoffProperty,
   GutenbergAttribute,
   DynamicArrayConfig,
+  BreadcrumbsArrayConfig,
+  TaxonomyArrayConfig,
+  PaginationArrayConfig,
   GeneratedBlock,
   ItemOverrideFieldConfig,
   BlockJsonOutput,
   HandoffMetadata,
+  isBreadcrumbsConfig,
+  isTaxonomyConfig,
+  isPaginationConfig,
 } from '../types';
 import { toCamelCase, generateJsxPreview, JsxPreviewResult } from './handlebars-to-jsx';
 import { normalizeSelectOptions, type NormalizedSelectOption } from './handlebars-to-jsx/utils';
@@ -36,11 +42,13 @@ const toTitleCase = (str: string): string =>
 /** Per-variant mapping from original field name to merged attribute name */
 export type FieldMap = Record<string, string>;
 
+type AnyDynamicArrayConfig = DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig;
+
 interface VariantInfo {
   component: HandoffComponent;
   fieldMap: FieldMap;
   innerBlocksField: string | null;
-  dynamicArrayConfigs: Record<string, DynamicArrayConfig>;
+  dynamicArrayConfigs: Record<string, AnyDynamicArrayConfig>;
 }
 
 interface MergedField {
@@ -131,14 +139,26 @@ export const buildSupersetAttributes = (
     for (const [fieldName, dynConfig] of Object.entries(variant.dynamicArrayConfigs)) {
       const attrName = toCamelCase(fieldName);
       const dynFields: Record<string, GutenbergAttribute> = {};
-      const sourceDefault = dynConfig.selectionMode === 'manual' ? 'select' : 'query';
-      dynFields[`${attrName}Source`] = { type: 'string', default: sourceDefault, enum: ['query', 'select', 'manual'] };
-      dynFields[`${attrName}PostType`] = { type: 'string', default: dynConfig.defaultPostType || dynConfig.postTypes[0] || 'post' };
-      dynFields[`${attrName}SelectedPosts`] = { type: 'array', default: [] };
-      dynFields[`${attrName}QueryArgs`] = { type: 'object', default: { post_type: dynConfig.defaultPostType || dynConfig.postTypes[0] || 'post', posts_per_page: dynConfig.maxItems || 6, orderby: 'date', order: 'DESC', tax_query: [], ...(dynConfig.defaultQueryArgs || {}) } };
-      dynFields[`${attrName}FieldMapping`] = { type: 'object', default: dynConfig.fieldMapping || {} };
-      dynFields[`${attrName}ItemOverrides`] = { type: 'object', default: {} };
-      dynFields[`${attrName}RenderMode`] = { type: 'string', default: dynConfig.renderMode || 'mapped' };
+
+      if (isBreadcrumbsConfig(dynConfig)) {
+        dynFields[`${attrName}Enabled`] = { type: 'boolean', default: true };
+      } else if (isTaxonomyConfig(dynConfig)) {
+        dynFields[`${attrName}Enabled`] = { type: 'boolean', default: false };
+        dynFields[`${attrName}Taxonomy`] = { type: 'string', default: dynConfig.taxonomies[0] || 'post_tag' };
+        dynFields[`${attrName}Source`] = { type: 'string', default: 'auto' };
+      } else if (isPaginationConfig(dynConfig)) {
+        dynFields[`${attrName}Enabled`] = { type: 'boolean', default: true };
+      } else {
+        // DynamicArrayConfig (posts)
+        const sourceDefault = dynConfig.selectionMode === 'manual' ? 'select' : 'query';
+        dynFields[`${attrName}Source`] = { type: 'string', default: sourceDefault, enum: ['query', 'select', 'manual'] };
+        dynFields[`${attrName}PostType`] = { type: 'string', default: dynConfig.defaultPostType || dynConfig.postTypes[0] || 'post' };
+        dynFields[`${attrName}SelectedPosts`] = { type: 'array', default: [] };
+        dynFields[`${attrName}QueryArgs`] = { type: 'object', default: { post_type: dynConfig.defaultPostType || dynConfig.postTypes[0] || 'post', posts_per_page: dynConfig.maxItems || 6, orderby: 'date', order: 'DESC', tax_query: [], ...(dynConfig.defaultQueryArgs || {}) } };
+        dynFields[`${attrName}FieldMapping`] = { type: 'object', default: dynConfig.fieldMapping || {} };
+        dynFields[`${attrName}ItemOverrides`] = { type: 'object', default: {} };
+        dynFields[`${attrName}RenderMode`] = { type: 'string', default: dynConfig.renderMode || 'mapped' };
+      }
 
       for (const [daKey, daAttr] of Object.entries(dynFields)) {
         if (!fieldsByKey[`__dyn_${daKey}`]) fieldsByKey[`__dyn_${daKey}`] = [];
@@ -310,6 +330,9 @@ const generateMergedIndexJs = (
   let needsLinkControl = false;
   let hasArrayProps = false;
   let anyHasDynamicArrays = false;
+  let anyHasBreadcrumbsArrays = false;
+  let anyHasTaxonomyArrays = false;
+  let anyHasPaginationArrays = false;
   let anyUsesInnerBlocks = false;
   let anyPreviewUsesLinkField = false;
   let anyPreviewUsesRichText = false;
@@ -355,7 +378,15 @@ const generateMergedIndexJs = (
     if (hasPropertyType(properties, 'select')) needsSelectControl = true;
     if (hasPropertyType(properties, 'link') || hasPropertyType(properties, 'button')) needsLinkControl = true;
     if (Object.values(properties).some((p) => p.type === 'array')) hasArrayProps = true;
-    if (hasDynamic) { anyHasDynamicArrays = true; needsSelectControl = true; }
+    if (hasDynamic) {
+      const hasPostsDynamic = Object.values(dynamicArrayConfigs).some((c) => !('arrayType' in c));
+      if (hasPostsDynamic) { anyHasDynamicArrays = true; needsSelectControl = true; }
+      // Breadcrumbs/taxonomy/pagination use shared components — they import their own
+      // ToggleControl/SelectControl, so we do not need to add those to the group block imports.
+      if (Object.values(dynamicArrayConfigs).some((c) => isBreadcrumbsConfig(c))) anyHasBreadcrumbsArrays = true;
+      if (Object.values(dynamicArrayConfigs).some((c) => isTaxonomyConfig(c))) anyHasTaxonomyArrays = true;
+      if (Object.values(dynamicArrayConfigs).some((c) => isPaginationConfig(c))) anyHasPaginationArrays = true;
+    }
     if (variant.innerBlocksField) anyUsesInnerBlocks = true;
 
     // Generate preview (guard against missing code/title from API)
@@ -399,37 +430,78 @@ const generateMergedIndexJs = (
       const dynamicConfig = dynamicArrayConfigs?.[key];
 
       if (property.type === 'array' && dynamicConfig) {
-        const defaultMode = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
-        const itemOverridesConfig = dynamicConfig.itemOverridesConfig || {};
-        const advancedFields: Array<{ name: string; label: string; type: string; options?: Array<{ label: string; value: string }>; default?: any }> = [];
+        if (isBreadcrumbsConfig(dynamicConfig)) {
+          panels.push(`              <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
+                <BreadcrumbsSelector
+                  attrName="${mergedAttrName}"
+                  attributes={attributes}
+                  setAttributes={setAttributes}
+                />
+              </PanelBody>`);
+        } else if (isTaxonomyConfig(dynamicConfig)) {
+          const taxonomyOptions = dynamicConfig.taxonomies.map((t) => ({ label: t, value: t }));
+          const defaultTaxonomy = dynamicConfig.taxonomies[0] || 'post_tag';
+          const itemProps = property.items?.properties || {};
+          const itemFields = Object.keys(itemProps).length > 0
+            ? generateRepeaterItemFieldsMerged(itemProps, '                  ')
+            : `                  <TextControl label={__('Label', 'handoff')} value={item.label || ''} onChange={(v) => setItem({ ...item, label: v })} __nextHasNoMarginBottom />
+                  <TextControl label={__('URL', 'handoff')} value={item.url || ''} onChange={(v) => setItem({ ...item, url: v })} __nextHasNoMarginBottom />`;
+          panels.push(`              <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
+                <TaxonomySelector
+                  attrName="${mergedAttrName}"
+                  attributes={attributes}
+                  setAttributes={setAttributes}
+                  taxonomyOptions={${JSON.stringify(taxonomyOptions)}}
+                  defaultTaxonomy="${defaultTaxonomy}"
+                  label={__('Show ${label}', 'handoff')}
+                  renderManualItems={(item, index, setItem, removeItem) => (
+                    <>
+${itemFields}
+                    </>
+                  )}
+                />
+              </PanelBody>`);
+        } else if (isPaginationConfig(dynamicConfig)) {
+          panels.push(`              <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
+                <PaginationSelector
+                  attrName="${mergedAttrName}"
+                  attributes={attributes}
+                  setAttributes={setAttributes}
+                />
+              </PanelBody>`);
+        } else {
+          // DynamicArrayConfig (posts)
+          const defaultMode = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
+          const itemOverridesConfig = dynamicConfig.itemOverridesConfig || {};
+          const advancedFields: Array<{ name: string; label: string; type: string; options?: Array<{ label: string; value: string }>; default?: any }> = [];
 
-        for (const [name, c] of Object.entries(itemOverridesConfig) as Array<[string, ItemOverrideFieldConfig]>) {
-          if (c.mode === 'ui') advancedFields.push({ name, label: c.label, type: 'select', options: normalizeSelectOptions(c.options), default: c.default });
-        }
-
-        const itemProps = property.items?.properties || {};
-        const fieldMapping = dynamicConfig.fieldMapping || {};
-        for (const [fieldPath, mappingValue] of Object.entries(fieldMapping)) {
-          if (typeof mappingValue === 'object' && mappingValue !== null && (mappingValue as any).type === 'manual') {
-            const topKey = fieldPath.split('.')[0];
-            const itemProp = itemProps[topKey];
-            const fieldLabel = itemProp?.name || toTitleCase(topKey);
-            let controlType = 'text';
-            let options: Array<{ label: string; value: string }> | undefined;
-            let defaultVal: any = itemProp?.default ?? '';
-            if (itemProp) {
-              switch (itemProp.type) {
-                case 'select': controlType = 'select'; options = normalizeSelectOptions(itemProp.options); break;
-                case 'boolean': controlType = 'toggle'; defaultVal = itemProp.default ?? false; break;
-                case 'number': controlType = 'number'; defaultVal = itemProp.default ?? 0; break;
-                default: controlType = 'text'; break;
-              }
-            }
-            advancedFields.push({ name: fieldPath, label: fieldLabel, type: controlType, options, default: defaultVal });
+          for (const [name, c] of Object.entries(itemOverridesConfig) as Array<[string, ItemOverrideFieldConfig]>) {
+            if (c.mode === 'ui') advancedFields.push({ name, label: c.label, type: 'select', options: normalizeSelectOptions(c.options), default: c.default });
           }
-        }
 
-        panels.push(`              <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
+          const itemProps = property.items?.properties || {};
+          const fieldMapping = dynamicConfig.fieldMapping || {};
+          for (const [fieldPath, mappingValue] of Object.entries(fieldMapping)) {
+            if (typeof mappingValue === 'object' && mappingValue !== null && (mappingValue as any).type === 'manual') {
+              const topKey = fieldPath.split('.')[0];
+              const itemProp = itemProps[topKey];
+              const fieldLabel = itemProp?.name || toTitleCase(topKey);
+              let controlType = 'text';
+              let options: Array<{ label: string; value: string }> | undefined;
+              let defaultVal: any = itemProp?.default ?? '';
+              if (itemProp) {
+                switch (itemProp.type) {
+                  case 'select': controlType = 'select'; options = normalizeSelectOptions(itemProp.options); break;
+                  case 'boolean': controlType = 'toggle'; defaultVal = itemProp.default ?? false; break;
+                  case 'number': controlType = 'number'; defaultVal = itemProp.default ?? 0; break;
+                  default: controlType = 'text'; break;
+                }
+              }
+              advancedFields.push({ name: fieldPath, label: fieldLabel, type: controlType, options, default: defaultVal });
+            }
+          }
+
+          panels.push(`              <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
                 <DynamicPostSelector
                   value={{
                     source: ${mergedAttrName}Source || '${defaultMode}',
@@ -460,6 +532,7 @@ const generateMergedIndexJs = (
                   </>
                 )}
               </PanelBody>`);
+        }
       } else {
         panels.push(`              <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
                 {/* ${label} controls */}
@@ -489,6 +562,11 @@ const generateMergedIndexJs = (
     if (hasDynamic) {
       for (const [fieldKey, dynConfig] of Object.entries(dynamicArrayConfigs)) {
         const mergedAttrName = fieldMap[fieldKey] || toCamelCase(fieldKey);
+
+        // Breadcrumbs / taxonomy / pagination: server-rendered only.
+        // The field is already destructured from `attributes` (with default []),
+        // so no stub declaration is needed — just skip to the next field.
+        if ('arrayType' in dynConfig) continue;
         const cap = mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1);
         const previewVarName = `preview${cap}`;
         const resolvedVarName = `resolved${cap}`;
@@ -578,16 +656,32 @@ const generateMergedIndexJs = (
   componentImports.push('Flex');
   if (needsLinkControl || anyPreviewUsesLinkField) componentImports.push('Popover');
 
+  // Repeater is only needed for non-server-rendered array properties across all variants
+  const anyVariantHasNonSpecialArrays = variants.some((v) =>
+    Object.entries(v.component.properties).some(
+      ([k, p]) => p.type === 'array' && (!v.dynamicArrayConfigs[k] || !('arrayType' in v.dynamicArrayConfigs[k]))
+    )
+  );
   const tenUpImports: string[] = [];
-  if (hasArrayProps) tenUpImports.push('Repeater');
+  if (anyVariantHasNonSpecialArrays) tenUpImports.push('Repeater');
   if (anyPreviewUses10upImage) tenUpImports.push('Image');
   const tenUpImport = tenUpImports.length > 0 ? `import { ${tenUpImports.join(', ')} } from '@10up/block-components';\n` : '';
 
-  const sharedComponentImport =
-    (anyHasDynamicArrays
-      ? `import { DynamicPostSelector, mapPostEntityToItem } from '../../shared';\nimport { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`
-      : '') +
-    (anyPreviewUsesLinkField ? `import { HandoffLinkField } from '../../shared/components/LinkField';\n` : '');
+  const sharedNamedImports: string[] = [];
+  if (anyHasDynamicArrays) sharedNamedImports.push('DynamicPostSelector', 'mapPostEntityToItem');
+  if (anyHasBreadcrumbsArrays) sharedNamedImports.push('BreadcrumbsSelector');
+  if (anyHasTaxonomyArrays) sharedNamedImports.push('TaxonomySelector');
+  if (anyHasPaginationArrays) sharedNamedImports.push('PaginationSelector');
+
+  let sharedComponentImport = sharedNamedImports.length
+    ? `import { ${sharedNamedImports.join(', ')} } from '../../shared';\n`
+    : '';
+  if (anyHasDynamicArrays) {
+    sharedComponentImport += `import { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`;
+  }
+  if (anyPreviewUsesLinkField) {
+    sharedComponentImport += `import { HandoffLinkField } from '../../shared/components/LinkField';\n`;
+  }
 
   const elementImports = ['Fragment'];
 
@@ -601,6 +695,17 @@ const generateMergedIndexJs = (
   for (const variant of variants) {
     for (const [fieldName, dynConfig] of Object.entries(variant.dynamicArrayConfigs)) {
       const attrName = fieldMaps[variant.component.id][fieldName] || toCamelCase(fieldName);
+      if (isBreadcrumbsConfig(dynConfig) || isPaginationConfig(dynConfig)) {
+        allAttrNames.add(`${attrName}Enabled`);
+        continue;
+      }
+      if (isTaxonomyConfig(dynConfig)) {
+        allAttrNames.add(`${attrName}Enabled`);
+        allAttrNames.add(`${attrName}Taxonomy`);
+        allAttrNames.add(`${attrName}Source`);
+        continue;
+      }
+      // DynamicArrayConfig (posts)
       allAttrNames.add(`${attrName}Source`);
       allAttrNames.add(`${attrName}PostType`);
       allAttrNames.add(`${attrName}SelectedPosts`);
@@ -1140,7 +1245,9 @@ const generateVariantJsFileContent = (
 ): string => {
   const comp = variant.component;
   const fromFieldMap = new Set(Object.values(fieldMap));
-  const fromPreview = collectAttrNamesFromJsx(result.previewJsx);
+  // Scan both preview JSX and panel JSX so control attributes (e.g. breadcrumbEnabled,
+  // tagsEnabled, tagsTaxonomy, tagsSource) are always destructured from attributes.
+  const fromPreview = collectAttrNamesFromJsx(result.previewJsx + '\n' + result.panels);
   const reserved = new Set(['index', 'value', 'item', 'e', 'key', 'open']);
   fromPreview.forEach((name) => {
     if (!reserved.has(name)) fromFieldMap.add(name);
@@ -1166,6 +1273,28 @@ ${result.panels}
   );
 }`;
 
+  // Determine which shared selector components this variant's panels use
+  const variantDynConfigs = variant.dynamicArrayConfigs;
+  const variantHasBreadcrumbs = Object.values(variantDynConfigs).some((c) => isBreadcrumbsConfig(c));
+  const variantHasTaxonomy = Object.values(variantDynConfigs).some((c) => isTaxonomyConfig(c));
+  const variantHasPagination = Object.values(variantDynConfigs).some((c) => isPaginationConfig(c));
+  const variantSharedImports: string[] = [];
+  if (variantHasBreadcrumbs) variantSharedImports.push('BreadcrumbsSelector');
+  if (variantHasTaxonomy) variantSharedImports.push('TaxonomySelector');
+  if (variantHasPagination) variantSharedImports.push('PaginationSelector');
+  const sharedSelectorImport = variantSharedImports.length
+    ? `import { ${variantSharedImports.join(', ')} } from '../../../shared';\n`
+    : '';
+
+  // Only import Repeater when the variant has non-server-rendered array fields
+  // (taxonomy/breadcrumbs/pagination are server-rendered; shared components import Repeater themselves)
+  const variantHasNonSpecialArrays = Object.entries(comp.properties).some(
+    ([k, p]) => p.type === 'array' && (!variantDynConfigs[k] || !('arrayType' in variantDynConfigs[k]))
+  );
+  const tenUpBlockComponentsImport = (variantHasNonSpecialArrays || result.previewJsx.includes('<Image'))
+    ? `import { ${[variantHasNonSpecialArrays ? 'Repeater' : '', result.previewJsx.includes('<Image') ? 'Image' : ''].filter(Boolean).join(', ')} } from '@10up/block-components';\n`
+    : '';
+
   return `/**
  * Variation: ${comp.title} (${comp.id})
  * Generated – do not edit by hand.
@@ -1183,8 +1312,7 @@ import {
 } from '@wordpress/components';
 import { MediaUpload, MediaUploadCheck, MediaReplaceFlow, LinkControl, RichText, InnerBlocks } from '@wordpress/block-editor';
 import { __ } from '@wordpress/i18n';
-import { Repeater, Image } from '@10up/block-components';
-
+${tenUpBlockComponentsImport}${sharedSelectorImport}
 ${panelsExport}
 
 export function Preview(${propsList}) {

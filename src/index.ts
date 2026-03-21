@@ -31,7 +31,7 @@ import * as https from 'https';
 import * as http from 'http';
 import * as prettier from 'prettier';
 
-import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig, ImportConfig, ComponentImportConfig, FieldPreferences, isDynamicArrayConfig } from './types';
+import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, FieldConfig, ImportConfig, ComponentImportConfig, FieldPreferences, isDynamicArrayConfig } from './types';
 
 /**
  * Auth credentials for HTTP requests
@@ -335,19 +335,20 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
   }
   
   // Extract dynamic array configs for this component from the import config
-  const componentDynamicArrays: Record<string, DynamicArrayConfig> = {
+  const componentDynamicArrays = {
     ...extractDynamicArrayConfigs(component.id, component.type, resolvedConfig.import)
   };
   
-  // Auto-detect pagination for dynamic arrays
+  // Auto-detect pagination for DynamicArrayConfig (posts) entries only
   for (const [fieldName, dynConfig] of Object.entries(componentDynamicArrays)) {
+    if ('arrayType' in dynConfig) continue; // Skip specialised array types
     const prop = component.properties[fieldName];
     if (prop?.type === 'array' && prop.pagination?.type === 'pagination') {
       const paginationFieldRegex = new RegExp(
         `\\{\\{\\s*#field\\s+["']${fieldName}\\.pagination["']`
       );
       if (paginationFieldRegex.test(component.code)) {
-        dynConfig.pagination = { propertyName: 'pagination' };
+        (dynConfig as DynamicArrayConfig).pagination = { propertyName: 'pagination' };
       }
     }
   }
@@ -538,12 +539,12 @@ const extractDynamicArrayConfigs = (
   componentId: string,
   componentType: string,
   importConfig: ImportConfig
-): Record<string, DynamicArrayConfig> => {
+): Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig> => {
   const allConfigs = getComponentFieldConfigs(componentId, componentType, importConfig);
-  const result: Record<string, DynamicArrayConfig> = {};
+  const result: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig> = {};
   for (const [key, config] of Object.entries(allConfigs)) {
     if (isDynamicArrayConfig(config)) {
-      result[key] = config;
+      result[key] = config as DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig;
     }
   }
   return result;
@@ -642,18 +643,19 @@ const fetchAllComponentsList = async (apiUrl: string, auth?: AuthCredentials): P
  * Build VariantInfo for a component (resolves dynamic arrays, InnerBlocks field, etc.)
  */
 const buildVariantInfo = (component: HandoffComponent, resolvedConfig: ResolvedConfig): VariantInfo => {
-  const componentDynamicArrays: Record<string, DynamicArrayConfig> = {
+  const componentDynamicArrays = {
     ...extractDynamicArrayConfigs(component.id, component.type, resolvedConfig.import),
   };
 
   for (const [fieldName, dynConfig] of Object.entries(componentDynamicArrays)) {
+    if ('arrayType' in dynConfig) continue; // Skip specialised array types
     const prop = component.properties[fieldName];
     if (prop?.type === 'array' && prop.pagination?.type === 'pagination') {
       const paginationFieldRegex = new RegExp(
         `\\{\\{\\s*#field\\s+["']${fieldName}\\.pagination["']`
       );
       if (paginationFieldRegex.test(component.code)) {
-        dynConfig.pagination = { propertyName: 'pagination' };
+        (dynConfig as DynamicArrayConfig).pagination = { propertyName: 'pagination' };
       }
     }
   }
@@ -1425,13 +1427,10 @@ const configureDynamicArrays = async (
   if (!blockConfig[component.id] || typeof blockConfig[component.id] === 'boolean') {
     blockConfig[component.id] = {};
   }
-  const componentFieldConfig = blockConfig[component.id] as Record<string, DynamicArrayConfig>;
-  
-  // Configure each selected array
-  for (const arrayProp of selectedArrays) {
-    console.log(`\n${'─'.repeat(60)}`);
-    console.log(`\n⚙️  Configuring: ${component.id}.${arrayProp.path}\n`);
-    
+  const componentFieldConfig = blockConfig[component.id] as Record<string, FieldConfig>;
+
+  // Helper: configure a DynamicArrayConfig (posts) interactively
+  const configurePostsArray = async (arrayProp: { path: string; property: HandoffProperty }): Promise<DynamicArrayConfig> => {
     // Selection mode
     const selectionMode = await promptChoice(
       'How should users select posts?',
@@ -1439,18 +1438,18 @@ const configureDynamicArrays = async (
       0
     );
     const isQueryMode = selectionMode.includes('Query');
-    
+
     // Post types
     console.log(`\nEnter allowed post types (comma-separated):`);
     const postTypesInput = await prompt(`Post types [post]: `);
-    const postTypes = postTypesInput 
+    const postTypes = postTypesInput
       ? postTypesInput.split(',').map(s => s.trim()).filter(Boolean)
       : ['post'];
-    
+
     // Max items
     const maxItemsInput = await prompt(`Maximum items [12]: `);
     const maxItems = maxItemsInput ? parseInt(maxItemsInput, 10) : 12;
-    
+
     // Render mode
     const renderMode = await promptChoice(
       'How should posts be rendered?',
@@ -1458,18 +1457,17 @@ const configureDynamicArrays = async (
       0
     );
     const isMappedMode = renderMode.includes('Mapped');
-    
+
     let fieldMapping: Record<string, any> = {};
     let templatePath: string | undefined;
-    
+
     if (isMappedMode) {
-      // Field mapping
       console.log(`\n📊 Field Mapping Configuration`);
-      
+
       const itemProps = arrayProp.property.items?.properties;
       if (itemProps) {
         const suggestions = suggestFieldMappings(itemProps);
-        
+
         console.log(`\nI'll suggest mappings based on field names. Press Enter to accept or type a new value.`);
         console.log(`\nAvailable sources:`);
         console.log(`  - post_title, post_excerpt, post_content, permalink, post_id`);
@@ -1479,37 +1477,29 @@ const configureDynamicArrays = async (
         console.log(`  - taxonomy:category, taxonomy:post_tag`);
         console.log(`  - meta:field_name`);
         console.log(`  - (leave empty to skip)\n`);
-        
-        // Flatten item properties for mapping
+
         const flattenProps = (props: Record<string, HandoffProperty>, prefix: string = ''): string[] => {
           const paths: string[] = [];
           for (const [key, prop] of Object.entries(props)) {
-            const path = prefix ? `${prefix}.${key}` : key;
+            const p = prefix ? `${prefix}.${key}` : key;
             if (prop.type === 'object' && prop.properties) {
-              paths.push(...flattenProps(prop.properties, path));
+              paths.push(...flattenProps(prop.properties, p));
             } else {
-              paths.push(path);
+              paths.push(p);
             }
           }
           return paths;
         };
-        
-        const allPaths = flattenProps(itemProps);
-        
-        for (const fieldPath of allPaths) {
+
+        for (const fieldPath of flattenProps(itemProps)) {
           const suggestion = suggestions[fieldPath] || '';
           const defaultStr = suggestion ? ` [${suggestion}]` : '';
           const mapping = await prompt(`  ${fieldPath}${defaultStr}: `);
-          
           const finalMapping = mapping || suggestion;
           if (finalMapping) {
-            // Check if it should be a complex mapping
             if (finalMapping.startsWith('{')) {
-              try {
-                fieldMapping[fieldPath] = JSON.parse(finalMapping);
-              } catch {
-                fieldMapping[fieldPath] = finalMapping;
-              }
+              try { fieldMapping[fieldPath] = JSON.parse(finalMapping); }
+              catch { fieldMapping[fieldPath] = finalMapping; }
             } else {
               fieldMapping[fieldPath] = finalMapping;
             }
@@ -1517,28 +1507,19 @@ const configureDynamicArrays = async (
         }
       }
     } else {
-      // Template mode
       const defaultTemplate = `template-parts/handoff/${arrayProp.path}-item.php`;
       templatePath = await prompt(`Template path [${defaultTemplate}]: `) || defaultTemplate;
     }
-    
-    // Build config
+
     const arrayConfig: DynamicArrayConfig = {
-      enabled: true, // kept for backward compat with DynamicArrayConfig type
+      enabled: true,
       postTypes,
       selectionMode: isQueryMode ? 'query' : 'manual',
       maxItems,
       renderMode: isMappedMode ? 'mapped' : 'template',
     };
-    
-    if (isMappedMode && Object.keys(fieldMapping).length > 0) {
-      arrayConfig.fieldMapping = fieldMapping;
-    }
-    
-    if (!isMappedMode && templatePath) {
-      arrayConfig.templatePath = templatePath;
-    }
-    
+    if (isMappedMode && Object.keys(fieldMapping).length > 0) arrayConfig.fieldMapping = fieldMapping;
+    if (!isMappedMode && templatePath) arrayConfig.templatePath = templatePath;
     if (isQueryMode) {
       arrayConfig.defaultQueryArgs = {
         posts_per_page: Math.min(maxItems, 6),
@@ -1546,10 +1527,104 @@ const configureDynamicArrays = async (
         order: 'DESC',
       };
     }
-    
-    componentFieldConfig[arrayProp.path] = arrayConfig;
-    
-    console.log(`\n✅ Configured: ${component.id}.${arrayProp.path}`);
+    return arrayConfig;
+  };
+
+  // Helper: configure a BreadcrumbsArrayConfig interactively
+  const configureBreadcrumbsArray = async (): Promise<BreadcrumbsArrayConfig> => {
+    console.log(`\n   Breadcrumbs are built automatically from the current page URL.`);
+    console.log(`   The editor will show a single enable/disable toggle.`);
+    console.log(`   Items have the shape: { label, url, active }\n`);
+    return { arrayType: 'breadcrumbs' };
+  };
+
+  // Helper: configure a TaxonomyArrayConfig interactively
+  const configureTaxonomyArray = async (): Promise<TaxonomyArrayConfig> => {
+    console.log(`\n   Taxonomy terms are fetched from the current post server-side.`);
+    console.log(`   The editor shows a toggle and a dropdown to choose the taxonomy.`);
+    console.log(`   Items have the shape: { label, url, slug }\n`);
+
+    console.log(`Enter the taxonomy slugs editors can choose from (comma-separated):`);
+    const taxonomyInput = await prompt(`Taxonomies [post_tag,category]: `);
+    const taxonomies = taxonomyInput
+      ? taxonomyInput.split(',').map(s => s.trim()).filter(Boolean)
+      : ['post_tag', 'category'];
+
+    const maxItemsInput = await prompt(`Maximum terms to display (-1 = all) [-1]: `);
+    const maxItems = maxItemsInput ? parseInt(maxItemsInput, 10) : -1;
+
+    const config: TaxonomyArrayConfig = { arrayType: 'taxonomy', taxonomies };
+    if (maxItems > 0) config.maxItems = maxItems;
+    return config;
+  };
+
+  // Helper: configure a PaginationArrayConfig interactively
+  const configurePaginationArray = async (otherArrayPaths: string[]): Promise<PaginationArrayConfig | null> => {
+    console.log(`\n   Pagination links are derived automatically from a sibling posts array query.`);
+    console.log(`   The editor shows a single enable/disable toggle.`);
+    console.log(`   Items have the shape: { label, url, active }\n`);
+
+    if (otherArrayPaths.length === 0) {
+      console.log(`   ⚠️  No sibling arrays found to connect to. Configure a posts array first.`);
+      return null;
+    }
+
+    let connectedField: string;
+    if (otherArrayPaths.length === 1) {
+      connectedField = otherArrayPaths[0];
+      console.log(`   Connected to: ${connectedField} (only option)`);
+    } else {
+      const choice = await promptChoice(
+        'Which posts array should this pagination be connected to?',
+        otherArrayPaths,
+        0
+      );
+      connectedField = choice;
+    }
+
+    return { arrayType: 'pagination', connectedField };
+  };
+
+  // Configure each selected array
+  for (const arrayProp of selectedArrays) {
+    console.log(`\n${'─'.repeat(60)}`);
+    console.log(`\n⚙️  Configuring: ${component.id}.${arrayProp.path}\n`);
+
+    // Let the user choose the array type
+    const arrayTypeChoice = await promptChoice(
+      'What kind of data should this array contain?',
+      [
+        'Posts — query or hand-pick WordPress posts (default)',
+        'Breadcrumbs — auto-generated trail from current URL',
+        'Taxonomy — terms attached to the current post',
+        'Pagination — links derived from a sibling posts array',
+      ],
+      0
+    );
+
+    let arrayConfig: FieldConfig | null = null;
+
+    if (arrayTypeChoice.startsWith('Breadcrumbs')) {
+      arrayConfig = await configureBreadcrumbsArray();
+    } else if (arrayTypeChoice.startsWith('Taxonomy')) {
+      arrayConfig = await configureTaxonomyArray();
+    } else if (arrayTypeChoice.startsWith('Pagination')) {
+      // Offer the other already-configured (or yet-to-be-configured) array paths as candidates
+      const sibling = selectedArrays
+        .filter(a => a.path !== arrayProp.path)
+        .map(a => a.path);
+      arrayConfig = await configurePaginationArray(sibling);
+    } else {
+      // Posts
+      arrayConfig = await configurePostsArray(arrayProp);
+    }
+
+    if (arrayConfig) {
+      componentFieldConfig[arrayProp.path] = arrayConfig;
+      console.log(`\n✅ Configured: ${component.id}.${arrayProp.path} (${(arrayConfig as any).arrayType ?? 'posts'})`);
+    } else {
+      console.log(`\n⚠️  Skipped: ${component.id}.${arrayProp.path}`);
+    }
   }
   
   // Update config file — remove legacy dynamicArrays if present

@@ -3,7 +3,7 @@
  * Converts Handlebars templates to PHP
  */
 
-import { HandoffComponent, HandoffProperty, DynamicArrayConfig, FieldMappingValue } from '../types';
+import { HandoffComponent, HandoffProperty, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, FieldMappingValue, isBreadcrumbsConfig, isTaxonomyConfig, isPaginationConfig } from '../types';
 import { toCamelCase } from './handlebars-to-jsx';
 
 /**
@@ -437,7 +437,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     /\{\{#each\s+this\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g,
     (_, prop, alias) => {
       nestedLoopAliases[alias] = prop;
-      return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+      return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
     }
   );
   
@@ -446,7 +446,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
   php = php.replace(
     /\{\{#each\s+this\.(\w+)\s*\}\}/g,
     (_, prop) => {
-      return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+      return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
     }
   );
   
@@ -462,7 +462,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       }
       // This is a nested loop referencing an outer loop alias
       nestedLoopAliases[nestedAlias] = prop;
-      return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+      return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
     }
   );
   
@@ -475,7 +475,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
         return match;
       }
       // This is a nested loop referencing an outer loop alias
-      return `<?php if (!empty($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+      return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
     }
   );
   
@@ -1153,6 +1153,98 @@ const generatePagedPhp = (attrName: string): string => {
 };
 
 /**
+ * Generate breadcrumbs array extraction code for render.php.
+ * Calls handoff_get_breadcrumb_items() if available, otherwise returns an empty array.
+ */
+const generateBreadcrumbsArrayExtraction = (fieldName: string, attrName: string): string => `
+// Dynamic array: ${fieldName} (breadcrumbs)
+${attrName}Enabled = $attributes['${attrName}Enabled'] ?? true;
+$${attrName} = [];
+if ($${attrName}Enabled) {
+  // Load breadcrumb helper if not already loaded
+  if (!function_exists('handoff_get_breadcrumb_items')) {
+    $resolver_path = defined('HANDOFF_BLOCKS_PLUGIN_DIR')
+      ? HANDOFF_BLOCKS_PLUGIN_DIR . 'includes/handoff-field-resolver.php'
+      : dirname(__FILE__) . '/../includes/handoff-field-resolver.php';
+    if (file_exists($resolver_path)) {
+      require_once $resolver_path;
+    }
+  }
+  if (function_exists('handoff_get_breadcrumb_items')) {
+    $${attrName} = handoff_get_breadcrumb_items();
+  }
+}
+`;
+
+/**
+ * Generate taxonomy terms array extraction code for render.php.
+ */
+const generateTaxonomyArrayExtraction = (
+  fieldName: string,
+  attrName: string,
+  config: TaxonomyArrayConfig
+): string => {
+  const maxItems = config.maxItems ?? -1;
+  const defaultTaxonomy = config.taxonomies[0] || 'post_tag';
+  return `
+// Dynamic array: ${fieldName} (taxonomy terms)
+$${attrName}Enabled  = $attributes['${attrName}Enabled']  ?? false;
+$${attrName}Taxonomy = $attributes['${attrName}Taxonomy'] ?? '${defaultTaxonomy}';
+$${attrName}Source   = $attributes['${attrName}Source']   ?? 'auto';
+$${attrName} = [];
+if ($${attrName}Enabled) {
+  if ($${attrName}Source === 'manual') {
+    // Manual mode: use the items saved directly as an attribute
+    $${attrName} = $attributes['${attrName}'] ?? [];
+  } else {
+    // Auto mode: fetch terms from the selected taxonomy
+    $terms = wp_get_post_terms(get_the_ID(), $${attrName}Taxonomy, ['number' => ${maxItems}]);
+    if (!is_wp_error($terms)) {
+      foreach ($terms as $term) {
+        $${attrName}[] = [
+          'label' => $term->name,
+          'url'   => get_term_link($term),
+          'slug'  => $term->slug,
+        ];
+      }
+    }
+  }
+}
+`;
+};
+
+/**
+ * Generate pagination array extraction code for render.php.
+ * References the WP_Query instance ($query) produced by the connected posts field.
+ */
+const generatePaginationArrayExtraction = (
+  fieldName: string,
+  attrName: string,
+  config: PaginationArrayConfig
+): string => {
+  const connectedAttr = toCamelCase(config.connectedField);
+  return `
+// Dynamic array: ${fieldName} (pagination — connected to '${config.connectedField}')
+$${attrName}Enabled = $attributes['${attrName}Enabled'] ?? true;
+$${attrName} = [];
+if ($${attrName}Enabled && isset($query) && $query->max_num_pages > 1) {
+  if (!function_exists('handoff_build_pagination')) {
+    $resolver_path = defined('HANDOFF_BLOCKS_PLUGIN_DIR')
+      ? HANDOFF_BLOCKS_PLUGIN_DIR . 'includes/handoff-field-resolver.php'
+      : dirname(__FILE__) . '/../includes/handoff-field-resolver.php';
+    if (file_exists($resolver_path)) {
+      require_once $resolver_path;
+    }
+  }
+  if (function_exists('handoff_build_pagination')) {
+    $hf_paged_${connectedAttr} = isset($_GET['hf_page_${connectedAttr}']) ? max(1, intval($_GET['hf_page_${connectedAttr}'])) : 1;
+    $${attrName} = handoff_build_pagination($hf_paged_${connectedAttr}, $query->max_num_pages, 'hf_page_${connectedAttr}');
+  }
+}
+`;
+};
+
+/**
  * Generate dynamic array extraction code for render.php
  * Supports both manual post selection and query builder modes
  */
@@ -1362,7 +1454,7 @@ ${loadResolver}
  */
 const generateRenderPhp = (
   component: HandoffComponent,
-  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>,
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>,
   innerBlocksField?: string | null
 ): string => {
   const hasOverlay = component.code.includes('overlay');
@@ -1383,7 +1475,15 @@ const generateRenderPhp = (
   if (dynamicArrayConfigs) {
     for (const [fieldName, config] of Object.entries(dynamicArrayConfigs)) {
       const attrName = toCamelCase(fieldName);
-      dynamicArrayExtractions.push(generateDynamicArrayExtraction(fieldName, attrName, config));
+      if (isBreadcrumbsConfig(config)) {
+        dynamicArrayExtractions.push(generateBreadcrumbsArrayExtraction(fieldName, attrName));
+      } else if (isTaxonomyConfig(config)) {
+        dynamicArrayExtractions.push(generateTaxonomyArrayExtraction(fieldName, attrName, config));
+      } else if (isPaginationConfig(config)) {
+        dynamicArrayExtractions.push(generatePaginationArrayExtraction(fieldName, attrName, config));
+      } else {
+        dynamicArrayExtractions.push(generateDynamicArrayExtraction(fieldName, attrName, config));
+      }
     }
   }
   const dynamicArrayCode = dynamicArrayExtractions.join('\n');

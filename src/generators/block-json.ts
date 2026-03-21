@@ -2,7 +2,7 @@
  * Generates block.json for a Gutenberg block
  */
 
-import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata, DynamicArrayConfig } from '../types';
+import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, isBreadcrumbsConfig, isTaxonomyConfig, isPaginationConfig } from '../types';
 import { sanitizeReservedName, normalizeSelectOptions, toCamelCase, getTemplateReferencedAttributeNames } from './handlebars-to-jsx/utils';
 
 /**
@@ -270,7 +270,7 @@ const generateBlockJson = (
   component: HandoffComponent, 
   hasScreenshot: boolean = false, 
   apiUrl?: string,
-  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>,
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>,
   innerBlocksField?: string | null
 ): string => {
   const blockName = toBlockName(component.id);
@@ -300,64 +300,86 @@ const generateBlockJson = (
     // Add dynamic array control attributes if this field has a dynamic config
     const dynamicConfig = dynamicArrayConfigs?.[key];
     if (property.type === 'array' && dynamicConfig) {
-      // Source: 'query' (query builder), 'select' (hand-pick posts), or 'manual' (static repeater)
-      const sourceDefault = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
-      attributes[`${attrName}Source`] = { 
-        type: 'string', 
-        default: sourceDefault,
-        enum: ['query', 'select', 'manual']
-      };
-      // Selected post type for query mode
-      attributes[`${attrName}PostType`] = { 
-        type: 'string', 
-        default: dynamicConfig.defaultPostType || dynamicConfig.postTypes[0] || 'post' 
-      };
-      // Selected posts array: [{id: number, type: string}]
-      attributes[`${attrName}SelectedPosts`] = { 
-        type: 'array', 
-        default: [] 
-      };
-      // Query arguments for query builder mode
-      const defaultQueryArgs = {
-        post_type: dynamicConfig.defaultPostType || dynamicConfig.postTypes[0] || 'post',
-        posts_per_page: dynamicConfig.maxItems || 6,
-        orderby: 'date',
-        order: 'DESC',
-        tax_query: [],
-        ...(dynamicConfig.defaultQueryArgs || {})
-      };
-      attributes[`${attrName}QueryArgs`] = { 
-        type: 'object', 
-        default: defaultQueryArgs
-      };
-      // Field mapping configuration
-      attributes[`${attrName}FieldMapping`] = {
-        type: 'object',
-        default: dynamicConfig.fieldMapping || {}
-      };
-      // Item overrides (apply to all items in query mode, e.g. card type)
-      attributes[`${attrName}ItemOverrides`] = {
-        type: 'object',
-        default: {}
-      };
-      // Render mode: 'mapped' or 'template'
-      attributes[`${attrName}RenderMode`] = {
-        type: 'string',
-        default: dynamicConfig.renderMode || 'mapped'
-      };
-      // Template path for template mode
-      if (dynamicConfig.templatePath) {
-        attributes[`${attrName}TemplatePath`] = {
+      if (isBreadcrumbsConfig(dynamicConfig)) {
+        // Breadcrumbs are server-rendered — override array default to [] so preview
+        // never shows Handoff preview values as editable RichText items.
+        attributes[attrName] = { type: 'array', default: [] };
+        attributes[`${attrName}Enabled`] = { type: 'boolean', default: true };
+      } else if (isTaxonomyConfig(dynamicConfig)) {
+        // Taxonomy terms are server-rendered — same override to prevent editable items.
+        attributes[attrName] = { type: 'array', default: [] };
+        // Enabled toggle + selected taxonomy + source (auto vs manual)
+        attributes[`${attrName}Enabled`] = { type: 'boolean', default: false };
+        attributes[`${attrName}Taxonomy`] = {
           type: 'string',
-          default: dynamicConfig.templatePath
+          default: dynamicConfig.taxonomies[0] || 'post_tag'
         };
-      }
-      // Pagination toggle (auto-detected from component's pagination sub-property)
-      if (dynamicConfig.pagination) {
-        attributes[`${attrName}PaginationEnabled`] = {
-          type: 'boolean',
-          default: true
+        attributes[`${attrName}Source`] = { type: 'string', default: 'auto' };
+      } else if (isPaginationConfig(dynamicConfig)) {
+        // Pagination is server-rendered — override array default to [].
+        attributes[attrName] = { type: 'array', default: [] };
+        attributes[`${attrName}Enabled`] = { type: 'boolean', default: true };
+      } else {
+        // Posts (DynamicArrayConfig): full attribute set
+        // Source: 'query' (query builder), 'select' (hand-pick posts), or 'manual' (static repeater)
+        const sourceDefault = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
+        attributes[`${attrName}Source`] = { 
+          type: 'string', 
+          default: sourceDefault,
+          enum: ['query', 'select', 'manual']
         };
+        // Selected post type for query mode
+        attributes[`${attrName}PostType`] = { 
+          type: 'string', 
+          default: dynamicConfig.defaultPostType || dynamicConfig.postTypes[0] || 'post' 
+        };
+        // Selected posts array: [{id: number, type: string}]
+        attributes[`${attrName}SelectedPosts`] = { 
+          type: 'array', 
+          default: [] 
+        };
+        // Query arguments for query builder mode
+        const defaultQueryArgs = {
+          post_type: dynamicConfig.defaultPostType || dynamicConfig.postTypes[0] || 'post',
+          posts_per_page: dynamicConfig.maxItems || 6,
+          orderby: 'date',
+          order: 'DESC',
+          tax_query: [],
+          ...(dynamicConfig.defaultQueryArgs || {})
+        };
+        attributes[`${attrName}QueryArgs`] = { 
+          type: 'object', 
+          default: defaultQueryArgs
+        };
+        // Field mapping configuration
+        attributes[`${attrName}FieldMapping`] = {
+          type: 'object',
+          default: dynamicConfig.fieldMapping || {}
+        };
+        // Item overrides (apply to all items in query mode, e.g. card type)
+        attributes[`${attrName}ItemOverrides`] = {
+          type: 'object',
+          default: {}
+        };
+        // Render mode: 'mapped' or 'template'
+        attributes[`${attrName}RenderMode`] = {
+          type: 'string',
+          default: dynamicConfig.renderMode || 'mapped'
+        };
+        // Template path for template mode
+        if (dynamicConfig.templatePath) {
+          attributes[`${attrName}TemplatePath`] = {
+            type: 'string',
+            default: dynamicConfig.templatePath
+          };
+        }
+        // Pagination toggle (auto-detected from component's pagination sub-property)
+        if (dynamicConfig.pagination) {
+          attributes[`${attrName}PaginationEnabled`] = {
+            type: 'boolean',
+            default: true
+          };
+        }
       }
     }
   }

@@ -195,7 +195,9 @@ Components not listed in a type object are still imported with defaults.
 
 #### Dynamic Array Field Config
 
-Each field-level object is a `DynamicArrayConfig`:
+Each field-level object can be one of several config types, selected by the presence (or absence) of the `arrayType` key.
+
+**Posts (default — omit `arrayType` or set `"arrayType": "posts"`)**
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -227,6 +229,111 @@ The editor provides three modes for dynamic array fields, controlled by a three-
 **Mapped Mode** (`renderMode: "mapped"`): Posts are converted to the Handoff template structure using the `fieldMapping` configuration. Best for most use cases.
 
 **Template Mode** (`renderMode: "template"`): Posts are passed to a PHP template file specified by `templatePath`. Useful when you need custom PHP logic.
+
+### Other Array Types
+
+In addition to posts, an array field can be configured as one of the three specialised types below by setting `arrayType`. These types are always server-rendered — the editor shows only simple controls.
+
+| Type | `arrayType` value | Editor UI | PHP behavior |
+|------|-------------------|-----------|--------------|
+| Breadcrumbs | `"breadcrumbs"` | Enable/disable toggle | Calls `handoff_get_breadcrumb_items()` |
+| Taxonomy | `"taxonomy"` | Enable/disable toggle + taxonomy selector | Calls `wp_get_post_terms()` |
+| Pagination | `"pagination"` | Enable/disable toggle | Calls `handoff_build_pagination()` using sibling field's `WP_Query` |
+
+#### Breadcrumbs
+
+Populates an array from the current page breadcrumb trail. Each item has `label`, `url`, and `active` keys.
+
+```json
+"breadcrumbs": {
+  "arrayType": "breadcrumbs"
+}
+```
+
+The PHP helper `handoff_get_breadcrumb_items()` is provided by the plugin. It builds a WP-native breadcrumb trail (home → ancestors → current page/post/archive). No extra plugin is required, but if you have a dedicated breadcrumb plugin that exposes its own function you can call that instead.
+
+| Attribute generated | Type | Default |
+|--------------------|------|---------|
+| `breadcrumbsEnabled` | boolean | `true` |
+
+#### Taxonomy Terms
+
+Populates an array from the terms of a given taxonomy attached to the current post. Each item has `label`, `url`, and `slug` keys.
+
+```json
+"tags": {
+  "arrayType": "taxonomy",
+  "taxonomies": ["post_tag", "category"],
+  "maxItems": 5
+}
+```
+
+| Config property | Type | Description |
+|-----------------|------|-------------|
+| `taxonomies` | string[] | Taxonomy slugs the editor can choose from |
+| `maxItems` | number | Maximum number of terms to return (default: all) |
+
+| Attribute generated | Type | Default |
+|--------------------|------|---------|
+| `tagsEnabled` | boolean | `false` |
+| `tagsTaxonomy` | string | First entry in `taxonomies` |
+
+#### Pagination
+
+Populates an array of pagination links derived from the `WP_Query` run by a sibling `DynamicArrayConfig` posts field. Each item has `label`, `url`, `active`, `disabled`, and `type` keys.
+
+```json
+"pagination": {
+  "arrayType": "pagination",
+  "connectedField": "posts"
+}
+```
+
+`connectedField` must be the property name of a `DynamicArrayConfig` field in the same component. The posts array **must appear before** the pagination array in the Handlebars template so that `$query` is available when the pagination code runs.
+
+| Config property | Type | Description |
+|-----------------|------|-------------|
+| `connectedField` | string | Property name of the sibling posts field |
+
+| Attribute generated | Type | Default |
+|--------------------|------|---------|
+| `paginationEnabled` | boolean | `true` |
+
+#### Full example — blog post with all three types
+
+```json
+{
+  "import": {
+    "element": false,
+    "block": {
+      "blog-post": {
+        "breadcrumbs": { "arrayType": "breadcrumbs" },
+        "tags": {
+          "arrayType": "taxonomy",
+          "taxonomies": ["post_tag", "category"],
+          "maxItems": 5
+        },
+        "pagination": {
+          "arrayType": "pagination",
+          "connectedField": "posts"
+        },
+        "posts": {
+          "postTypes": ["post"],
+          "selectionMode": "query",
+          "maxItems": 9,
+          "renderMode": "mapped",
+          "fieldMapping": {
+            "image": "featured_image",
+            "title": "post_title",
+            "excerpt": "post_excerpt",
+            "link.url": "permalink"
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 ### Field Mapping
 

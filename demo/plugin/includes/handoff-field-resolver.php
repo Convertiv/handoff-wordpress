@@ -490,6 +490,97 @@ function handoff_build_pagination($current_page, $total_pages, $query_param_key)
 }
 
 /**
+ * Build breadcrumb items for the current page/post.
+ *
+ * Returns an array of items with keys: label, url, active.
+ * Falls back to a basic WP-native trail when no breadcrumb plugin is active.
+ *
+ * @return array
+ */
+function handoff_get_breadcrumb_items() {
+    $items = [];
+
+    // Home crumb is always first
+    $items[] = [
+        'label'  => __('Home', 'handoff'),
+        'url'    => home_url('/'),
+        'active' => false,
+    ];
+
+    if (is_front_page() || is_home()) {
+        $items[0]['active'] = true;
+        return $items;
+    }
+
+    // Ancestor pages (for hierarchical post types)
+    if (is_page()) {
+        $ancestors = array_reverse(get_post_ancestors(get_the_ID()));
+        foreach ($ancestors as $ancestor_id) {
+            $items[] = [
+                'label'  => get_the_title($ancestor_id),
+                'url'    => get_permalink($ancestor_id),
+                'active' => false,
+            ];
+        }
+        $items[] = [
+            'label'  => get_the_title(),
+            'url'    => get_permalink(),
+            'active' => true,
+        ];
+        return $items;
+    }
+
+    // Single post / CPT
+    if (is_singular()) {
+        $post_type = get_post_type();
+        if ($post_type && $post_type !== 'post') {
+            $pto = get_post_type_object($post_type);
+            if ($pto) {
+                $archive_url = get_post_type_archive_link($post_type);
+                if ($archive_url) {
+                    $items[] = [
+                        'label'  => $pto->labels->name,
+                        'url'    => $archive_url,
+                        'active' => false,
+                    ];
+                }
+            }
+        } elseif ($post_type === 'post') {
+            $page_for_posts = get_option('page_for_posts');
+            if ($page_for_posts) {
+                $items[] = [
+                    'label'  => get_the_title($page_for_posts),
+                    'url'    => get_permalink($page_for_posts),
+                    'active' => false,
+                ];
+            }
+        }
+        $items[] = [
+            'label'  => get_the_title(),
+            'url'    => get_permalink(),
+            'active' => true,
+        ];
+        return $items;
+    }
+
+    // Archive pages
+    if (is_category() || is_tag() || is_tax()) {
+        $term = get_queried_object();
+        if ($term) {
+            $items[] = [
+                'label'  => $term->name,
+                'url'    => get_term_link($term),
+                'active' => true,
+            ];
+        }
+        return $items;
+    }
+
+    return $items;
+}
+
+
+/**
  * Get available post types for the block editor.
  * Excludes WordPress internal types.
  *

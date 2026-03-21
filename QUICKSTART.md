@@ -80,6 +80,27 @@ Or edit the generated file manually:
 }
 ```
 
+## Dynamic Array Types
+
+Array fields in your Handoff components can be populated from different data sources using the `arrayType` config key. The default (no `arrayType`) pulls from WordPress posts via the full query/select UI. The three specialised types below are always server-rendered — the editor shows only a simple toggle (and, for taxonomy, a dropdown):
+
+| Type | Config key | What it does |
+|------|-----------|--------------|
+| Posts (default) | `postTypes`, `selectionMode`, `renderMode` | Query or hand-pick WordPress posts |
+| Breadcrumbs | `"arrayType": "breadcrumbs"` | Auto-generates a trail from the current page URL |
+| Taxonomy | `"arrayType": "taxonomy"` | Fetches taxonomy terms attached to the current post |
+| Pagination | `"arrayType": "pagination"` | Builds page links from a sibling posts field's query |
+
+Quick config examples:
+
+```json
+"breadcrumbs": { "arrayType": "breadcrumbs" },
+"tags": { "arrayType": "taxonomy", "taxonomies": ["post_tag", "category"], "maxItems": 5 },
+"pagination": { "arrayType": "pagination", "connectedField": "posts" }
+```
+
+See [README.md](./README.md#other-array-types) for full configuration details and a complete example.
+
 ## 7. Fetch Components from Handoff
 
 Now fetch components from a Handoff API and generate Gutenberg blocks:

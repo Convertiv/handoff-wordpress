@@ -2,7 +2,7 @@
  * Generates index.js for Gutenberg block editor
  */
 
-import { HandoffComponent, HandoffProperty, DynamicArrayConfig, ItemOverrideFieldConfig } from '../types';
+import { HandoffComponent, HandoffProperty, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, ItemOverrideFieldConfig, isBreadcrumbsConfig, isTaxonomyConfig, isPaginationConfig } from '../types';
 import { toBlockName } from './block-json';
 import { generateJsxPreview, toCamelCase } from './handlebars-to-jsx';
 import { normalizeSelectOptions, getTemplateReferencedAttributeNames } from './handlebars-to-jsx/utils';
@@ -439,14 +439,19 @@ const generateArrayHelpers = (properties: Record<string, HandoffProperty>): stri
  */
 const generateIndexJs = (
   component: HandoffComponent,
-  dynamicArrayConfigs?: Record<string, DynamicArrayConfig>,
+  dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>,
   innerBlocksField?: string | null
 ): string => {
   const blockName = toBlockName(component.id);
   const properties = component.properties;
 
-  // Check which fields have dynamic array configs
-  const hasDynamicArrays = dynamicArrayConfigs && Object.keys(dynamicArrayConfigs).length > 0;
+  // hasDynamicArrays is true only when there are DynamicArrayConfig (posts) fields —
+  // the simpler types (breadcrumbs/taxonomy/pagination) don't need DynamicPostSelector.
+  const hasDynamicArrays = dynamicArrayConfigs
+    ? Object.values(dynamicArrayConfigs).some(
+        (c) => !('arrayType' in c)
+      )
+    : false;
 
   // Helper to check for a type in properties, including nested in arrays/objects
   const hasPropertyType = (type: string): boolean => {
@@ -478,19 +483,28 @@ const generateIndexJs = (
     if (!attrNames.includes(name)) attrNames.push(name);
   }
   
-  // Add dynamic array attribute names
+  // Add dynamic array attribute names based on config type
   if (dynamicArrayConfigs) {
     for (const [fieldName, dynConfig] of Object.entries(dynamicArrayConfigs)) {
       const attrName = toCamelCase(fieldName);
-      attrNames.push(`${attrName}Source`);
-      attrNames.push(`${attrName}PostType`);
-      attrNames.push(`${attrName}SelectedPosts`);
-      attrNames.push(`${attrName}QueryArgs`);
-      attrNames.push(`${attrName}FieldMapping`);
-      attrNames.push(`${attrName}ItemOverrides`);
-      attrNames.push(`${attrName}RenderMode`);
-      if (dynConfig.pagination) {
-        attrNames.push(`${attrName}PaginationEnabled`);
+      if (isBreadcrumbsConfig(dynConfig) || isPaginationConfig(dynConfig)) {
+        attrNames.push(`${attrName}Enabled`);
+      } else if (isTaxonomyConfig(dynConfig)) {
+        attrNames.push(`${attrName}Enabled`);
+        attrNames.push(`${attrName}Taxonomy`);
+        attrNames.push(`${attrName}Source`);
+      } else {
+        // DynamicArrayConfig (posts)
+        attrNames.push(`${attrName}Source`);
+        attrNames.push(`${attrName}PostType`);
+        attrNames.push(`${attrName}SelectedPosts`);
+        attrNames.push(`${attrName}QueryArgs`);
+        attrNames.push(`${attrName}FieldMapping`);
+        attrNames.push(`${attrName}ItemOverrides`);
+        attrNames.push(`${attrName}RenderMode`);
+        if ((dynConfig as DynamicArrayConfig).pagination) {
+          attrNames.push(`${attrName}PaginationEnabled`);
+        }
       }
     }
   }
@@ -521,11 +535,21 @@ const generateIndexJs = (
   // LinkControl for link/button fields (when not using shared HandoffLinkField)
   const needsLinkControl = hasPropertyType('link') || hasPropertyType('button');
 
+  const hasBreadcrumbsArray = dynamicArrayConfigs
+    ? Object.values(dynamicArrayConfigs).some((c) => isBreadcrumbsConfig(c))
+    : false;
+  const hasTaxonomyArray = dynamicArrayConfigs
+    ? Object.values(dynamicArrayConfigs).some((c) => isTaxonomyConfig(c))
+    : false;
+  const hasPaginationArray = dynamicArrayConfigs
+    ? Object.values(dynamicArrayConfigs).some((c) => isPaginationConfig(c))
+    : false;
+
   const componentImports = ['PanelBody', 'TextControl', 'Button'];
   if (needsRangeControl) componentImports.push('RangeControl');
-  // ToggleControl is needed for boolean fields
+  // ToggleControl: only for boolean/button property fields — special array types use shared components
   if (needsToggleControl) componentImports.push('ToggleControl');
-  // SelectControl is needed for select fields OR dynamic arrays (post type selector)
+  // SelectControl: only for select property fields or DynamicPostSelector (posts) — taxonomy handled by TaxonomySelector
   if (needsSelectControl || hasDynamicArrays) componentImports.push('SelectControl');
   // Spinner for dynamic array loading state in editor preview
   if (hasDynamicArrays) componentImports.push('Spinner');
@@ -533,8 +557,13 @@ const generateIndexJs = (
   componentImports.push('Flex');
 
   // 10up block-components imports
+  // Repeater is only needed when there are non-server-rendered array fields in the sidebar
+  // (taxonomy/breadcrumbs/pagination arrays use shared components that import Repeater themselves)
+  const hasNonSpecialArrayProps = Object.entries(properties).some(([k, p]) =>
+    p.type === 'array' && (!dynamicArrayConfigs?.[k] || !('arrayType' in dynamicArrayConfigs[k]))
+  );
   const tenUpImports: string[] = [];
-  if (hasArrayProps) {
+  if (hasNonSpecialArrayProps) {
     tenUpImports.push('Repeater');
   }
 
@@ -576,59 +605,113 @@ const generateIndexJs = (
     
     // Check if this is a dynamic array field
     if (property.type === 'array' && dynamicConfig) {
-      const defaultMode = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
-      const itemOverridesConfig = dynamicConfig.itemOverridesConfig || {};
-      const advancedFields: Array<{ name: string; label: string; type: string; options?: Array<{ label: string; value: string }>; default?: any }> = [];
+      if (isBreadcrumbsConfig(dynamicConfig)) {
+        // Breadcrumbs: shared component with single visibility toggle
+        panels.push(`          {/* ${label} Panel - Breadcrumbs */}
+          <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
+            <BreadcrumbsSelector
+              attrName="${attrName}"
+              attributes={attributes}
+              setAttributes={setAttributes}
+            />
+          </PanelBody>`);
+      } else if (isTaxonomyConfig(dynamicConfig)) {
+        // Taxonomy: shared component with Auto / Manual tabs
+        const taxonomyOptions = dynamicConfig.taxonomies.map((t) => ({ label: t, value: t }));
+        const defaultTaxonomy = dynamicConfig.taxonomies[0] || 'post_tag';
+        const itemProps = property.items?.properties || {};
+        const itemFields = Object.keys(itemProps).length > 0
+          ? Object.entries(itemProps).map(([fieldKey, fieldProp]) => {
+              const ctx: FieldContext = {
+                valueAccessor: `item.${fieldKey}`,
+                onChangeHandler: (val) => `setItem({ ...item, ${fieldKey}: ${val} })`,
+                indent: '                ',
+              };
+              return generateFieldControl(fieldKey, fieldProp, ctx);
+            }).filter(Boolean).join('\n')
+          : `                <TextControl label={__('Label', 'handoff')} value={item.label || ''} onChange={(v) => setItem({ ...item, label: v })} __nextHasNoMarginBottom />
+                <TextControl label={__('URL', 'handoff')} value={item.url || ''} onChange={(v) => setItem({ ...item, url: v })} __nextHasNoMarginBottom />`;
+        panels.push(`          {/* ${label} Panel - Taxonomy */}
+          <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
+            <TaxonomySelector
+              attrName="${attrName}"
+              attributes={attributes}
+              setAttributes={setAttributes}
+              taxonomyOptions={${JSON.stringify(taxonomyOptions)}}
+              defaultTaxonomy="${defaultTaxonomy}"
+              label={__('Show ${label}', 'handoff')}
+              renderManualItems={(item, index, setItem, removeItem) => (
+                <>
+${itemFields}
+                </>
+              )}
+            />
+          </PanelBody>`);
+      } else if (isPaginationConfig(dynamicConfig)) {
+        // Pagination: shared component with single visibility toggle
+        panels.push(`          {/* ${label} Panel - Pagination */}
+          <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
+            <PaginationSelector
+              attrName="${attrName}"
+              attributes={attributes}
+              setAttributes={setAttributes}
+            />
+          </PanelBody>`);
+      } else {
+        // Posts (DynamicArrayConfig): full DynamicPostSelector
+        const defaultMode = dynamicConfig.selectionMode === 'manual' ? 'select' : 'query';
+        const itemOverridesConfig = dynamicConfig.itemOverridesConfig || {};
+        const advancedFields: Array<{ name: string; label: string; type: string; options?: Array<{ label: string; value: string }>; default?: any }> = [];
 
-      // Fields from itemOverridesConfig (legacy)
-      for (const [name, c] of Object.entries(itemOverridesConfig) as Array<[string, ItemOverrideFieldConfig]>) {
-        if (c.mode === 'ui') {
-          advancedFields.push({ name, label: c.label, type: 'select', options: normalizeSelectOptions(c.options), default: c.default });
-        }
-      }
-
-      // Fields from fieldMapping with type: "manual" — derive control type from item properties
-      const itemProps = property.items?.properties || {};
-      const fieldMapping = dynamicConfig.fieldMapping || {};
-      for (const [fieldPath, mappingValue] of Object.entries(fieldMapping)) {
-        if (typeof mappingValue === 'object' && mappingValue !== null && (mappingValue as any).type === 'manual') {
-          const topKey = fieldPath.split('.')[0];
-          const itemProp = itemProps[topKey];
-          const fieldLabel = itemProp?.name || toTitleCase(topKey);
-          let controlType = 'text';
-          let options: Array<{ label: string; value: string }> | undefined;
-          let defaultVal: any = itemProp?.default ?? '';
-          if (itemProp) {
-            switch (itemProp.type) {
-              case 'select':
-                controlType = 'select';
-                options = normalizeSelectOptions(itemProp.options);
-                break;
-              case 'boolean':
-                controlType = 'toggle';
-                defaultVal = itemProp.default ?? false;
-                break;
-              case 'number':
-                controlType = 'number';
-                defaultVal = itemProp.default ?? 0;
-                break;
-              default:
-                controlType = 'text';
-                break;
-            }
+        // Fields from itemOverridesConfig (legacy)
+        for (const [name, c] of Object.entries(itemOverridesConfig) as Array<[string, ItemOverrideFieldConfig]>) {
+          if (c.mode === 'ui') {
+            advancedFields.push({ name, label: c.label, type: 'select', options: normalizeSelectOptions(c.options), default: c.default });
           }
-          advancedFields.push({ name: fieldPath, label: fieldLabel, type: controlType, options, default: defaultVal });
         }
-      }
-      const paginationToggle = dynamicConfig.pagination
-        ? `
+
+        // Fields from fieldMapping with type: "manual" — derive control type from item properties
+        const itemProps = property.items?.properties || {};
+        const fieldMapping = dynamicConfig.fieldMapping || {};
+        for (const [fieldPath, mappingValue] of Object.entries(fieldMapping)) {
+          if (typeof mappingValue === 'object' && mappingValue !== null && (mappingValue as any).type === 'manual') {
+            const topKey = fieldPath.split('.')[0];
+            const itemProp = itemProps[topKey];
+            const fieldLabel = itemProp?.name || toTitleCase(topKey);
+            let controlType = 'text';
+            let options: Array<{ label: string; value: string }> | undefined;
+            let defaultVal: any = itemProp?.default ?? '';
+            if (itemProp) {
+              switch (itemProp.type) {
+                case 'select':
+                  controlType = 'select';
+                  options = normalizeSelectOptions(itemProp.options);
+                  break;
+                case 'boolean':
+                  controlType = 'toggle';
+                  defaultVal = itemProp.default ?? false;
+                  break;
+                case 'number':
+                  controlType = 'number';
+                  defaultVal = itemProp.default ?? 0;
+                  break;
+                default:
+                  controlType = 'text';
+                  break;
+              }
+            }
+            advancedFields.push({ name: fieldPath, label: fieldLabel, type: controlType, options, default: defaultVal });
+          }
+        }
+        const paginationToggle = dynamicConfig.pagination
+          ? `
                 <ToggleControl
                   label={__('Show Pagination', 'handoff')}
                   checked={${attrName}PaginationEnabled ?? true}
                   onChange={(value) => setAttributes({ ${attrName}PaginationEnabled: value })}
                 />`
-        : '';
-      panels.push(`          {/* ${label} Panel - Dynamic */}
+          : '';
+        panels.push(`          {/* ${label} Panel - Dynamic */}
           <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
             <DynamicPostSelector
               value={{
@@ -660,6 +743,7 @@ ${generatePropertyControl(key, property)}
               </>
             )}
           </PanelBody>`);
+      }
     } else {
       // Standard panel (non-dynamic)
       panels.push(`          {/* ${label} Panel */}
@@ -720,12 +804,21 @@ ${generatePropertyControl(key, property)}
   ].join('\n');
   panels.push(designSystemPanel);
 
-  // Dynamic array resolution for editor preview (query/select → fetch + map)
+  // Dynamic array resolution for editor preview (query/select → fetch + map).
+  // Only DynamicArrayConfig (posts) fields are resolved in the editor;
+  // breadcrumbs/taxonomy/pagination are server-rendered only.
   let dynamicArrayResolutionCode = '';
   const resolvingFlags: string[] = [];
   if (dynamicArrayConfigs) {
     for (const [fieldKey, config] of Object.entries(dynamicArrayConfigs)) {
       const attrName = toCamelCase(fieldKey);
+
+      // Breadcrumbs / taxonomy / pagination: server-rendered only.
+      // The field is already destructured from `attributes` (with default []),
+      // so no stub declaration is needed — just skip to the next field.
+      if ('arrayType' in config) continue;
+
+      // DynamicArrayConfig (posts): full useSelect resolution
       const cap = attrName.charAt(0).toUpperCase() + attrName.slice(1);
       const previewVarName = `preview${cap}`;
       const resolvedVarName = `resolved${cap}`;
@@ -800,7 +893,7 @@ ${generatePropertyControl(key, property)}
     // define it in the edit so the editor doesn't throw ReferenceError.
     const previewUsesPagination = /\bpagination\b/.test(previewJsx);
     const anyConfigHasPagination = dynamicArrayConfigs
-      ? Object.values(dynamicArrayConfigs).some((c: DynamicArrayConfig) => !!c.pagination)
+      ? Object.values(dynamicArrayConfigs).some((c) => !('arrayType' in c) && !!(c as DynamicArrayConfig).pagination)
       : false;
     if (previewUsesPagination && anyConfigHasPagination && !dynamicArrayResolutionCode.includes('const pagination')) {
       dynamicArrayResolutionCode = `    const pagination = []; // Editor: pagination is built server-side in render.php
@@ -913,9 +1006,18 @@ ${imageFields.map(field => `          <MediaReplaceFlow
         </BlockControls>` : '';
 
   // Shared component imports for dynamic arrays (selector UI + editor preview mapping)
-  const sharedComponentImport = hasDynamicArrays 
-    ? `import { DynamicPostSelector, mapPostEntityToItem } from '../../shared';\nimport { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n` 
+  const sharedNamedImports: string[] = [];
+  if (hasDynamicArrays) sharedNamedImports.push('DynamicPostSelector', 'mapPostEntityToItem');
+  if (hasBreadcrumbsArray) sharedNamedImports.push('BreadcrumbsSelector');
+  if (hasTaxonomyArray) sharedNamedImports.push('TaxonomySelector');
+  if (hasPaginationArray) sharedNamedImports.push('PaginationSelector');
+
+  let sharedComponentImport = sharedNamedImports.length
+    ? `import { ${sharedNamedImports.join(', ')} } from '../../shared';\n`
     : '';
+  if (hasDynamicArrays) {
+    sharedComponentImport += `import { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`;
+  }
 
   // Build element imports (link field uses shared component, so no useState/useRef/useCallback here)
   const elementImports = ['Fragment'];

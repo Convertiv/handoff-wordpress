@@ -1,0 +1,12 @@
+{
+	"attributes": {
+		"showBreadcrumbs": {
+			"type": "boolean",
+			"default": false
+		},
+		"breadcrumbsPosition": {
+			"type": "string",
+			"default": "top"
+		}
+	}
+}
