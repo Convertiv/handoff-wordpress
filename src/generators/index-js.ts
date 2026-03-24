@@ -6,6 +6,7 @@ import { HandoffComponent, HandoffProperty, DynamicArrayConfig, BreadcrumbsArray
 import { toBlockName } from './block-json';
 import { generateJsxPreview, toCamelCase } from './handlebars-to-jsx';
 import { normalizeSelectOptions, getTemplateReferencedAttributeNames } from './handlebars-to-jsx/utils';
+import { buildReshapeJs } from './render-php';
 
 /**
  * Convert snake_case to Title Case
@@ -804,19 +805,77 @@ ${generatePropertyControl(key, property)}
   ].join('\n');
   panels.push(designSystemPanel);
 
-  // Dynamic array resolution for editor preview (query/select → fetch + map).
-  // Only DynamicArrayConfig (posts) fields are resolved in the editor;
-  // breadcrumbs/taxonomy/pagination are server-rendered only.
+  // Dynamic array resolution for editor preview.
+  // DynamicArrayConfig (posts): full useSelect resolution
+  // Breadcrumbs: live fetch via REST endpoint
+  // Taxonomy (auto mode): live fetch via useSelect with core-data
+  // Pagination: server-rendered only (stub variable)
   let dynamicArrayResolutionCode = '';
   const resolvingFlags: string[] = [];
   if (dynamicArrayConfigs) {
     for (const [fieldKey, config] of Object.entries(dynamicArrayConfigs)) {
       const attrName = toCamelCase(fieldKey);
+      const fieldProp = properties[fieldKey];
+      const itemProps = fieldProp?.items?.properties;
 
-      // Breadcrumbs / taxonomy / pagination: server-rendered only.
-      // The field is already destructured from `attributes` (with default []),
-      // so no stub declaration is needed — just skip to the next field.
-      if ('arrayType' in config) continue;
+      if (isBreadcrumbsConfig(config)) {
+        const cap = attrName.charAt(0).toUpperCase() + attrName.slice(1);
+        const reshapeJs = buildReshapeJs(itemProps, ['label', 'url']);
+        const mapExpr = reshapeJs
+          ? `.map((item) => ${reshapeJs})`
+          : '';
+        dynamicArrayResolutionCode += `
+    const [preview${cap}, setPreview${cap}] = useState(null);
+    useEffect(() => {
+      if (!${attrName}Enabled) { setPreview${cap}([]); return; }
+      const postId = select('core/editor')?.getCurrentPostId?.();
+      if (!postId) { setPreview${cap}([]); return; }
+      apiFetch({ path: \`/handoff/v1/breadcrumbs?post_id=\${postId}\` })
+        .then((items) => setPreview${cap}((items || [])${mapExpr}))
+        .catch(() => setPreview${cap}([]));
+    }, [${attrName}Enabled]);
+`;
+        const arrayVarRegex = new RegExp(`\\b${attrName}\\b(?!Enabled)`, 'g');
+        previewJsx = previewJsx.replace(arrayVarRegex, `preview${cap}`);
+        continue;
+      }
+
+      if (isTaxonomyConfig(config)) {
+        const cap = attrName.charAt(0).toUpperCase() + attrName.slice(1);
+        const reshapeJs = buildReshapeJs(itemProps, ['label', 'url', 'slug']);
+        const mapExpr = reshapeJs
+          ? `.map((item) => ${reshapeJs})`
+          : '';
+        dynamicArrayResolutionCode += `
+    const preview${cap} = useSelect(
+      (select) => {
+        if (!${attrName}Enabled) return [];
+        if (${attrName}Source === 'manual') return ${attrName} || [];
+        const postId = select('core/editor')?.getCurrentPostId?.();
+        if (!postId) return [];
+        const taxonomy = ${attrName}Taxonomy || '${config.taxonomies[0] || 'post_tag'}';
+        const restBase = select(coreDataStore).getTaxonomy(taxonomy)?.rest_base;
+        if (!restBase) return [];
+        const terms = select(coreDataStore).getEntityRecords('taxonomy', taxonomy, { post: postId, per_page: ${config.maxItems ?? -1} });
+        if (!terms) return [];
+        return terms.map((t) => ({ label: t.name, url: t.link || '', slug: t.slug || '' }))${mapExpr};
+      },
+      [${attrName}Enabled, ${attrName}Source, ${attrName}Taxonomy, JSON.stringify(${attrName} || [])]
+    );
+`;
+        const arrayVarRegex = new RegExp(`\\b${attrName}\\b(?!Enabled|Source|Taxonomy)`, 'g');
+        previewJsx = previewJsx.replace(arrayVarRegex, `preview${cap}`);
+        continue;
+      }
+
+      if (isPaginationConfig(config)) {
+        dynamicArrayResolutionCode += `
+    const preview${attrName.charAt(0).toUpperCase() + attrName.slice(1)} = []; // Pagination renders on the frontend
+`;
+        const arrayVarRegex = new RegExp(`\\b${attrName}\\b(?!Enabled)`, 'g');
+        previewJsx = previewJsx.replace(arrayVarRegex, `preview${attrName.charAt(0).toUpperCase() + attrName.slice(1)}`);
+        continue;
+      }
 
       // DynamicArrayConfig (posts): full useSelect resolution
       const cap = attrName.charAt(0).toUpperCase() + attrName.slice(1);
@@ -1015,12 +1074,19 @@ ${imageFields.map(field => `          <MediaReplaceFlow
   let sharedComponentImport = sharedNamedImports.length
     ? `import { ${sharedNamedImports.join(', ')} } from '../../shared';\n`
     : '';
-  if (hasDynamicArrays) {
-    sharedComponentImport += `import { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`;
+  const needsDataStore = hasDynamicArrays || hasTaxonomyArray;
+  if (needsDataStore) {
+    sharedComponentImport += `import { useSelect${hasBreadcrumbsArray ? ', select' : ''} } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`;
+  }
+  if (hasBreadcrumbsArray) {
+    sharedComponentImport += `import apiFetch from '@wordpress/api-fetch';\n`;
   }
 
-  // Build element imports (link field uses shared component, so no useState/useRef/useCallback here)
+  // Build element imports
   const elementImports = ['Fragment'];
+  if (hasBreadcrumbsArray) {
+    elementImports.push('useState', 'useEffect');
+  }
 
   // Import shared HandoffLinkField when preview uses link/button inline editing
   const linkFieldImport = previewUsesLinkField ? `import { HandoffLinkField } from '../../shared/components/LinkField';\n` : '';

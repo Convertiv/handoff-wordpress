@@ -492,91 +492,192 @@ function handoff_build_pagination($current_page, $total_pages, $query_param_key)
 /**
  * Build breadcrumb items for the current page/post.
  *
- * Returns an array of items with keys: label, url, active.
- * Falls back to a basic WP-native trail when no breadcrumb plugin is active.
+ * Returns an array of flat items with keys: label, url.
+ * Returns an empty array on the front page or when no meaningful trail exists
+ * (i.e., never a Home-only trail).
+ *
+ * Follows the patterns found in convertiv_breadcrumbs():
+ *  - Home link as first crumb (only when there are additional crumbs)
+ *  - Blog page link for post-type "post"
+ *  - Category parent chain for category archives and single posts
+ *  - Post type archive link for CPTs
+ *  - Page ancestor chain for hierarchical pages
+ *  - Search, date, tag, author, 404, and taxonomy archive crumbs
  *
  * @return array
  */
 function handoff_get_breadcrumb_items() {
-    $items = [];
+    $home_label = apply_filters('handoff_breadcrumbs_home_text', __('Home', 'handoff'));
+    $home_url   = apply_filters('handoff_breadcrumbs_home_url', home_url('/'));
 
-    // Home crumb is always first
-    $items[] = [
-        'label'  => __('Home', 'handoff'),
-        'url'    => home_url('/'),
-        'active' => false,
-    ];
+    $page_for_posts = (int) get_option('page_for_posts');
+    $blog_label     = $page_for_posts ? get_the_title($page_for_posts) : __('Blog', 'handoff');
+    $blog_url       = $page_for_posts ? get_permalink($page_for_posts) : '';
+    $frontpage_id   = (int) get_option('page_on_front');
 
-    if (is_front_page() || is_home()) {
-        $items[0]['active'] = true;
-        return $items;
+    $crumbs = [];
+
+    $add = static function ($label, $url) use (&$crumbs) {
+        if ($label === '' && $url === '') return;
+        $crumbs[] = ['label' => (string) $label, 'url' => (string) $url];
+    };
+
+    if (is_front_page() || (is_home() && !$page_for_posts)) {
+        return [];
     }
 
-    // Ancestor pages (for hierarchical post types)
-    if (is_page()) {
-        $ancestors = array_reverse(get_post_ancestors(get_the_ID()));
-        foreach ($ancestors as $ancestor_id) {
-            $items[] = [
-                'label'  => get_the_title($ancestor_id),
-                'url'    => get_permalink($ancestor_id),
-                'active' => false,
-            ];
+    if (is_home() && $page_for_posts) {
+        $add($home_label, $home_url);
+        $add(get_the_title($page_for_posts), get_permalink($page_for_posts));
+        return $crumbs;
+    }
+
+    $add($home_label, $home_url);
+
+    $post_type = get_post_type();
+    $paged     = (int) get_query_var('paged');
+
+    if (is_category()) {
+        $cat = get_category((int) get_query_var('cat'), false);
+        if ($blog_url) {
+            $add($blog_label, $blog_url);
         }
-        $items[] = [
-            'label'  => get_the_title(),
-            'url'    => get_permalink(),
-            'active' => true,
-        ];
-        return $items;
-    }
-
-    // Single post / CPT
-    if (is_singular()) {
-        $post_type = get_post_type();
-        if ($post_type && $post_type !== 'post') {
+        if ($cat && !is_wp_error($cat) && !empty($cat->parent)) {
+            $parents = [];
+            $pid = (int) $cat->parent;
+            $depth = 0;
+            while ($pid && $depth < 50) {
+                $depth++;
+                $parent_cat = get_category($pid);
+                if (!$parent_cat || is_wp_error($parent_cat)) break;
+                $parents[] = ['label' => $parent_cat->name, 'url' => get_category_link($parent_cat->term_id)];
+                $pid = (int) $parent_cat->parent;
+            }
+            foreach (array_reverse($parents) as $p) {
+                $add($p['label'], $p['url']);
+            }
+        }
+        if ($paged > 0 && $cat && !is_wp_error($cat)) {
+            $add($cat->name, get_category_link($cat->term_id));
+            $add(sprintf(__('Page %s', 'handoff'), $paged), '');
+        } else {
+            $add(single_cat_title('', false), '');
+        }
+    } elseif (is_tag()) {
+        if ($paged > 0) {
+            $tag = get_queried_object();
+            if ($tag && !is_wp_error($tag)) {
+                $add($tag->name, get_tag_link($tag->term_id));
+                $add(sprintf(__('Page %s', 'handoff'), $paged), '');
+            }
+        } else {
+            $add(single_tag_title('', false), '');
+        }
+    } elseif (is_tax()) {
+        $term = get_queried_object();
+        if ($term && !is_wp_error($term)) {
+            $parent_id = isset($term->parent) ? (int) $term->parent : 0;
+            if ($parent_id) {
+                $parent = get_term($parent_id, $term->taxonomy);
+                if ($parent && !is_wp_error($parent)) {
+                    $parent_link = get_term_link($parent, $term->taxonomy);
+                    if (!is_wp_error($parent_link)) {
+                        $add($parent->name, $parent_link);
+                    }
+                }
+            }
+            $add($term->name, '');
+        }
+    } elseif (is_search()) {
+        $add(sprintf(__('Search Results for "%s"', 'handoff'), get_search_query()), '');
+    } elseif (is_day()) {
+        $add(get_the_time('Y'), get_year_link(get_the_time('Y')));
+        $add(get_the_time('F'), get_month_link(get_the_time('Y'), get_the_time('m')));
+        $add(get_the_time('d'), '');
+    } elseif (is_month()) {
+        $add(get_the_time('Y'), get_year_link(get_the_time('Y')));
+        $add(get_the_time('F'), '');
+    } elseif (is_year()) {
+        $add(get_the_time('Y'), '');
+    } elseif (is_author()) {
+        $author = get_queried_object();
+        if ($author && isset($author->display_name)) {
+            $add(sprintf(__('Articles by %s', 'handoff'), $author->display_name), '');
+        }
+    } elseif (is_404()) {
+        $add(__('Error 404', 'handoff'), '');
+    } elseif (is_single() && !is_attachment()) {
+        if ($post_type !== 'post') {
             $pto = get_post_type_object($post_type);
             if ($pto) {
                 $archive_url = get_post_type_archive_link($post_type);
                 if ($archive_url) {
-                    $items[] = [
-                        'label'  => $pto->labels->name,
-                        'url'    => $archive_url,
-                        'active' => false,
-                    ];
+                    $add($pto->labels->name, $archive_url);
                 }
             }
-        } elseif ($post_type === 'post') {
-            $page_for_posts = get_option('page_for_posts');
-            if ($page_for_posts) {
-                $items[] = [
-                    'label'  => get_the_title($page_for_posts),
-                    'url'    => get_permalink($page_for_posts),
-                    'active' => false,
-                ];
+            $parent_id = wp_get_post_parent_id(get_the_ID());
+            if ($parent_id) {
+                $add(get_the_title($parent_id), get_permalink($parent_id));
+            }
+            $add(get_the_title(), '');
+        } else {
+            if ($blog_url) {
+                $add($blog_label, $blog_url);
+            }
+            $cats = get_the_category();
+            if (!empty($cats)) {
+                $cat = $cats[0];
+                $parents = [];
+                $pid = (int) $cat->parent;
+                $depth = 0;
+                while ($pid && $depth < 50) {
+                    $depth++;
+                    $parent_cat = get_category($pid);
+                    if (!$parent_cat || is_wp_error($parent_cat)) break;
+                    $parents[] = ['label' => $parent_cat->name, 'url' => get_category_link($parent_cat->term_id)];
+                    $pid = (int) $parent_cat->parent;
+                }
+                foreach (array_reverse($parents) as $p) {
+                    $add($p['label'], $p['url']);
+                }
+                $add($cat->name, get_category_link($cat->term_id));
+            }
+            $add(get_the_title(), '');
+        }
+    } elseif (is_attachment()) {
+        $parent_id = wp_get_post_parent_id(get_the_ID());
+        if ($parent_id) {
+            $add(get_the_title($parent_id), get_permalink($parent_id));
+        }
+        $add(get_the_title(), '');
+    } elseif (is_page()) {
+        $post_id = get_the_ID();
+        $parent_id = $post_id ? wp_get_post_parent_id($post_id) : 0;
+        if ($parent_id && $parent_id !== $frontpage_id) {
+            $ancestors = array_reverse(get_post_ancestors($post_id));
+            foreach ($ancestors as $ancestor_id) {
+                if ((int) $ancestor_id === $frontpage_id) continue;
+                $add(get_the_title($ancestor_id), get_permalink($ancestor_id));
             }
         }
-        $items[] = [
-            'label'  => get_the_title(),
-            'url'    => get_permalink(),
-            'active' => true,
-        ];
-        return $items;
-    }
-
-    // Archive pages
-    if (is_category() || is_tag() || is_tax()) {
-        $term = get_queried_object();
-        if ($term) {
-            $items[] = [
-                'label'  => $term->name,
-                'url'    => get_term_link($term),
-                'active' => true,
-            ];
+        $add(get_the_title(), '');
+    } elseif (!is_single() && !is_page() && $post_type !== 'post' && !is_404()) {
+        $pto = get_post_type_object($post_type);
+        if ($pto) {
+            if ($paged > 0) {
+                $add($pto->label, get_post_type_archive_link($pto->name));
+                $add(sprintf(__('Page %s', 'handoff'), $paged), '');
+            } else {
+                $add($pto->label, '');
+            }
         }
-        return $items;
     }
 
-    return $items;
+    if (count($crumbs) <= 1) {
+        return [];
+    }
+
+    return $crumbs;
 }
 
 

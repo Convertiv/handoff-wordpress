@@ -479,6 +479,129 @@ In `render.php`, dynamic arrays generate a `WP_Query` (for query mode) or `get_p
 
 The legacy `dynamicArrays` config (flat `"componentId.fieldName"` keys with an `enabled` flag) is auto-migrated to the `import` structure at load time if no `import` key is present. A deprecation warning is logged.
 
+### Specialized Array Types
+
+In addition to dynamic post arrays, the compiler supports three specialized `arrayType` configs for array fields that are populated automatically from page context rather than from posts.
+
+#### Config Structure
+
+Specialized arrays are configured alongside dynamic post arrays in the `import` config, keyed by the array field name:
+
+```json
+{
+  "import": {
+    "block": {
+      "hero-article": {
+        "breadcrumb": {
+          "arrayType": "breadcrumbs"
+        },
+        "tags": {
+          "arrayType": "taxonomy",
+          "taxonomies": ["post_tag", "category"],
+          "maxItems": 3
+        }
+      },
+      "grid-three-column": {
+        "articles": { "...DynamicArrayConfig..." },
+        "pagination": {
+          "arrayType": "pagination",
+          "connectedField": "articles"
+        }
+      }
+    }
+  }
+}
+```
+
+#### Breadcrumbs (`arrayType: "breadcrumbs"`)
+
+Auto-generates a breadcrumb trail from the current page/post context.
+
+| Config Key | Type | Description |
+|------------|------|-------------|
+| `arrayType` | `"breadcrumbs"` | Identifies this as a breadcrumbs array |
+
+**Server behavior**: Calls `handoff_get_breadcrumb_items()` which inspects the current WordPress query to build a contextual breadcrumb trail. Returns an empty array on the front page or when no meaningful trail exists (i.e., no Home-only trails). Covers: hierarchical pages, single posts with blog + category parents, custom post types with archive links, search results, date/tag/author/category archives, and taxonomy archives.
+
+**Standard output shape**: `{ label: string, url: string }`
+
+**Auto-reshape**: The compiler inspects the Handoff component's array item property schema and generates PHP code to reshape each breadcrumb item into the template's expected structure. For example, if the template expects `{ link: { label, url } }`, the compiler generates:
+
+```php
+$breadcrumb = array_map(function($crumb) {
+  return ['link' => ['label' => $crumb['label'], 'url' => $crumb['url']]];
+}, handoff_get_breadcrumb_items());
+```
+
+**Block attributes**:
+
+| Attribute | Type | Default | Purpose |
+|-----------|------|---------|---------|
+| `{field}` | `array` | `[]` | The breadcrumb items array |
+| `{field}Enabled` | `boolean` | `true` | Toggle breadcrumb visibility |
+
+**Editor behavior**: Fetches live breadcrumb data via the `handoff/v1/breadcrumbs` REST endpoint for the current post. Items are reshaped client-side to match the template's expected structure and displayed in the editor preview. The sidebar shows a `BreadcrumbsSelector` component with an enabled/disabled toggle.
+
+#### Taxonomy (`arrayType: "taxonomy"`)
+
+Populates an array with terms from a WordPress taxonomy on the current post.
+
+| Config Key | Type | Description |
+|------------|------|-------------|
+| `arrayType` | `"taxonomy"` | Identifies this as a taxonomy array |
+| `taxonomies` | `string[]` | Taxonomy slugs available in the editor dropdown (e.g., `["post_tag", "category"]`) |
+| `maxItems` | `number?` | Maximum terms to return (default: all) |
+
+**Server behavior**: In `auto` mode, calls `wp_get_post_terms()` for the selected taxonomy on the current post, limited by `maxItems`. In `manual` mode, uses the items saved directly in the block attribute.
+
+**Standard output shape**: `{ label: string, url: string, slug: string }`
+
+**Auto-reshape**: Same as breadcrumbs — the compiler inspects the component's array item properties and generates PHP mapping code. For example, if items expect `{ link: { label, url } }`, each term is wrapped accordingly.
+
+**Block attributes**:
+
+| Attribute | Type | Default | Purpose |
+|-----------|------|---------|---------|
+| `{field}` | `array` | `[]` | The taxonomy items array |
+| `{field}Enabled` | `boolean` | `false` | Toggle taxonomy visibility |
+| `{field}Taxonomy` | `string` | First taxonomy in config | Selected taxonomy slug |
+| `{field}Source` | `string` | `"auto"` | `"auto"` or `"manual"` |
+
+**Editor behavior**: In `auto` mode, uses `useSelect` with `@wordpress/core-data` to fetch terms for the current post from the selected taxonomy and displays them in the editor preview. In `manual` mode, uses the standard Repeater UI. The sidebar shows a `TaxonomySelector` component with an enabled toggle, auto/manual tabs, and a taxonomy dropdown.
+
+#### Pagination (`arrayType: "pagination"`)
+
+Derives pagination links from a sibling dynamic post array's WP_Query result.
+
+| Config Key | Type | Description |
+|------------|------|-------------|
+| `arrayType` | `"pagination"` | Identifies this as a pagination array |
+| `connectedField` | `string` | The sibling array field name whose WP_Query drives pagination |
+
+**Server behavior**: After the connected field's WP_Query executes, calls `handoff_build_pagination()` with the current page number and total pages. Returns numbered page links with ellipsis gaps, each containing `{ label, url, active }`.
+
+**Standard output shape**: `{ label: string, url: string, active: boolean }`
+
+**Auto-reshape**: Same as breadcrumbs and taxonomy — the compiler maps the standard shape into the template's expected item structure.
+
+**Block attributes**:
+
+| Attribute | Type | Default | Purpose |
+|-----------|------|---------|---------|
+| `{field}` | `array` | `[]` | The pagination items array |
+| `{field}Enabled` | `boolean` | `true` | Toggle pagination visibility |
+
+**Editor behavior**: Pagination depends on WP_Query results that cannot be replicated client-side. The editor preview shows a placeholder message ("Pagination renders on the frontend"). The sidebar shows a `PaginationSelector` component with an enabled/disabled toggle.
+
+#### Auto-Reshape Pipeline
+
+For all three specialized array types, the compiler performs item shape mapping at compile time:
+
+1. **Read standard shape**: Each helper returns a canonical flat shape (`{ label, url }` for breadcrumbs/taxonomy, `{ label, url, active }` for pagination).
+2. **Read template shape**: The compiler reads the array field's `items.properties` from the Handoff component schema to determine the expected item structure.
+3. **Generate mapping code**: If the shapes differ, the compiler generates `array_map()` PHP code (and equivalent JS for editor preview) that restructures each item. Nested properties (e.g., `link.label`) are wrapped into sub-arrays/objects automatically.
+4. **Pass through when shapes match**: If the standard shape already matches the template shape, no mapping code is generated.
+
 ---
 
 ## 11. Styles
@@ -522,6 +645,18 @@ A unified post selection UI that combines query building and manual post selecti
 - Ordering and pagination controls
 - Manual post search via `ComboboxControl`
 - Per-item field overrides
+
+### BreadcrumbsSelector
+
+Sidebar toggle control for breadcrumbs array fields. Reads/writes `{attrName}Enabled`. Breadcrumb data is fetched live via REST in the editor preview.
+
+### TaxonomySelector
+
+Sidebar control for taxonomy array fields with auto/manual tabs. In auto mode, shows a taxonomy dropdown (`{attrName}Taxonomy`). In manual mode, renders a Repeater with custom item fields via `renderManualItems` prop. Reads/writes `{attrName}Enabled`, `{attrName}Source`, `{attrName}Taxonomy`.
+
+### PaginationSelector
+
+Sidebar toggle control for pagination array fields. Reads/writes `{attrName}Enabled`. Pagination is server-rendered only.
 
 ### PostSelector (legacy)
 

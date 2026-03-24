@@ -416,7 +416,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     (_, propPath, alias) => {
       const phpVar = propPathToPhp(propPath);
       loopAliases[alias] = propPath;
-      return `<?php if (!empty(${phpVar})) : $_loop_count = count(${phpVar}); foreach (${phpVar} as $index => $item) : ?>`;
+      return `<?php if (!empty(${phpVar}) && is_array(${phpVar})) : $_loop_count = count(${phpVar}); foreach (${phpVar} as $index => $item) : ?>`;
     }
   );
   
@@ -427,7 +427,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     /\{\{#each\s+properties\.([\w.]+)\s*\}\}/g,
     (_, propPath) => {
       const phpVar = propPathToPhp(propPath);
-      return `<?php if (!empty(${phpVar})) : $_loop_count = count(${phpVar}); foreach (${phpVar} as $index => $item) : ?>`;
+      return `<?php if (!empty(${phpVar}) && is_array(${phpVar})) : $_loop_count = count(${phpVar}); foreach (${phpVar} as $index => $item) : ?>`;
     }
   );
   
@@ -1153,15 +1153,104 @@ const generatePagedPhp = (attrName: string): string => {
 };
 
 /**
+ * Build PHP array_map expression to reshape standard helper items into the
+ * template's expected item shape.  Returns null when no reshaping is needed.
+ *
+ * @param itemProperties  The component's array item property schema (items.properties)
+ * @param standardFields  The flat field names the helper returns (e.g. ['label','url'])
+ */
+const buildReshapePhp = (
+  itemProperties: Record<string, HandoffProperty> | undefined,
+  standardFields: string[],
+): string | null => {
+  if (!itemProperties) return null;
+
+  const topKeys = Object.keys(itemProperties);
+
+  // If every top-level key IS a standard field the shapes already match
+  if (topKeys.every(k => standardFields.includes(k))) return null;
+
+  const pairs: string[] = [];
+  for (const [key, prop] of Object.entries(itemProperties)) {
+    if (standardFields.includes(key)) {
+      pairs.push(`'${key}' => $__item['${key}']`);
+    } else if (prop.type === 'link' || prop.type === 'button') {
+      const sub: string[] = [];
+      if (standardFields.includes('label')) sub.push(`'label' => $__item['label']`);
+      if (standardFields.includes('url'))   sub.push(`'url'   => $__item['url']`);
+      if (sub.length) pairs.push(`'${key}' => [${sub.join(', ')}]`);
+    } else if (prop.type === 'object' && prop.properties) {
+      const sub: string[] = [];
+      for (const subKey of Object.keys(prop.properties)) {
+        if (standardFields.includes(subKey)) {
+          sub.push(`'${subKey}' => $__item['${subKey}']`);
+        }
+      }
+      if (sub.length) pairs.push(`'${key}' => [${sub.join(', ')}]`);
+    }
+  }
+
+  if (pairs.length === 0) return null;
+  return `[${pairs.join(', ')}]`;
+};
+
+/**
+ * Build equivalent JS reshape expression for editor preview.
+ * Returns null when no reshaping is needed.
+ */
+const buildReshapeJs = (
+  itemProperties: Record<string, HandoffProperty> | undefined,
+  standardFields: string[],
+): string | null => {
+  if (!itemProperties) return null;
+
+  const topKeys = Object.keys(itemProperties);
+  if (topKeys.every(k => standardFields.includes(k))) return null;
+
+  const pairs: string[] = [];
+  for (const [key, prop] of Object.entries(itemProperties)) {
+    if (standardFields.includes(key)) {
+      pairs.push(`${key}: item.${key}`);
+    } else if (prop.type === 'link' || prop.type === 'button') {
+      const sub: string[] = [];
+      if (standardFields.includes('label')) sub.push(`label: item.label`);
+      if (standardFields.includes('url'))   sub.push(`url: item.url`);
+      if (sub.length) pairs.push(`${key}: { ${sub.join(', ')} }`);
+    } else if (prop.type === 'object' && prop.properties) {
+      const sub: string[] = [];
+      for (const subKey of Object.keys(prop.properties)) {
+        if (standardFields.includes(subKey)) {
+          sub.push(`${subKey}: item.${subKey}`);
+        }
+      }
+      if (sub.length) pairs.push(`${key}: { ${sub.join(', ')} }`);
+    }
+  }
+
+  if (pairs.length === 0) return null;
+  return `({ ${pairs.join(', ')} })`;
+};
+
+/**
  * Generate breadcrumbs array extraction code for render.php.
  * Calls handoff_get_breadcrumb_items() if available, otherwise returns an empty array.
  */
-const generateBreadcrumbsArrayExtraction = (fieldName: string, attrName: string): string => `
+const generateBreadcrumbsArrayExtraction = (
+  fieldName: string,
+  attrName: string,
+  itemProperties?: Record<string, HandoffProperty>,
+): string => {
+  const reshapeExpr = buildReshapePhp(itemProperties, ['label', 'url']);
+  const assignItems = reshapeExpr
+    ? `$__raw = handoff_get_breadcrumb_items();
+    $${attrName} = array_map(function($__item) { return ${reshapeExpr}; }, $__raw);`
+    : `$${attrName} = handoff_get_breadcrumb_items();`;
+
+  return `
 // Dynamic array: ${fieldName} (breadcrumbs)
-${attrName}Enabled = $attributes['${attrName}Enabled'] ?? true;
+$${attrName}Enabled = $attributes['${attrName}Enabled'] ?? true;
 $${attrName} = [];
 if ($${attrName}Enabled) {
-  // Load breadcrumb helper if not already loaded
   if (!function_exists('handoff_get_breadcrumb_items')) {
     $resolver_path = defined('HANDOFF_BLOCKS_PLUGIN_DIR')
       ? HANDOFF_BLOCKS_PLUGIN_DIR . 'includes/handoff-field-resolver.php'
@@ -1171,10 +1260,11 @@ if ($${attrName}Enabled) {
     }
   }
   if (function_exists('handoff_get_breadcrumb_items')) {
-    $${attrName} = handoff_get_breadcrumb_items();
+    ${assignItems}
   }
 }
 `;
+};
 
 /**
  * Generate taxonomy terms array extraction code for render.php.
@@ -1182,10 +1272,26 @@ if ($${attrName}Enabled) {
 const generateTaxonomyArrayExtraction = (
   fieldName: string,
   attrName: string,
-  config: TaxonomyArrayConfig
+  config: TaxonomyArrayConfig,
+  itemProperties?: Record<string, HandoffProperty>,
 ): string => {
   const maxItems = config.maxItems ?? -1;
   const defaultTaxonomy = config.taxonomies[0] || 'post_tag';
+  const reshapeExpr = buildReshapePhp(itemProperties, ['label', 'url', 'slug']);
+
+  // Build the per-term assignment: either flat or reshaped
+  let termAssignment: string;
+  if (reshapeExpr) {
+    termAssignment = `        $__item = ['label' => $term->name, 'url' => get_term_link($term), 'slug' => $term->slug];
+        $${attrName}[] = ${reshapeExpr};`;
+  } else {
+    termAssignment = `        $${attrName}[] = [
+          'label' => $term->name,
+          'url'   => get_term_link($term),
+          'slug'  => $term->slug,
+        ];`;
+  }
+
   return `
 // Dynamic array: ${fieldName} (taxonomy terms)
 $${attrName}Enabled  = $attributes['${attrName}Enabled']  ?? false;
@@ -1194,18 +1300,12 @@ $${attrName}Source   = $attributes['${attrName}Source']   ?? 'auto';
 $${attrName} = [];
 if ($${attrName}Enabled) {
   if ($${attrName}Source === 'manual') {
-    // Manual mode: use the items saved directly as an attribute
     $${attrName} = $attributes['${attrName}'] ?? [];
   } else {
-    // Auto mode: fetch terms from the selected taxonomy
     $terms = wp_get_post_terms(get_the_ID(), $${attrName}Taxonomy, ['number' => ${maxItems}]);
     if (!is_wp_error($terms)) {
       foreach ($terms as $term) {
-        $${attrName}[] = [
-          'label' => $term->name,
-          'url'   => get_term_link($term),
-          'slug'  => $term->slug,
-        ];
+${termAssignment}
       }
     }
   }
@@ -1220,9 +1320,17 @@ if ($${attrName}Enabled) {
 const generatePaginationArrayExtraction = (
   fieldName: string,
   attrName: string,
-  config: PaginationArrayConfig
+  config: PaginationArrayConfig,
+  itemProperties?: Record<string, HandoffProperty>,
 ): string => {
   const connectedAttr = toCamelCase(config.connectedField);
+  const reshapeExpr = buildReshapePhp(itemProperties, ['label', 'url', 'active']);
+
+  const assignItems = reshapeExpr
+    ? `$__raw = handoff_build_pagination($hf_paged_${connectedAttr}, $query->max_num_pages, 'hf_page_${connectedAttr}');
+    $${attrName} = array_map(function($__item) { return ${reshapeExpr}; }, $__raw);`
+    : `$${attrName} = handoff_build_pagination($hf_paged_${connectedAttr}, $query->max_num_pages, 'hf_page_${connectedAttr}');`;
+
   return `
 // Dynamic array: ${fieldName} (pagination — connected to '${config.connectedField}')
 $${attrName}Enabled = $attributes['${attrName}Enabled'] ?? true;
@@ -1238,7 +1346,7 @@ if ($${attrName}Enabled && isset($query) && $query->max_num_pages > 1) {
   }
   if (function_exists('handoff_build_pagination')) {
     $hf_paged_${connectedAttr} = isset($_GET['hf_page_${connectedAttr}']) ? max(1, intval($_GET['hf_page_${connectedAttr}'])) : 1;
-    $${attrName} = handoff_build_pagination($hf_paged_${connectedAttr}, $query->max_num_pages, 'hf_page_${connectedAttr}');
+    ${assignItems}
   }
 }
 `;
@@ -1475,12 +1583,14 @@ const generateRenderPhp = (
   if (dynamicArrayConfigs) {
     for (const [fieldName, config] of Object.entries(dynamicArrayConfigs)) {
       const attrName = toCamelCase(fieldName);
+      const fieldProp = component.properties[fieldName];
+      const itemProps = fieldProp?.items?.properties;
       if (isBreadcrumbsConfig(config)) {
-        dynamicArrayExtractions.push(generateBreadcrumbsArrayExtraction(fieldName, attrName));
+        dynamicArrayExtractions.push(generateBreadcrumbsArrayExtraction(fieldName, attrName, itemProps));
       } else if (isTaxonomyConfig(config)) {
-        dynamicArrayExtractions.push(generateTaxonomyArrayExtraction(fieldName, attrName, config));
+        dynamicArrayExtractions.push(generateTaxonomyArrayExtraction(fieldName, attrName, config, itemProps));
       } else if (isPaginationConfig(config)) {
-        dynamicArrayExtractions.push(generatePaginationArrayExtraction(fieldName, attrName, config));
+        dynamicArrayExtractions.push(generatePaginationArrayExtraction(fieldName, attrName, config, itemProps));
       } else {
         dynamicArrayExtractions.push(generateDynamicArrayExtraction(fieldName, attrName, config));
       }
@@ -1517,4 +1627,13 @@ ${wrappedTemplate}
 `;
 };
 
-export { generateRenderPhp, handlebarsToPhp, arrayToPhp };
+export {
+  generateRenderPhp,
+  handlebarsToPhp,
+  arrayToPhp,
+  generateBreadcrumbsArrayExtraction,
+  generateTaxonomyArrayExtraction,
+  generatePaginationArrayExtraction,
+  buildReshapePhp,
+  buildReshapeJs,
+};

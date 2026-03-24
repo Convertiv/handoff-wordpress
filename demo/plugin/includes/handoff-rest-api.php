@@ -60,6 +60,20 @@ function handoff_register_rest_routes()
             ),
         ),
     ));
+
+    // Get breadcrumb items for a given post (editor live preview)
+    register_rest_route($namespace, '/breadcrumbs', array(
+        'methods'             => WP_REST_Server::READABLE,
+        'callback'            => 'handoff_rest_get_breadcrumbs',
+        'permission_callback' => 'handoff_rest_permission_check',
+        'args'                => array(
+            'post_id' => array(
+                'required'          => true,
+                'type'              => 'integer',
+                'sanitize_callback' => 'absint',
+            ),
+        ),
+    ));
 }
 
 /**
@@ -273,4 +287,61 @@ function handoff_rest_get_taxonomies($request)
     }
 
     return rest_ensure_response($result);
+}
+
+/**
+ * Return breadcrumb items for a given post ID.
+ * Used by the block editor for live breadcrumb preview.
+ *
+ * @param WP_REST_Request $request Request object.
+ * @return WP_REST_Response Breadcrumb items.
+ */
+function handoff_rest_get_breadcrumbs($request)
+{
+    $post_id = $request->get_param('post_id');
+    $the_post = get_post($post_id);
+
+    if (!$the_post) {
+        return rest_ensure_response([]);
+    }
+
+    // Load the field resolver if not already loaded
+    if (!function_exists('handoff_get_breadcrumb_items')) {
+        $resolver_path = defined('HANDOFF_BLOCKS_PLUGIN_DIR')
+            ? HANDOFF_BLOCKS_PLUGIN_DIR . 'includes/handoff-field-resolver.php'
+            : dirname(__FILE__) . '/handoff-field-resolver.php';
+        if (file_exists($resolver_path)) {
+            require_once $resolver_path;
+        }
+    }
+
+    if (!function_exists('handoff_get_breadcrumb_items')) {
+        return rest_ensure_response([]);
+    }
+
+    // Temporarily set up the global post context so breadcrumb helpers work
+    global $post, $wp_query;
+    $original_post = $post;
+    $original_query = clone $wp_query;
+
+    $post = $the_post;
+    setup_postdata($post);
+
+    $wp_query = new WP_Query(array(
+        'p'         => $post_id,
+        'post_type' => $the_post->post_type,
+    ));
+
+    $items = handoff_get_breadcrumb_items();
+
+    // Restore original state
+    $wp_query = $original_query;
+    $post = $original_post;
+    if ($original_post) {
+        setup_postdata($original_post);
+    } else {
+        wp_reset_postdata();
+    }
+
+    return rest_ensure_response($items);
 }

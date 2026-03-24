@@ -26,7 +26,7 @@ import {
 import { toCamelCase, generateJsxPreview, JsxPreviewResult } from './handlebars-to-jsx';
 import { normalizeSelectOptions, type NormalizedSelectOption } from './handlebars-to-jsx/utils';
 import { mapPropertyType, groupToCategory, toBlockName } from './block-json';
-import { generateRenderPhp, handlebarsToPhp, arrayToPhp } from './render-php';
+import { generateRenderPhp, handlebarsToPhp, arrayToPhp, generateBreadcrumbsArrayExtraction, generateTaxonomyArrayExtraction, generatePaginationArrayExtraction, buildReshapeJs } from './render-php';
 import { generateEditorScss, generateStyleScss } from './styles';
 import { generateMigrationSchema, MigrationSchema, MigrationPropertySchema, extractMigrationProperty } from './schema-json';
 
@@ -562,11 +562,63 @@ ${itemFields}
     if (hasDynamic) {
       for (const [fieldKey, dynConfig] of Object.entries(dynamicArrayConfigs)) {
         const mergedAttrName = fieldMap[fieldKey] || toCamelCase(fieldKey);
+        const fieldProp = properties[fieldKey];
+        const itemProps = fieldProp?.items?.properties;
 
-        // Breadcrumbs / taxonomy / pagination: server-rendered only.
-        // The field is already destructured from `attributes` (with default []),
-        // so no stub declaration is needed — just skip to the next field.
-        if ('arrayType' in dynConfig) continue;
+        if (isBreadcrumbsConfig(dynConfig)) {
+          const cap = mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1);
+          const reshapeJs = buildReshapeJs(itemProps, ['label', 'url']);
+          const mapExpr = reshapeJs ? `.map((item) => ${reshapeJs})` : '';
+          dynamicResolution += `
+      const [preview${cap}, setPreview${cap}] = useState(null);
+      useEffect(() => {
+        if (!${mergedAttrName}Enabled) { setPreview${cap}([]); return; }
+        const postId = select('core/editor')?.getCurrentPostId?.();
+        if (!postId) { setPreview${cap}([]); return; }
+        apiFetch({ path: \`/handoff/v1/breadcrumbs?post_id=\${postId}\` })
+          .then((items) => setPreview${cap}((items || [])${mapExpr}))
+          .catch(() => setPreview${cap}([]));
+      }, [${mergedAttrName}Enabled]);
+`;
+          const arrayVarRegex = new RegExp(`\\b${mergedAttrName}\\b(?!Enabled)`, 'g');
+          previewJsx = previewJsx.replace(arrayVarRegex, `preview${cap}`);
+          continue;
+        }
+
+        if (isTaxonomyConfig(dynConfig)) {
+          const cap = mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1);
+          const reshapeJs = buildReshapeJs(itemProps, ['label', 'url', 'slug']);
+          const mapExpr = reshapeJs ? `.map((item) => ${reshapeJs})` : '';
+          dynamicResolution += `
+      const preview${cap} = useSelect(
+        (select) => {
+          if (!${mergedAttrName}Enabled) return [];
+          if (${mergedAttrName}Source === 'manual') return ${mergedAttrName} || [];
+          const postId = select('core/editor')?.getCurrentPostId?.();
+          if (!postId) return [];
+          const taxonomy = ${mergedAttrName}Taxonomy || '${dynConfig.taxonomies[0] || 'post_tag'}';
+          const restBase = select(coreDataStore).getTaxonomy(taxonomy)?.rest_base;
+          if (!restBase) return [];
+          const terms = select(coreDataStore).getEntityRecords('taxonomy', taxonomy, { post: postId, per_page: ${dynConfig.maxItems ?? -1} });
+          if (!terms) return [];
+          return terms.map((t) => ({ label: t.name, url: t.link || '', slug: t.slug || '' }))${mapExpr};
+        },
+        [${mergedAttrName}Enabled, ${mergedAttrName}Source, ${mergedAttrName}Taxonomy, JSON.stringify(${mergedAttrName} || [])]
+      );
+`;
+          const arrayVarRegex = new RegExp(`\\b${mergedAttrName}\\b(?!Enabled|Source|Taxonomy)`, 'g');
+          previewJsx = previewJsx.replace(arrayVarRegex, `preview${cap}`);
+          continue;
+        }
+
+        if (isPaginationConfig(dynConfig)) {
+          dynamicResolution += `
+      const preview${mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1)} = []; // Pagination renders on the frontend
+`;
+          const arrayVarRegex = new RegExp(`\\b${mergedAttrName}\\b(?!Enabled)`, 'g');
+          previewJsx = previewJsx.replace(arrayVarRegex, `preview${mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1)}`);
+          continue;
+        }
         const cap = mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1);
         const previewVarName = `preview${cap}`;
         const resolvedVarName = `resolved${cap}`;
@@ -676,14 +728,21 @@ ${itemFields}
   let sharedComponentImport = sharedNamedImports.length
     ? `import { ${sharedNamedImports.join(', ')} } from '../../shared';\n`
     : '';
-  if (anyHasDynamicArrays) {
-    sharedComponentImport += `import { useSelect } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`;
+  const needsDataStore = anyHasDynamicArrays || anyHasTaxonomyArrays;
+  if (needsDataStore) {
+    sharedComponentImport += `import { useSelect${anyHasBreadcrumbsArrays ? ', select' : ''} } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`;
+  }
+  if (anyHasBreadcrumbsArrays) {
+    sharedComponentImport += `import apiFetch from '@wordpress/api-fetch';\n`;
   }
   if (anyPreviewUsesLinkField) {
     sharedComponentImport += `import { HandoffLinkField } from '../../shared/components/LinkField';\n`;
   }
 
   const elementImports = ['Fragment'];
+  if (anyHasBreadcrumbsArrays) {
+    elementImports.push('useState', 'useEffect');
+  }
 
   // All attribute names for destructuring
   const allAttrNames = new Set<string>();
@@ -1354,12 +1413,31 @@ const generateVariantPhpFragment = (
     extractions.push(`$overlayOpacity = isset($attributes['${mergedAttrName}']) ? $attributes['${mergedAttrName}'] : 0.6;`);
   }
 
+  // Dynamic array extraction for specialized array types (breadcrumbs, taxonomy, pagination)
+  const dynArrayExtractions: string[] = [];
+  if (variant.dynamicArrayConfigs) {
+    for (const [fieldName, dynConfig] of Object.entries(variant.dynamicArrayConfigs)) {
+      const mergedAttrName = fieldMap[fieldName] || toCamelCase(fieldName);
+      const fieldProp = comp.properties[fieldName];
+      const itemProps = fieldProp?.items?.properties;
+
+      if (isBreadcrumbsConfig(dynConfig)) {
+        dynArrayExtractions.push(generateBreadcrumbsArrayExtraction(fieldName, mergedAttrName, itemProps));
+      } else if (isTaxonomyConfig(dynConfig)) {
+        dynArrayExtractions.push(generateTaxonomyArrayExtraction(fieldName, mergedAttrName, dynConfig, itemProps));
+      } else if (isPaginationConfig(dynConfig)) {
+        dynArrayExtractions.push(generatePaginationArrayExtraction(fieldName, mergedAttrName, dynConfig, itemProps));
+      }
+    }
+  }
+  const dynArrayCode = dynArrayExtractions.length ? '\n' + dynArrayExtractions.join('\n') : '';
+
   const templatePhp = handlebarsToPhp(comp.code ?? '', comp.properties, richtextProps);
   const className = (comp.id ?? '').replace(/_/g, '-');
 
   return `<?php
 // Attribute extraction for variant: ${comp.id}
-${extractions.join('\n')}
+${extractions.join('\n')}${dynArrayCode}
 ?>
 <div class="${className}">
 ${templatePhp}

@@ -649,6 +649,10 @@ export const generateSharedComponentsIndex = (): string => {
  */
 
 export { DynamicPostSelector } from './DynamicPostSelector';
+export { BreadcrumbsSelector } from './BreadcrumbsSelector';
+export { TaxonomySelector } from './TaxonomySelector';
+export { PaginationSelector } from './PaginationSelector';
+export { HandoffLinkField } from './LinkField';
 `;
 };
 
