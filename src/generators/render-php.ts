@@ -45,7 +45,7 @@ const getPhpDefaultValue = (property: HandoffProperty): string => {
     case 'text':
     case 'richtext':
     case 'select':
-      return property.default ? `'${String(property.default).replace(/'/g, "\\'")}'` : "''";
+      return `'${String(property.default ?? '').replace(/'/g, "\\'")}'`;
     
     case 'number':
       return String(property.default ?? 0);
@@ -57,7 +57,10 @@ const getPhpDefaultValue = (property: HandoffProperty): string => {
       return "['src' => '', 'alt' => '']";
     
     case 'link':
-      return "['label' => '', 'url' => '']";
+      return "['label' => '', 'url' => '', 'opensInNewTab' => false]";
+    
+    case 'button':
+      return "['label' => '', 'href' => '#', 'target' => '', 'rel' => '', 'disabled' => false]";
     
     case 'object':
       if (property.default) {
@@ -1631,6 +1634,9 @@ export {
   generateRenderPhp,
   handlebarsToPhp,
   arrayToPhp,
+  getPhpDefaultValue,
+  generateAttributeExtraction,
+  generateDynamicArrayExtraction,
   generateBreadcrumbsArrayExtraction,
   generateTaxonomyArrayExtraction,
   generatePaginationArrayExtraction,

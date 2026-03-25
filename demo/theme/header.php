@@ -469,8 +469,8 @@ extract($header_data);
             <a class="c-mobile-nav__link" href="#">Contact Us</a>
           </li>
           <li class="c-mobile-nav__item">
-            <form class="c-mobile-nav__search">
-              <input class="c-mobile-nav__search-input" name="search" type="text" placeholder="Search">
+            <form class="c-mobile-nav__search input">
+              <input class="c-mobile-nav__search-input input__input" name="search" type="text" placeholder="Search">
               <button class="c-mobile-nav__search-button">
                 <img src="https://cynosure.handoff.com/svg/search.svg" alt="Search" class="c-search-bar__icon">
               </button>

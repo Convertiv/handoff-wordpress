@@ -26,16 +26,11 @@ import {
 import { toCamelCase, generateJsxPreview, JsxPreviewResult } from './handlebars-to-jsx';
 import { normalizeSelectOptions, type NormalizedSelectOption } from './handlebars-to-jsx/utils';
 import { mapPropertyType, groupToCategory, toBlockName } from './block-json';
-import { generateRenderPhp, handlebarsToPhp, arrayToPhp, generateBreadcrumbsArrayExtraction, generateTaxonomyArrayExtraction, generatePaginationArrayExtraction, buildReshapeJs } from './render-php';
+import { generateRenderPhp, handlebarsToPhp, arrayToPhp, getPhpDefaultValue, generateDynamicArrayExtraction, generateBreadcrumbsArrayExtraction, generateTaxonomyArrayExtraction, generatePaginationArrayExtraction, buildReshapeJs } from './render-php';
 import { generateEditorScss, generateStyleScss } from './styles';
 import { generateMigrationSchema, MigrationSchema, MigrationPropertySchema, extractMigrationProperty } from './schema-json';
-
-// Re-export toCamelCase from index-js for local use
-const toTitleCase = (str: string): string =>
-  str
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+import { toTitleCase, generateFieldControl, generateArrayControl } from './index-js';
+import type { FieldContext } from './index-js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -308,6 +303,55 @@ const generateMergedBlockJson = (
 
 // ─── Merged index.js ────────────────────────────────────────────────────────
 
+/**
+ * Replace occurrences of a regex pattern only in code segments,
+ * skipping content inside quoted strings (single, double, or backtick).
+ * This prevents field name remapping from corrupting CSS class names
+ * and other string literals in the generated JSX.
+ */
+const replaceOutsideStrings = (jsx: string, pattern: RegExp, replacement: string): string => {
+  const segments: string[] = [];
+  let i = 0;
+  let inString: string | null = null;
+  let segStart = 0;
+
+  while (i < jsx.length) {
+    if (inString) {
+      if (jsx[i] === '\\') {
+        i += 2;
+        continue;
+      }
+      if (jsx[i] === inString) {
+        segments.push(jsx.slice(segStart, i + 1));
+        segStart = i + 1;
+        inString = null;
+      }
+      i++;
+    } else {
+      if (jsx[i] === '"' || jsx[i] === "'" || jsx[i] === '`') {
+        const nonStringPart = jsx.slice(segStart, i);
+        segments.push(nonStringPart.replace(pattern, replacement));
+        segStart = i;
+        inString = jsx[i];
+        i++;
+      } else {
+        i++;
+      }
+    }
+  }
+
+  if (segStart < jsx.length) {
+    const remaining = jsx.slice(segStart);
+    if (inString) {
+      segments.push(remaining);
+    } else {
+      segments.push(remaining.replace(pattern, replacement));
+    }
+  }
+
+  return segments.join('');
+};
+
 interface MergedIndexResult {
   indexJs: string;
   variationJs: Record<string, string>;
@@ -319,6 +363,7 @@ const generateMergedIndexJs = (
   variants: VariantInfo[],
   supersetAttrs: Record<string, GutenbergAttribute>,
   fieldMaps: Record<string, FieldMap>,
+  apiUrl?: string,
 ): MergedIndexResult => {
   const blockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -355,6 +400,9 @@ const generateMergedIndexJs = (
     previewJsx: string;
     arrayHelpers: string;
     dynamicResolution: string;
+    specializedResolution: string;
+    hasBreadcrumbsFetch: boolean;
+    hasTaxonomyFetch: boolean;
     resolvingFlags: string[];
     hasLinkField: boolean;
     hasRichText: boolean;
@@ -409,13 +457,14 @@ const generateMergedIndexJs = (
     if (varHas10upImage) anyPreviewUses10upImage = true;
     if (varHasInnerBlocks) anyPreviewUsesInnerBlocks = true;
 
-    // Remap attribute references in preview JSX using fieldMap
-    // We need to replace original camelCase names with merged names
+    // Remap attribute references in preview JSX using fieldMap.
+    // Uses replaceOutsideStrings to avoid corrupting CSS class names
+    // and other string literals that happen to contain the field name.
     for (const [origKey, mergedName] of Object.entries(fieldMap)) {
       const origCamel = toCamelCase(origKey);
       if (origCamel !== mergedName) {
         const regex = new RegExp(`\\b${origCamel}\\b`, 'g');
-        previewJsx = previewJsx.replace(regex, mergedName);
+        previewJsx = replaceOutsideStrings(previewJsx, regex, mergedName);
       }
     }
 
@@ -443,7 +492,14 @@ const generateMergedIndexJs = (
           const defaultTaxonomy = dynamicConfig.taxonomies[0] || 'post_tag';
           const itemProps = property.items?.properties || {};
           const itemFields = Object.keys(itemProps).length > 0
-            ? generateRepeaterItemFieldsMerged(itemProps, '                  ')
+            ? Object.entries(itemProps).map(([fieldKey, fieldProp]) => {
+                const ctx: FieldContext = {
+                  valueAccessor: `item.${fieldKey}`,
+                  onChangeHandler: (val: string) => `setItem({ ...item, ${fieldKey}: ${val} })`,
+                  indent: '                  ',
+                };
+                return generateFieldControl(fieldKey, fieldProp, ctx);
+              }).filter(Boolean).join('\n')
             : `                  <TextControl label={__('Label', 'handoff')} value={item.label || ''} onChange={(v) => setItem({ ...item, label: v })} __nextHasNoMarginBottom />
                   <TextControl label={__('URL', 'handoff')} value={item.url || ''} onChange={(v) => setItem({ ...item, url: v })} __nextHasNoMarginBottom />`;
           panels.push(`              <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
@@ -534,9 +590,20 @@ ${itemFields}
               </PanelBody>`);
         }
       } else {
+        const controlIndent = '                ';
+        let controlOutput: string;
+        if (property.type === 'array') {
+          controlOutput = generateArrayControl(key, property, mergedAttrName, label, controlIndent);
+        } else {
+          const ctx: FieldContext = {
+            valueAccessor: mergedAttrName,
+            onChangeHandler: (value: string) => `setAttributes({ ${mergedAttrName}: ${value} })`,
+            indent: controlIndent,
+          };
+          controlOutput = generateFieldControl(key, property, ctx);
+        }
         panels.push(`              <PanelBody title={__('${label}', 'handoff')} initialOpen={${panels.length < 2}}>
-                {/* ${label} controls */}
-                ${generatePropertyControlMerged(key, property, mergedAttrName)}
+${controlOutput}
               </PanelBody>`);
       }
     }
@@ -556,8 +623,56 @@ ${itemFields}
               </PanelBody>`);
     }
 
+    // Design System links panel (per-variant component URLs)
+    let handoffUrl: string | undefined;
+    if (apiUrl) {
+      const baseUrl = apiUrl.replace(/\/api\/?$/, '');
+      handoffUrl = `${baseUrl}/system/component/${comp.id}`;
+    } else if (comp.preview) {
+      handoffUrl = comp.preview;
+    }
+    const figmaUrl = comp.figma;
+    if (handoffUrl || figmaUrl) {
+      const linkButtons: string[] = [];
+      if (handoffUrl) {
+        linkButtons.push(`                  <Button
+                    variant="secondary"
+                    href="${handoffUrl}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    icon="visibility"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                  >
+                    {__('View in Handoff', 'handoff')}
+                  </Button>`);
+      }
+      if (figmaUrl) {
+        linkButtons.push(`                  <Button
+                    variant="secondary"
+                    href="${figmaUrl}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    icon="art"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                  >
+                    {__('Open in Figma', 'handoff')}
+                  </Button>`);
+      }
+      panels.push(`              <PanelBody title={__('Design System', 'handoff')} initialOpen={false}>
+                <Flex direction="column" gap={3}>
+${linkButtons.join('\n')}
+                </Flex>
+              </PanelBody>`);
+    }
+
     // Dynamic array resolution code
+    // Specialized arrays (breadcrumbs/taxonomy/pagination) resolve in the
+    // variation file's Preview function so the hooks live in the correct scope.
+    // Dynamic post arrays resolve in the main index.js edit().
     let dynamicResolution = '';
+    let specializedResolution = '';
+    let varHasBreadcrumbsFetch = false;
+    let varHasTaxonomyFetch = false;
     const resolvingFlags: string[] = [];
     if (hasDynamic) {
       for (const [fieldKey, dynConfig] of Object.entries(dynamicArrayConfigs)) {
@@ -566,19 +681,20 @@ ${itemFields}
         const itemProps = fieldProp?.items?.properties;
 
         if (isBreadcrumbsConfig(dynConfig)) {
+          varHasBreadcrumbsFetch = true;
           const cap = mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1);
           const reshapeJs = buildReshapeJs(itemProps, ['label', 'url']);
           const mapExpr = reshapeJs ? `.map((item) => ${reshapeJs})` : '';
-          dynamicResolution += `
-      const [preview${cap}, setPreview${cap}] = useState(null);
-      useEffect(() => {
-        if (!${mergedAttrName}Enabled) { setPreview${cap}([]); return; }
-        const postId = select('core/editor')?.getCurrentPostId?.();
-        if (!postId) { setPreview${cap}([]); return; }
-        apiFetch({ path: \`/handoff/v1/breadcrumbs?post_id=\${postId}\` })
-          .then((items) => setPreview${cap}((items || [])${mapExpr}))
-          .catch(() => setPreview${cap}([]));
-      }, [${mergedAttrName}Enabled]);
+          specializedResolution += `
+  const [preview${cap}, setPreview${cap}] = useState(null);
+  useEffect(() => {
+    if (!${mergedAttrName}Enabled) { setPreview${cap}([]); return; }
+    const postId = select('core/editor')?.getCurrentPostId?.();
+    if (!postId) { setPreview${cap}([]); return; }
+    apiFetch({ path: \`/handoff/v1/breadcrumbs?post_id=\${postId}\` })
+      .then((items) => setPreview${cap}((items || [])${mapExpr}))
+      .catch(() => setPreview${cap}([]));
+  }, [${mergedAttrName}Enabled]);
 `;
           const arrayVarRegex = new RegExp(`\\b${mergedAttrName}\\b(?!Enabled)`, 'g');
           previewJsx = previewJsx.replace(arrayVarRegex, `preview${cap}`);
@@ -586,25 +702,26 @@ ${itemFields}
         }
 
         if (isTaxonomyConfig(dynConfig)) {
+          varHasTaxonomyFetch = true;
           const cap = mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1);
           const reshapeJs = buildReshapeJs(itemProps, ['label', 'url', 'slug']);
           const mapExpr = reshapeJs ? `.map((item) => ${reshapeJs})` : '';
-          dynamicResolution += `
-      const preview${cap} = useSelect(
-        (select) => {
-          if (!${mergedAttrName}Enabled) return [];
-          if (${mergedAttrName}Source === 'manual') return ${mergedAttrName} || [];
-          const postId = select('core/editor')?.getCurrentPostId?.();
-          if (!postId) return [];
-          const taxonomy = ${mergedAttrName}Taxonomy || '${dynConfig.taxonomies[0] || 'post_tag'}';
-          const restBase = select(coreDataStore).getTaxonomy(taxonomy)?.rest_base;
-          if (!restBase) return [];
-          const terms = select(coreDataStore).getEntityRecords('taxonomy', taxonomy, { post: postId, per_page: ${dynConfig.maxItems ?? -1} });
-          if (!terms) return [];
-          return terms.map((t) => ({ label: t.name, url: t.link || '', slug: t.slug || '' }))${mapExpr};
-        },
-        [${mergedAttrName}Enabled, ${mergedAttrName}Source, ${mergedAttrName}Taxonomy, JSON.stringify(${mergedAttrName} || [])]
-      );
+          specializedResolution += `
+  const preview${cap} = useSelect(
+    (select) => {
+      if (!${mergedAttrName}Enabled) return [];
+      if (${mergedAttrName}Source === 'manual') return ${mergedAttrName} || [];
+      const postId = select('core/editor')?.getCurrentPostId?.();
+      if (!postId) return [];
+      const taxonomy = ${mergedAttrName}Taxonomy || '${dynConfig.taxonomies[0] || 'post_tag'}';
+      const restBase = select(coreDataStore).getTaxonomy(taxonomy)?.rest_base;
+      if (!restBase) return [];
+      const terms = select(coreDataStore).getEntityRecords('taxonomy', taxonomy, { post: postId, per_page: ${dynConfig.maxItems ?? -1} });
+      if (!terms) return [];
+      return terms.map((t) => ({ label: t.name, url: t.link || '', slug: t.slug || '' }))${mapExpr};
+    },
+    [${mergedAttrName}Enabled, ${mergedAttrName}Source, ${mergedAttrName}Taxonomy, JSON.stringify(${mergedAttrName} || [])]
+  );
 `;
           const arrayVarRegex = new RegExp(`\\b${mergedAttrName}\\b(?!Enabled|Source|Taxonomy)`, 'g');
           previewJsx = previewJsx.replace(arrayVarRegex, `preview${cap}`);
@@ -612,8 +729,8 @@ ${itemFields}
         }
 
         if (isPaginationConfig(dynConfig)) {
-          dynamicResolution += `
-      const preview${mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1)} = []; // Pagination renders on the frontend
+          specializedResolution += `
+  const preview${mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1)} = []; // Pagination renders on the frontend
 `;
           const arrayVarRegex = new RegExp(`\\b${mergedAttrName}\\b(?!Enabled)`, 'g');
           previewJsx = previewJsx.replace(arrayVarRegex, `preview${mergedAttrName.charAt(0).toUpperCase() + mergedAttrName.slice(1)}`);
@@ -681,6 +798,9 @@ ${itemFields}
       previewJsx,
       arrayHelpers,
       dynamicResolution: dynamicResolution,
+      specializedResolution,
+      hasBreadcrumbsFetch: varHasBreadcrumbsFetch,
+      hasTaxonomyFetch: varHasTaxonomyFetch,
       resolvingFlags,
       hasLinkField: varHasLinkField,
       hasRichText: varHasRichText,
@@ -873,6 +993,51 @@ ${code}
 
   const attrNamesList = Array.from(allAttrNames);
 
+  // Generate variant-conditional MediaReplaceFlow toolbar entries for image fields
+  const variantMediaReplaceBlocks: string[] = [];
+  for (const v of variants) {
+    const comp = v.component;
+    const fieldMap = fieldMaps[comp.id];
+    const imageEntries: Array<{ label: string; mergedAttrName: string }> = [];
+
+    const collectImages = (props: Record<string, HandoffProperty>, parentPath: string = '') => {
+      for (const [key, prop] of Object.entries(props)) {
+        const mergedName = parentPath
+          ? `${fieldMap[parentPath] || toCamelCase(parentPath)}`
+          : (fieldMap[key] || toCamelCase(key));
+        if (prop.type === 'image') {
+          imageEntries.push({
+            label: prop.name || toTitleCase(key),
+            mergedAttrName: parentPath ? mergedName : mergedName,
+          });
+        }
+        if (prop.type === 'object' && prop.properties) {
+          collectImages(prop.properties, key);
+        }
+      }
+    };
+    collectImages(comp.properties);
+
+    if (imageEntries.length > 0) {
+      const mediaFlows = imageEntries.map((img) =>
+        `            <MediaReplaceFlow
+              mediaId={${img.mergedAttrName}?.id}
+              mediaUrl={${img.mergedAttrName}?.src}
+              allowedTypes={['image']}
+              accept="image/*"
+              onSelect={(media) => setAttributes({ ${img.mergedAttrName}: { id: media.id, src: media.url, alt: media.alt || '' } })}
+              name={__('${img.label}', 'handoff')}
+            />`
+      ).join('\n');
+      variantMediaReplaceBlocks.push(
+        `        {handoffVariant === '${comp.id}' && (\n          <BlockControls group="other">\n${mediaFlows}\n          </BlockControls>\n        )}`
+      );
+    }
+  }
+  const mediaReplaceJsx = variantMediaReplaceBlocks.length > 0
+    ? '\n' + variantMediaReplaceBlocks.join('\n')
+    : '';
+
   const indexJsTemplate = `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
@@ -904,7 +1069,7 @@ ${helpersObjectLine}
 ${toolbarVariantControls}
             ]}
           />
-        </BlockControls>
+        </BlockControls>${mediaReplaceJsx}
         <InspectorControls>
 ${variantPanelBlocks}
         </InspectorControls>
@@ -925,328 +1090,6 @@ ${anyUsesInnerBlocks || anyPreviewUsesInnerBlocks ? '    return <InnerBlocks.Con
 };
 
 // ─── Helper generators for merged context ─────────────────────────────────────
-
-/**
- * Generate Repeater item field controls for use inside the Repeater render prop.
- * Uses setItem({ ...item, fieldKey: value }) for updates.
- * Handles image, link, button, and nested object properties so they render as proper controls, not [object Object] text.
- */
-const generateRepeaterItemFieldsMerged = (
-  itemProps: Record<string, HandoffProperty>,
-  indent: string,
-): string => {
-  const lines: string[] = [];
-  for (const [fieldKey, fieldProp] of Object.entries(itemProps)) {
-    const subLabel = fieldProp.name || toTitleCase(fieldKey);
-    if (fieldProp.type === 'image') {
-      lines.push(`<MediaUploadCheck>
-${indent}  <MediaUpload
-${indent}    onSelect={(media) => setItem({ ...item, ${fieldKey}: { id: media.id, src: media.url, alt: media.alt || '' } })}
-${indent}    allowedTypes={['image']}
-${indent}    value={item.${fieldKey}?.id}
-${indent}    render={({ open }) => (
-${indent}      <Flex direction="column" gap={2}>
-${indent}        <span className="components-base-control__label">{__('${subLabel}', 'handoff')}</span>
-${indent}        {item.${fieldKey}?.src && (
-${indent}          <img src={item.${fieldKey}.src} alt={item.${fieldKey}.alt || ''} style={{ maxWidth: '100%', height: 'auto' }} />
-${indent}        )}
-${indent}        <Button onClick={open} variant="secondary" size="small">
-${indent}          {item.${fieldKey}?.src ? __('Replace ${subLabel}', 'handoff') : __('Select ${subLabel}', 'handoff')}
-${indent}        </Button>
-${indent}        {item.${fieldKey}?.src && (
-${indent}          <Button onClick={() => setItem({ ...item, ${fieldKey}: { id: null, src: '', alt: '' } })} variant="link" isDestructive size="small">
-${indent}            {__('Remove', 'handoff')}
-${indent}          </Button>
-${indent}        )}
-${indent}      </Flex>
-${indent}    )}
-${indent}  />
-${indent}</MediaUploadCheck>`);
-    } else if (fieldProp.type === 'button') {
-      lines.push(`<div className="components-base-control">
-${indent}  <label className="components-base-control__label">{__('${subLabel}', 'handoff')}</label>
-${indent}  <TextControl
-${indent}    label={__('Button Label', 'handoff')}
-${indent}    hideLabelFromVision={true}
-${indent}    value={item.${fieldKey}?.label || ''}
-${indent}    onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, label: value } })}
-${indent}    __nextHasNoMarginBottom
-${indent}  />
-${indent}  <div style={{ marginTop: '8px' }}>
-${indent}    <LinkControl
-${indent}      value={{ url: item.${fieldKey}?.href || '#', title: item.${fieldKey}?.label || '', opensInNewTab: item.${fieldKey}?.target === '_blank' }}
-${indent}      onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, href: value?.url || '#', target: value?.opensInNewTab ? '_blank' : '', rel: value?.opensInNewTab ? 'noopener noreferrer' : '' } })}
-${indent}      settings={[{ id: 'opensInNewTab', title: __('Open in new tab', 'handoff') }]}
-${indent}      showSuggestions={true}
-${indent}      suggestionsQuery={{ type: 'post', subtype: 'any' }}
-${indent}    />
-${indent}  </div>
-${indent}</div>`);
-    } else if (fieldProp.type === 'link' || (fieldProp.type === 'object' && fieldProp.properties?.url)) {
-      lines.push(`<TextControl
-${indent}  label={__('${subLabel} - Label', 'handoff')}
-${indent}  value={item.${fieldKey}?.label || ''}
-${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, label: value } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>
-${indent}<TextControl
-${indent}  label={__('${subLabel} - URL', 'handoff')}
-${indent}  value={item.${fieldKey}?.url || ''}
-${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, url: value } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`);
-    } else if (fieldProp.type === 'object' && fieldProp.properties) {
-      for (const [subKey, subProp] of Object.entries(fieldProp.properties)) {
-        const subSubLabel = subProp.name || toTitleCase(subKey);
-        if (subProp.type === 'image') {
-          lines.push(`<MediaUploadCheck>
-${indent}  <MediaUpload
-${indent}    onSelect={(media) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: { id: media.id, src: media.url, alt: media.alt || '' } } })}
-${indent}    allowedTypes={['image']}
-${indent}    value={item.${fieldKey}?.${subKey}?.id}
-${indent}    render={({ open }) => (
-${indent}      <Flex direction="column" gap={2}>
-${indent}        <span className="components-base-control__label">{__('${subSubLabel}', 'handoff')}</span>
-${indent}        {item.${fieldKey}?.${subKey}?.src && (
-${indent}          <img src={item.${fieldKey}.${subKey}.src} alt={item.${fieldKey}.${subKey}.alt || ''} style={{ maxWidth: '100%', height: 'auto' }} />
-${indent}        )}
-${indent}        <Button onClick={open} variant="secondary" size="small">
-${indent}          {item.${fieldKey}?.${subKey}?.src ? __('Replace', 'handoff') : __('Select', 'handoff')}
-${indent}        </Button>
-${indent}        {item.${fieldKey}?.${subKey}?.src && (
-${indent}          <Button onClick={() => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: { id: null, src: '', alt: '' } } })} variant="link" isDestructive size="small">
-${indent}            {__('Remove', 'handoff')}
-${indent}          </Button>
-${indent}        )}
-${indent}      </Flex>
-${indent}    )}
-${indent}  />
-${indent}</MediaUploadCheck>`);
-        } else if (subProp.type === 'link' || subProp.type === 'button' || (subProp.type === 'object' && (subProp as HandoffProperty).properties?.url)) {
-          const urlKey = subProp.type === 'button' ? 'href' : 'url';
-          lines.push(`<TextControl
-${indent}  label={__('${subSubLabel} - Label', 'handoff')}
-${indent}  value={item.${fieldKey}?.${subKey}?.label || ''}
-${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: { ...item.${fieldKey}?.${subKey}, label: value } } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>
-${indent}<TextControl
-${indent}  label={__('${subSubLabel} - URL', 'handoff')}
-${indent}  value={item.${fieldKey}?.${subKey}?.${urlKey} || ''}
-${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: { ...item.${fieldKey}?.${subKey}, ${urlKey}: value } } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`);
-        } else {
-          lines.push(`<TextControl
-${indent}  label={__('${subSubLabel}', 'handoff')}
-${indent}  value={item.${fieldKey}?.${subKey} ?? ''}
-${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: { ...item.${fieldKey}, ${subKey}: value } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`);
-        }
-      }
-    } else {
-      lines.push(`<TextControl
-${indent}  label={__('${subLabel}', 'handoff')}
-${indent}  value={typeof item.${fieldKey} === 'object' ? (item.${fieldKey}?.label ?? item.${fieldKey}?.src ?? '') : (item.${fieldKey} ?? '')}
-${indent}  onChange={(value) => setItem({ ...item, ${fieldKey}: value })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`);
-    }
-  }
-  return lines.join(`\n${indent}`);
-};
-
-/**
- * Generate array (repeater) control for merged block. Uses 10up Repeater.
- */
-const generateRepeaterControlMerged = (
-  key: string,
-  property: HandoffProperty,
-  mergedAttrName: string,
-  label: string,
-  indent: string,
-): string => {
-  const itemProps = property.items?.properties || {};
-  const itemFields = generateRepeaterItemFieldsMerged(itemProps, indent + '      ');
-  const firstTextField = Object.entries(itemProps).find(([, p]) => p.type === 'text');
-  const titleAccessor = firstTextField ? `item.${firstTextField[0]} || ` : '';
-  const addButtonJsx = `(addItem) => (
-${indent}    <div className="repeater-add-button-wrapper">
-${indent}      <Button
-${indent}        variant="tertiary"
-${indent}        onClick={addItem}
-${indent}        icon={
-${indent}          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-${indent}            <path d="M11 12.5V17.5H12.5V12.5H17.5V11H12.5V6H11V11H6V12.5H11Z"/>
-${indent}          </svg>
-${indent}        }
-${indent}        className="repeater-add-button"
-${indent}      >
-${indent}        {__('Add ${label}', 'handoff')}
-${indent}      </Button>
-${indent}    </div>
-${indent}  )`;
-  return `${indent}<Repeater
-${indent}  attribute="${mergedAttrName}"
-${indent}  allowReordering={true}
-${indent}  defaultValue={{}}
-${indent}  addButton={${addButtonJsx}}
-${indent}>
-${indent}  {(item, index, setItem, removeItem) => (
-${indent}    <div className="repeater-item">
-${indent}      <details className="repeater-item__collapse">
-${indent}        <summary className="repeater-item__header">
-${indent}          <span className="repeater-item__title">{${titleAccessor}'${label}'}</span>
-${indent}          <span className="repeater-item__actions" onClick={(e) => e.stopPropagation()}>
-${indent}            <Button
-${indent}              onClick={removeItem}
-${indent}              icon={
-${indent}                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-${indent}                  <path d="M5 6.5V18a2 2 0 002 2h10a2 2 0 002-2V6.5h-2.5V18a.5.5 0 01-.5.5H8a.5.5 0 01-.5-.5V6.5H5zM9 9v8h1.5V9H9zm4.5 0v8H15V9h-1.5z"/>
-${indent}                  <path d="M20 5h-5V3.5A1.5 1.5 0 0013.5 2h-3A1.5 1.5 0 009 3.5V5H4v1.5h16V5zm-6.5 0h-3V3.5h3V5z"/>
-${indent}                </svg>
-${indent}              }
-${indent}              label={__('Remove item', 'handoff')}
-${indent}              isDestructive
-${indent}              size="small"
-${indent}            />
-${indent}          </span>
-${indent}        </summary>
-${indent}        <div className="repeater-item__fields">
-${indent}          <Flex direction="column" gap={2}>
-${itemFields}
-${indent}          </Flex>
-${indent}        </div>
-${indent}      </details>
-${indent}    </div>
-${indent}  )}
-${indent}</Repeater>`;
-};
-
-/**
- * Generate a property control for the merged block context.
- * Uses the merged attribute name for value access and setAttributes.
- */
-const generatePropertyControlMerged = (
-  key: string,
-  property: HandoffProperty,
-  mergedAttrName: string,
-  indent: string = '                ',
-): string => {
-  const label = property.name || toTitleCase(key);
-
-  switch (property.type) {
-    case 'text':
-      return `<TextControl
-${indent}  label={__('${label}', 'handoff')}
-${indent}  value={${mergedAttrName} || ''}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`;
-
-    case 'number': {
-      const isOpacity = key.toLowerCase().includes('opacity');
-      const min = isOpacity ? 0 : 0;
-      const max = isOpacity ? 1 : 100;
-      const step = isOpacity ? 0.1 : undefined;
-      const stepAttr = step !== undefined ? `\n${indent}  step={${step}}` : '';
-      return `<RangeControl
-${indent}  label={__('${label}', 'handoff')}
-${indent}  value={${mergedAttrName} ?? ${isOpacity ? '0.6' : '0'}}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
-${indent}  min={${min}}
-${indent}  max={${max}}${stepAttr}
-${indent}/>`;
-    }
-
-    case 'boolean':
-      return `<ToggleControl
-${indent}  label={__('${label}', 'handoff')}
-${indent}  checked={${mergedAttrName} || false}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`;
-
-    case 'select':
-      const opts = normalizeSelectOptions(property.options).map((o: NormalizedSelectOption) => `{ label: '${o.label.replace(/'/g, "\\'")}', value: '${o.value}' }`).join(', ');
-      return `<SelectControl
-${indent}  label={__('${label}', 'handoff')}
-${indent}  value={${mergedAttrName} || ''}
-${indent}  options={[${opts}]}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`;
-
-    case 'image':
-      return `<MediaUploadCheck>
-${indent}  <MediaUpload
-${indent}    onSelect={(media) => setAttributes({ ${mergedAttrName}: { id: media.id, src: media.url, alt: media.alt || '' } })}
-${indent}    allowedTypes={['image']}
-${indent}    value={${mergedAttrName}?.id}
-${indent}    render={({ open }) => (
-${indent}      <Button onClick={open} variant="secondary" style={{ width: '100%', justifyContent: 'center' }}>
-${indent}        {${mergedAttrName}?.src ? __('Replace Image', 'handoff') : __('Select Image', 'handoff')}
-${indent}      </Button>
-${indent}    )}
-${indent}  />
-${indent}</MediaUploadCheck>`;
-
-    case 'link':
-      return `<TextControl
-${indent}  label={__('${label} - Label', 'handoff')}
-${indent}  value={${mergedAttrName}?.label || ''}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: { ...${mergedAttrName}, label: value } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>
-${indent}<TextControl
-${indent}  label={__('${label} - URL', 'handoff')}
-${indent}  value={${mergedAttrName}?.url || ''}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: { ...${mergedAttrName}, url: value } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`;
-
-    case 'button':
-      return `<TextControl
-${indent}  label={__('${label} - Label', 'handoff')}
-${indent}  value={${mergedAttrName}?.label || ''}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: { ...${mergedAttrName}, label: value } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>
-${indent}<TextControl
-${indent}  label={__('${label} - URL', 'handoff')}
-${indent}  value={${mergedAttrName}?.href || ''}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: { ...${mergedAttrName}, href: value } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`;
-
-    case 'array':
-      return generateRepeaterControlMerged(key, property, mergedAttrName, label, indent);
-
-    case 'object':
-      if (!property.properties) return `{/* Object: ${label} */}`;
-      const objectControls = Object.entries(property.properties)
-        .map(([subKey, subProp]) => {
-          const subLabel = subProp.name || toTitleCase(subKey);
-          return `<TextControl
-${indent}  label={__('${subLabel}', 'handoff')}
-${indent}  value={${mergedAttrName}?.${subKey} || ''}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: { ...${mergedAttrName}, ${subKey}: value } })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`;
-        })
-        .join(`\n${indent}`);
-      return objectControls;
-
-    default:
-      return `<TextControl
-${indent}  label={__('${label}', 'handoff')}
-${indent}  value={${mergedAttrName} || ''}
-${indent}  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
-${indent}  __nextHasNoMarginBottom
-${indent}/>`;
-  }
-};
 
 const generateArrayHelpersMerged = (
   properties: Record<string, HandoffProperty>,
@@ -1297,20 +1140,42 @@ const collectAttrNamesFromJsx = (jsx: string): Set<string> => {
 /** Generate the JS content for one variation include file (exports Panels and Preview). */
 const generateVariantJsFileContent = (
   variant: VariantInfo,
-  result: { panels: string; previewJsx: string },
+  result: { panels: string; previewJsx: string; specializedResolution?: string; hasBreadcrumbsFetch?: boolean; hasTaxonomyFetch?: boolean },
   fieldMap: FieldMap,
   helperNames: string[],
   anyPreviewUsesLinkField: boolean,
 ): string => {
   const comp = variant.component;
+  const variantDynConfigs = variant.dynamicArrayConfigs;
   const fromFieldMap = new Set(Object.values(fieldMap));
-  // Scan both preview JSX and panel JSX so control attributes (e.g. breadcrumbEnabled,
-  // tagsEnabled, tagsTaxonomy, tagsSource) are always destructured from attributes.
+  // Scan preview JSX and panel JSX for attribute names to destructure.
   const fromPreview = collectAttrNamesFromJsx(result.previewJsx + '\n' + result.panels);
+  // Collect variable names declared locally by the specialized resolution code
+  // (e.g. previewBreadcrumb from useState, previewTags from useSelect).
+  // These must NOT be destructured from attributes or they'll conflict.
+  const locallyDeclared = new Set<string>();
+  if (result.specializedResolution) {
+    const stateMatch = result.specializedResolution.matchAll(/const\s+\[(\w+),\s*(\w+)\]\s*=\s*useState/g);
+    for (const m of stateMatch) { locallyDeclared.add(m[1]); locallyDeclared.add(m[2]); }
+    const selectMatch = result.specializedResolution.matchAll(/const\s+(\w+)\s*=\s*useSelect/g);
+    for (const m of selectMatch) { locallyDeclared.add(m[1]); }
+  }
   const reserved = new Set(['index', 'value', 'item', 'e', 'key', 'open']);
   fromPreview.forEach((name) => {
-    if (!reserved.has(name)) fromFieldMap.add(name);
+    if (!reserved.has(name) && !locallyDeclared.has(name)) fromFieldMap.add(name);
   });
+  // Ensure specialized array synthetic attributes are destructured
+  for (const [fieldKey, dynConfig] of Object.entries(variantDynConfigs)) {
+    const mergedAttrName = fieldMap[fieldKey] || toCamelCase(fieldKey);
+    if (isBreadcrumbsConfig(dynConfig) || isPaginationConfig(dynConfig)) {
+      fromFieldMap.add(`${mergedAttrName}Enabled`);
+    }
+    if (isTaxonomyConfig(dynConfig)) {
+      fromFieldMap.add(`${mergedAttrName}Enabled`);
+      fromFieldMap.add(`${mergedAttrName}Taxonomy`);
+      fromFieldMap.add(`${mergedAttrName}Source`);
+    }
+  }
   const attrNames = [...fromFieldMap];
   const helpersDestruct = [...helperNames];
   if (anyPreviewUsesLinkField) helpersDestruct.push('HandoffLinkField');
@@ -1333,7 +1198,6 @@ ${result.panels}
 }`;
 
   // Determine which shared selector components this variant's panels use
-  const variantDynConfigs = variant.dynamicArrayConfigs;
   const variantHasBreadcrumbs = Object.values(variantDynConfigs).some((c) => isBreadcrumbsConfig(c));
   const variantHasTaxonomy = Object.values(variantDynConfigs).some((c) => isTaxonomyConfig(c));
   const variantHasPagination = Object.values(variantDynConfigs).some((c) => isPaginationConfig(c));
@@ -1354,11 +1218,31 @@ ${result.panels}
     ? `import { ${[variantHasNonSpecialArrays ? 'Repeater' : '', result.previewJsx.includes('<Image') ? 'Image' : ''].filter(Boolean).join(', ')} } from '@10up/block-components';\n`
     : '';
 
+  // Specialized array resolution imports (breadcrumbs/taxonomy/pagination hooks run in the variation file)
+  const hasSpecializedResolution = !!(result.specializedResolution?.trim());
+  const varHasBreadcrumbsFetch = result.hasBreadcrumbsFetch ?? false;
+  const varHasTaxonomyFetch = result.hasTaxonomyFetch ?? false;
+
+  const elementImportNames = ['Fragment'];
+  if (varHasBreadcrumbsFetch) elementImportNames.push('useState', 'useEffect');
+
+  let dataImport = '';
+  if (varHasTaxonomyFetch || varHasBreadcrumbsFetch) {
+    const dataNames = ['useSelect'];
+    if (varHasBreadcrumbsFetch) dataNames.push('select');
+    dataImport += `import { ${dataNames.join(', ')} } from '@wordpress/data';\nimport { store as coreDataStore } from '@wordpress/core-data';\n`;
+  }
+  if (varHasBreadcrumbsFetch) {
+    dataImport += `import apiFetch from '@wordpress/api-fetch';\n`;
+  }
+
+  const specializedCode = hasSpecializedResolution ? result.specializedResolution! : '';
+
   return `/**
  * Variation: ${comp.title} (${comp.id})
  * Generated – do not edit by hand.
  */
-import { Fragment } from '@wordpress/element';
+import { ${elementImportNames.join(', ')} } from '@wordpress/element';
 import {
   PanelBody,
   TextControl,
@@ -1371,11 +1255,12 @@ import {
 } from '@wordpress/components';
 import { MediaUpload, MediaUploadCheck, MediaReplaceFlow, LinkControl, RichText, InnerBlocks } from '@wordpress/block-editor';
 import { __ } from '@wordpress/i18n';
-${tenUpBlockComponentsImport}${sharedSelectorImport}
+${dataImport}${tenUpBlockComponentsImport}${sharedSelectorImport}
 ${panelsExport}
 
 export function Preview(${propsList}) {
-${attrDestruct}${helpersDestructLine}  return (
+${attrDestruct}${helpersDestructLine}${specializedCode}
+  return (
 ${result.previewJsx}
   );
 }
@@ -1427,6 +1312,8 @@ const generateVariantPhpFragment = (
         dynArrayExtractions.push(generateTaxonomyArrayExtraction(fieldName, mergedAttrName, dynConfig, itemProps));
       } else if (isPaginationConfig(dynConfig)) {
         dynArrayExtractions.push(generatePaginationArrayExtraction(fieldName, mergedAttrName, dynConfig, itemProps));
+      } else {
+        dynArrayExtractions.push(generateDynamicArrayExtraction(fieldName, mergedAttrName, dynConfig));
       }
     }
   }
@@ -1493,32 +1380,7 @@ ${cases.join('\n')}
 `;
 };
 
-// ─── PHP default value helper ──────────────────────────────────────────────
-
-const getPhpDefaultValue = (property: HandoffProperty): string => {
-  switch (property.type) {
-    case 'text':
-    case 'richtext':
-    case 'select':
-      return `'${String(property.default ?? '').replace(/'/g, "\\'")}'`;
-    case 'number':
-      return `${property.default ?? 0}`;
-    case 'boolean':
-      return property.default ? 'true' : 'false';
-    case 'image':
-      return "['src' => '', 'alt' => '']";
-    case 'link':
-      return "['label' => '', 'url' => '', 'opensInNewTab' => false]";
-    case 'button':
-      return "['label' => '', 'href' => '#', 'target' => '', 'rel' => '', 'disabled' => false]";
-    case 'object':
-      return '[]';
-    case 'array':
-      return '[]';
-    default:
-      return "''";
-  }
-};
+// getPhpDefaultValue is imported from render-php.ts
 
 // ─── Merged SCSS ─────────────────────────────────────────────────────────────
 
@@ -1606,6 +1468,7 @@ export const generateMergedBlock = (
   groupSlug: string,
   components: HandoffComponent[],
   variantInfos: VariantInfo[],
+  apiUrl?: string,
 ): GeneratedBlock => {
   const groupTitle = toTitleCase(groupSlug);
 
@@ -1618,6 +1481,7 @@ export const generateMergedBlock = (
     variantInfos,
     supersetAttrs,
     fieldMaps,
+    apiUrl,
   );
 
   const variationPhp: Record<string, string> = {};

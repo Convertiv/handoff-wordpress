@@ -363,6 +363,13 @@ export const preprocessAttributeConditionals = (template: string, currentLoopArr
     
     // Check if this attribute contains a conditional
     if (attrValue.includes('{{#if') || attrValue.includes('{{#unless')) {
+      // If this attribute references @last or @first but we don't know the
+      // enclosing loop array yet (top-level pass), defer processing until
+      // the loop is expanded with the correct array name.
+      if (!currentLoopArray && (attrValue.includes('@last') || attrValue.includes('@first'))) {
+        pos = valueEnd + 1;
+        continue;
+      }
       // Convert the attribute value using our helper (pass currentLoopArray for @last / @first)
       const { jsxValue, isExpression } = convertAttributeValue(attrValue, 'item', currentLoopArray);
       

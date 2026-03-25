@@ -1133,4 +1133,5 @@ ${useInnerBlocks || previewUsesInnerBlocks ? '    // InnerBlocks content must be
 `;
 };
 
-export { generateIndexJs, toTitleCase };
+export { generateIndexJs, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl };
+export type { FieldContext };

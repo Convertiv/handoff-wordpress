@@ -26,39 +26,40 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
   let result = template ?? '';
   const inlineEditableFields = new Set<string>();
   
-  // Match {{#field "path"}}content{{/field}} or {{#field path}}content{{/field}}
-  const fieldRegex = /\{\{\s*#field\s+["']?([^"'\}]+)["']?\s*\}\}([\s\S]*?)\{\{\s*\/field\s*\}\}/g;
+  // Match {{#field "path"}} or {{#field path}} opening tags, then use
+  // nesting-aware matching to find the correct closing {{/field}}.
+  const fieldOpenRegex = /\{\{\s*#field\s+["']?([^"'\}]+)["']?\s*\}\}/g;
   
   let match;
-  while ((match = fieldRegex.exec(result)) !== null) {
+  while ((match = fieldOpenRegex.exec(result)) !== null) {
     const fieldPath = match[1].trim();
-    const content = match[2];
-    const fullMatch = match[0];
     const startPos = match.index;
+    const openTagEnd = startPos + match[0].length;
+    
+    // Use nesting-aware matching to handle nested {{#field}} blocks
+    const closePos = findMatchingClose(result, '{{#field', '{{/field}}', openTagEnd);
+    if (closePos === -1) continue;
+    
+    const content = result.substring(openTagEnd, closePos);
+    const fullMatchEnd = closePos + '{{/field}}'.length;
     
     // Skip fields that are inside attribute values (like href, src, etc.)
-    // These should just have their content preserved, not be made editable
     if (isInsideAttribute(result, startPos)) {
-      // Just keep the content, strip the field tags
-      result = result.substring(0, startPos) + content + result.substring(startPos + fullMatch.length);
-      fieldRegex.lastIndex = startPos + content.length;
+      result = result.substring(0, startPos) + content + result.substring(fullMatchEnd);
+      fieldOpenRegex.lastIndex = startPos + content.length;
       continue;
     }
     
     // Pagination-related field paths are metadata annotations, not editable fields.
-    // Strip them and keep content regardless of resolution.
     if (fieldPath.includes('.pagination') || fieldPath.startsWith('pagination.')) {
-      result = result.substring(0, startPos) + content + result.substring(startPos + fullMatch.length);
-      fieldRegex.lastIndex = startPos + content.length;
+      result = result.substring(0, startPos) + content + result.substring(fullMatchEnd);
+      fieldOpenRegex.lastIndex = startPos + content.length;
       continue;
     }
     
-    // Look up the field type
     const fieldType = lookupFieldType(fieldPath, properties);
     
-    // Create editable markers for supported inline-editable field types
     if (fieldType && INLINE_EDITABLE_TYPES.has(fieldType)) {
-      // Encode field info in marker
       const fieldInfo = Buffer.from(JSON.stringify({
         path: fieldPath,
         type: fieldType,
@@ -67,17 +68,14 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
       
       const replacement = `<editable-field-marker data-field="${fieldInfo}"></editable-field-marker>`;
       
-      result = result.substring(0, startPos) + replacement + result.substring(startPos + fullMatch.length);
-      fieldRegex.lastIndex = startPos + replacement.length;
+      result = result.substring(0, startPos) + replacement + result.substring(fullMatchEnd);
+      fieldOpenRegex.lastIndex = startPos + replacement.length;
       
-      // Track the top-level property name for sidebar filtering
       const topLevelKey = fieldPath.split('.')[0];
       inlineEditableFields.add(topLevelKey);
     } else {
-      // For unsupported field types OR unresolved field paths (fieldType === null),
-      // just keep the content without making it editable
-      result = result.substring(0, startPos) + content + result.substring(startPos + fullMatch.length);
-      fieldRegex.lastIndex = startPos + content.length;
+      result = result.substring(0, startPos) + content + result.substring(fullMatchEnd);
+      fieldOpenRegex.lastIndex = startPos + content.length;
     }
   }
   
@@ -203,6 +201,9 @@ const processIfBlock = (condition: string, inner: string, startPos: number, full
         elseIfCondition = toCamelCase(elseIfCondition.replace('properties.', ''));
       } else if (elseIfCondition.startsWith('this.')) {
         elseIfCondition = `item.${elseIfCondition.replace('this.', '')}`;
+      } else {
+        // Bare identifier/path — normalize to properties.xxx so transpileExpression handles camelCase + optional chaining
+        elseIfCondition = `properties.${elseIfCondition}`;
       }
       
       // Recursively process the remaining content as if it were an if block
@@ -412,6 +413,28 @@ export const preprocessBlocks = (template: string, currentLoopArray?: string): s
       
       result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/if}}'.length);
       ifPropsRegex.lastIndex = startPos + replacement.length;
+    }
+  }
+  
+  // Catch-all: Process any remaining {{#if xxx}} blocks not matched by the specific patterns above
+  const ifGenericRegex = /\{\{#if\s+([^}]+)\}\}/g;
+  let ifGenericMatch;
+  while ((ifGenericMatch = ifGenericRegex.exec(result)) !== null) {
+    const startPos = ifGenericMatch.index;
+    const openTagEnd = startPos + ifGenericMatch[0].length;
+    const closePos = findMatchingClose(result, '{{#if', '{{/if}}', openTagEnd);
+    
+    if (closePos !== -1) {
+      let condition = ifGenericMatch[1].trim();
+      // Bare identifiers/paths — normalize to properties.xxx so transpileExpression handles camelCase + optional chaining
+      if (!condition.startsWith('(') && !condition.startsWith('properties.') && !condition.startsWith('this.')) {
+        condition = `properties.${condition}`;
+      }
+      const inner = result.substring(openTagEnd, closePos);
+      const replacement = processIfBlock(condition, inner, startPos, ifGenericMatch[0]);
+      
+      result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/if}}'.length);
+      ifGenericRegex.lastIndex = startPos + replacement.length;
     }
   }
   

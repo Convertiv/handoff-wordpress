@@ -82,13 +82,15 @@ extract($footer_data);
           <div class="o-col-12">
             <div class="c-footer__top">
               <div class="c-footer__left-col">
+                
                 <a class="c-footer__logo" href="<?php echo esc_url($logo['url'] ?? '#'); ?>">
                   <img src="<?php echo esc_url($logo['src'] ?? ''); ?>" alt="<?php echo esc_attr(
   $logo['alt'] ?? '',
 ); ?>">
                 </a>
+                
                 <div class="c-footer__legal">
-                  <?php if (!empty($legalText)):
+                  <?php if (!empty($legalText) && is_array($legalText)):
                     $_loop_count = count($legalText);
                     foreach ($legalText as $index => $item): ?>
                   <p><?php echo esc_html($subItem ?? ($item ?? '')); ?></p>
@@ -97,18 +99,20 @@ extract($footer_data);
                 </div>
               </div>
               <div class="c-footer__right-col">
-                <?php if (!empty($navColumns)):
+                <?php if (!empty($navColumns) && is_array($navColumns)):
                   $_loop_count = count($navColumns);
                   foreach ($navColumns as $index => $item): ?>
                 <nav class="c-footer__nav">
                   <ul>
-                    <?php if (!empty($item['links'])):
+                    <?php if (!empty($item['links']) && is_array($item['links'])):
                       $_nested_loop_count = count($item['links']);
                       foreach ($item['links'] as $subIndex => $subItem): ?>
                     <li>
+                      
                       <a href="<?php echo esc_url($item['url'] ?? ''); ?>"><?php echo esc_html(
   $item['text'] ?? '',
 ); ?></a>
+                      
                     </li>
                     <?php endforeach;
                     endif; ?>
@@ -120,19 +124,21 @@ extract($footer_data);
             </div>
             <div class="c-footer__bottom">
               <ul class="c-social-profiles u-mb-0@md">
-                <?php if (!empty($socialLinks)):
+                <?php if (!empty($socialLinks) && is_array($socialLinks)):
                   $_loop_count = count($socialLinks);
                   foreach ($socialLinks as $index => $item): ?>
                 <li class="c-social-profiles__item">
-                  <a class="c-social-profiles__link" href="<?php echo esc_url(
-                    $item['url'] ?? '',
-                  ); ?>" target="_blank">
+                  
+                <a class="c-social-profiles__link" href="<?php echo esc_url(
+                  $item['url'] ?? '',
+                ); ?>" target="_blank">
                     <img src="<?php echo esc_html(
                       $item['icon'] ?? '',
                     ); ?>" alt="<?php echo esc_html(
   $item['name'] ?? '',
 ); ?>" class="o-icon c-social-profiles__icon">
                   </a>
+                
                 </li>
                 <?php endforeach;
                 endif; ?>
@@ -140,9 +146,12 @@ extract($footer_data);
               <div>
                 <div class="c-lang-switcher">
                   <select>
-                    <?php if (!empty($languageSwitcher)):
-                      $_loop_count = count($languageSwitcher);
-                      foreach ($languageSwitcher as $index => $item): ?>
+                    <?php if (
+                      !empty($languageSwitcher['options']) &&
+                      is_array($languageSwitcher['options'])
+                    ):
+                      $_loop_count = count($languageSwitcher['options']);
+                      foreach ($languageSwitcher['options'] as $index => $item): ?>
                     <option><?php echo esc_html($subItem ?? ($item ?? '')); ?></option>
                     <?php endforeach;
                     endif; ?>

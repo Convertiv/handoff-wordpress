@@ -710,7 +710,7 @@ const compileGroup = async (
 ): Promise<void> => {
   console.log(`\n🔀 Generating merged group block: ${groupSlug} (${groupComponents.length} variants)`);
   const variantInfos: VariantInfo[] = groupComponents.map((c) => buildVariantInfo(c, config));
-  const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos);
+  const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos, apiUrl);
   const groupBlockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const groupDir = path.join(outputDir, groupBlockName);
   if (!fs.existsSync(groupDir)) {
