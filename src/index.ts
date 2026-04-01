@@ -1826,11 +1826,58 @@ program
       }
       console.log(`   ✅ Manifest updated\n`);
     } else if (componentName) {
+      // Build merged-group lookup once for this branch
+      const mergedGroupConfigKeyByLower = new Map<string, string>();
+      for (const [key, mode] of Object.entries(config.groups)) {
+        if (mode === 'merged') mergedGroupConfigKeyByLower.set(key.toLowerCase(), key);
+      }
+
+      // Helper: compile an entire merged group by its config key
+      const compileGroupByKey = async (groupKey: string) => {
+        const allComponents = await fetchAllComponentsList(apiUrl, auth);
+        const groupMatches = allComponents.filter(
+          (c) => c.group && c.group.toLowerCase() === groupKey.toLowerCase(),
+        );
+        if (groupMatches.length === 0) {
+          console.error(`Error: No components found for merged group "${groupKey}".`);
+          process.exit(1);
+        }
+        const fullGroupComponents: HandoffComponent[] = [];
+        for (const c of groupMatches) {
+          try {
+            const full = await fetchComponent(apiUrl, c.id, auth);
+            const templateValidation = validateTemplateVariables(full);
+            if (!templateValidation.isValid) {
+              console.warn(`   ⚠️  Skipping ${c.id} (template validation failed)`);
+              continue;
+            }
+            fullGroupComponents.push(full);
+          } catch (err) {
+            console.error(`   ❌ Failed to fetch ${c.id}: ${err instanceof Error ? err.message : err}`);
+          }
+        }
+        if (fullGroupComponents.length === 0) {
+          console.error(`Error: Could not fetch any components for group "${groupKey}".`);
+          process.exit(1);
+        }
+        await compileGroup(apiUrl, output, groupKey, fullGroupComponents, auth);
+        console.log(`   ✅ Group "${groupKey}" compiled (${fullGroupComponents.length} variants).\n`);
+      };
+
       // Try component first, then fall back to group (e.g. "hero" -> Hero merged block)
-      let resolvedAsComponent = false;
       try {
         const component = await fetchComponent(apiUrl, componentName, auth);
-        resolvedAsComponent = true;
+
+        // If this component belongs to a merged group, compile the whole group instead
+        if (component.group) {
+          const groupKey = mergedGroupConfigKeyByLower.get(component.group.toLowerCase());
+          if (groupKey) {
+            console.log(`   "${componentName}" belongs to merged group "${groupKey}" — compiling entire group.\n`);
+            await compileGroupByKey(groupKey);
+            return;
+          }
+        }
+
         if (!opts.force) {
           const result = await validate(apiUrl, output, componentName, auth);
           if (!result.isValid) {
@@ -1859,32 +1906,9 @@ program
           console.error(`       Component fetch: ${componentError instanceof Error ? componentError.message : componentError}`);
           process.exit(1);
         }
-        const mergedGroupConfigKeyByLower = new Map<string, string>();
-        for (const [key, mode] of Object.entries(config.groups)) {
-          if (mode === 'merged') mergedGroupConfigKeyByLower.set(key.toLowerCase(), key);
-        }
         const groupKey =
           mergedGroupConfigKeyByLower.get(nameLower) ?? groupMatches[0].group;
-        const fullGroupComponents: HandoffComponent[] = [];
-        for (const c of groupMatches) {
-          try {
-            const full = await fetchComponent(apiUrl, c.id, auth);
-            const templateValidation = validateTemplateVariables(full);
-            if (!templateValidation.isValid) {
-              console.warn(`   ⚠️  Skipping ${c.id} (template validation failed)`);
-              continue;
-            }
-            fullGroupComponents.push(full);
-          } catch (err) {
-            console.error(`   ❌ Failed to fetch ${c.id}: ${err instanceof Error ? err.message : err}`);
-          }
-        }
-        if (fullGroupComponents.length === 0) {
-          console.error(`Error: Could not fetch any components for group "${componentName}".`);
-          process.exit(1);
-        }
-        await compileGroup(apiUrl, output, groupKey, fullGroupComponents, auth);
-        console.log(`   ✅ Group "${groupKey}" compiled (${fullGroupComponents.length} variants).\n`);
+        await compileGroupByKey(groupKey);
       }
     } else {
       console.error('Error: Please specify a component name, group name, use --all flag, --theme flag, or --validate-all flag');
