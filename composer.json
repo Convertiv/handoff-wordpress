@@ -15,5 +15,6 @@
   },
   "extra": {
     "installer-name": "handoff-blocks"
-  }
+  },
+  "version": "1.0.1"
 }
