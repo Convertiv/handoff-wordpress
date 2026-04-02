@@ -5,6 +5,10 @@
  * Wraps the Node.js compiler so all compilation and build steps
  * can be run via `wp handoff <subcommand>`.
  *
+ * Config is read from wp_options (with wp-config.php constant overrides)
+ * and passed to the compiler as CLI flags. Block source and build output
+ * use the HANDOFF_CONTENT_DIR constant.
+ *
  * @package Handoff_Blocks
  */
 
@@ -30,18 +34,20 @@ class Handoff_CLI {
   }
 
   /**
-   * Run a node command with streaming output.
+   * Run a shell command with streaming output.
    *
-   * @param string $cmd  Full shell command.
-   * @return int         Exit code.
+   * @param string      $cmd  Full shell command.
+   * @param string|null $cwd  Working directory (defaults to HANDOFF_BLOCKS_PATH).
+   * @return int              Exit code.
    */
-  private function run(string $cmd): int {
+  private function run(string $cmd, ?string $cwd = null): int {
+    $cwd = $cwd ?: HANDOFF_BLOCKS_PATH;
     WP_CLI::debug("Running: $cmd", 'handoff');
     $proc = proc_open($cmd, [
       0 => STDIN,
       1 => STDOUT,
       2 => STDERR,
-    ], $pipes, HANDOFF_BLOCKS_PATH);
+    ], $pipes, $cwd);
 
     if (!is_resource($proc)) {
       WP_CLI::error('Failed to launch process.');
@@ -52,25 +58,53 @@ class Handoff_CLI {
   }
 
   /**
-   * Build the base compiler command with optional shared flags.
+   * Read the resolved configuration (wp_options + wp-config.php overrides).
+   */
+  private function get_config(): array {
+    if (class_exists('Handoff_Admin') && method_exists('Handoff_Admin', 'get_config')) {
+      return Handoff_Admin::get_config();
+    }
+
+    $config = get_option('handoff_config', []);
+    if (!is_array($config)) $config = [];
+
+    if (defined('HANDOFF_API_URL'))      $config['apiUrl']    = HANDOFF_API_URL;
+    if (defined('HANDOFF_API_USERNAME')) $config['username']  = HANDOFF_API_USERNAME;
+    if (defined('HANDOFF_API_PASSWORD')) $config['password']  = HANDOFF_API_PASSWORD;
+
+    return $config;
+  }
+
+  /**
+   * Content directory where project-specific blocks live.
+   */
+  private function content_dir(): string {
+    return rtrim(HANDOFF_CONTENT_DIR, '/');
+  }
+
+  /**
+   * Build the base compiler command, injecting config from the DB.
+   *
+   * CLI --flags passed by the user override DB values.
    */
   private function base_cmd(array $assoc_args = []): string {
     $node = $this->node_bin();
     $bin  = $this->compiler_bin();
     $cmd  = escapeshellarg($node) . ' ' . escapeshellarg($bin);
 
-    if (!empty($assoc_args['api-url'])) {
-      $cmd .= ' --api-url ' . escapeshellarg($assoc_args['api-url']);
-    }
-    if (!empty($assoc_args['output'])) {
-      $cmd .= ' --output ' . escapeshellarg($assoc_args['output']);
-    }
-    if (!empty($assoc_args['username'])) {
-      $cmd .= ' --username ' . escapeshellarg($assoc_args['username']);
-    }
-    if (!empty($assoc_args['password'])) {
-      $cmd .= ' --password ' . escapeshellarg($assoc_args['password']);
-    }
+    $config = $this->get_config();
+
+    $api_url   = $assoc_args['api-url']   ?? $config['apiUrl']    ?? '';
+    $username  = $assoc_args['username']  ?? $config['username']  ?? '';
+    $password  = $assoc_args['password']  ?? $config['password']  ?? '';
+    $output    = $assoc_args['output']    ?? $this->content_dir() . '/blocks';
+    $theme_dir = $assoc_args['theme-dir'] ?? $config['themeDir']  ?? get_stylesheet_directory();
+
+    if ($api_url)   $cmd .= ' --api-url '   . escapeshellarg($api_url);
+    if ($output)    $cmd .= ' --output '    . escapeshellarg($output);
+    if ($theme_dir) $cmd .= ' --theme-dir ' . escapeshellarg($theme_dir);
+    if ($username)  $cmd .= ' --username '  . escapeshellarg($username);
+    if ($password)  $cmd .= ' --password '  . escapeshellarg($password);
 
     return $cmd;
   }
@@ -96,7 +130,7 @@ class Handoff_CLI {
    * : Override the Handoff API URL from config.
    *
    * [--output=<dir>]
-   * : Override the output directory from config.
+   * : Override the output directory.
    *
    * [--username=<user>]
    * : Basic-auth username.
@@ -139,7 +173,11 @@ class Handoff_CLI {
   }
 
   /**
-   * Run the webpack build (wp-scripts) to produce production assets.
+   * Run the webpack build to produce production block assets.
+   *
+   * When HANDOFF_CONTENT_DIR is external the build reads block sources
+   * from there and writes webpack output back to the same tree. The admin
+   * dashboard bundle inside the plugin is NOT rebuilt.
    *
    * ## EXAMPLES
    *
@@ -148,9 +186,55 @@ class Handoff_CLI {
    * @subcommand build
    */
   public function build($args, $assoc_args) {
-    $cmd = 'npm run build';
-    WP_CLI::log('Running wp-scripts build...');
-    $exit = $this->run($cmd);
+    $content = $this->content_dir();
+    $webpack_config = HANDOFF_BLOCKS_PATH . 'webpack.config.js';
+
+    // Locate wp-scripts: plugin node_modules first, then project-level, then global npx
+    $wp_scripts = null;
+    $run_cwd    = null;
+
+    $plugin_bin = HANDOFF_BLOCKS_PATH . 'node_modules/.bin/wp-scripts';
+    $project_cwd = getcwd();
+    $project_bin = $project_cwd . '/node_modules/.bin/wp-scripts';
+
+    if (is_executable($plugin_bin)) {
+      $wp_scripts = $plugin_bin;
+      $run_cwd = HANDOFF_BLOCKS_PATH;
+    } elseif (is_executable($project_bin)) {
+      $wp_scripts = $project_bin;
+      $run_cwd = $project_cwd;
+    } else {
+      // Try npx from the project root as a last resort
+      $npx = trim(shell_exec('which npx 2>/dev/null') ?: '');
+      if ($npx) {
+        $wp_scripts = 'npx wp-scripts';
+        $run_cwd = $project_cwd;
+      }
+    }
+
+    if (!$wp_scripts) {
+      WP_CLI::error(
+        "Cannot find wp-scripts. Run 'npm install @wordpress/scripts' in either:\n"
+        . "  • The plugin directory: " . HANDOFF_BLOCKS_PATH . "\n"
+        . "  • Your project root:   " . $project_cwd
+      );
+      return;
+    }
+
+    $env_prefix = 'HANDOFF_CONTENT_DIR=' . escapeshellarg($content) . ' ';
+
+    $cmd = $env_prefix . escapeshellarg($wp_scripts) . ' build --config '
+         . escapeshellarg($webpack_config);
+
+    // If using npx (space in command), don't escapeshellarg the whole thing
+    if (strpos($wp_scripts, ' ') !== false) {
+      $cmd = $env_prefix . $wp_scripts . ' build --config '
+           . escapeshellarg($webpack_config);
+    }
+
+    WP_CLI::log('Running wp-scripts build…');
+    WP_CLI::debug("wp-scripts resolved to: $wp_scripts", 'handoff');
+    $exit = $this->run($cmd, $run_cwd);
 
     if ($exit === 0) {
       WP_CLI::success('Build finished.');
@@ -208,7 +292,7 @@ class Handoff_CLI {
   }
 
   /**
-   * Initialize a handoff-wp.config.json in the plugin directory.
+   * Initialize config in the database.
    *
    * ## OPTIONS
    *
@@ -216,7 +300,7 @@ class Handoff_CLI {
    * : Handoff API URL.
    *
    * [--force]
-   * : Overwrite existing config file.
+   * : Overwrite existing config.
    *
    * ## EXAMPLES
    *
@@ -225,22 +309,72 @@ class Handoff_CLI {
    * @subcommand init
    */
   public function init($args, $assoc_args) {
-    $cmd = $this->base_cmd($assoc_args) . ' init';
-
-    if (!empty($assoc_args['api-url'])) {
-      $cmd .= ' --api-url ' . escapeshellarg($assoc_args['api-url']);
-    }
-    if (!empty($assoc_args['force'])) {
-      $cmd .= ' --force';
+    $existing = get_option('handoff_config', false);
+    if ($existing !== false && empty($assoc_args['force'])) {
+      WP_CLI::error('Config already exists in the database. Use --force to overwrite.');
+      return;
     }
 
-    $exit = $this->run($cmd);
+    $config = [
+      'apiUrl'   => $assoc_args['api-url'] ?? 'http://localhost:4000',
+      'themeDir' => get_stylesheet_directory(),
+      'groups'   => new \stdClass(),
+      'import'   => new \stdClass(),
+    ];
 
-    if ($exit === 0) {
-      WP_CLI::success('Config file created.');
-    } else {
-      WP_CLI::error('Init failed (exit code ' . $exit . ').');
+    update_option('handoff_config', $config);
+    WP_CLI::success('Config saved to database.');
+  }
+
+  /**
+   * Export the current config from the database as JSON.
+   *
+   * ## EXAMPLES
+   *
+   *     wp handoff config export
+   *     wp handoff config export > handoff-wp.config.json
+   *
+   * @subcommand config export
+   */
+  public function config_export($args, $assoc_args) {
+    $config = $this->get_config();
+    WP_CLI::line(json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+  }
+
+  /**
+   * Import config from a JSON file into the database.
+   *
+   * ## OPTIONS
+   *
+   * <file>
+   * : Path to the JSON config file.
+   *
+   * ## EXAMPLES
+   *
+   *     wp handoff config import handoff-wp.config.json
+   *
+   * @subcommand config import
+   */
+  public function config_import($args, $assoc_args) {
+    if (empty($args[0])) {
+      WP_CLI::error('Please provide a path to the JSON config file.');
+      return;
     }
+
+    $path = $args[0];
+    if (!file_exists($path)) {
+      WP_CLI::error("File not found: $path");
+      return;
+    }
+
+    $data = json_decode(file_get_contents($path), true);
+    if (!is_array($data)) {
+      WP_CLI::error('Invalid JSON in config file.');
+      return;
+    }
+
+    update_option('handoff_config', $data);
+    WP_CLI::success('Config imported to database.');
   }
 
   /**
@@ -297,26 +431,25 @@ class Handoff_CLI {
    * @subcommand status
    */
   public function status($args, $assoc_args) {
-    $build_dir  = HANDOFF_BLOCKS_PATH . 'build/';
-    $blocks_dir = HANDOFF_BLOCKS_PATH . 'blocks/';
-    $config_file = HANDOFF_BLOCKS_PATH . 'handoff-wp.config.json';
+    $content    = $this->content_dir();
+    $build_dir  = $content . '/build/';
+    $blocks_dir = $content . '/blocks/';
 
     // Config summary
-    if (file_exists($config_file)) {
-      $config = json_decode(file_get_contents($config_file), true);
-      WP_CLI::log('--- Configuration ---');
-      WP_CLI::log('API URL:   ' . ($config['apiUrl'] ?? '(not set)'));
-      WP_CLI::log('Output:    ' . ($config['output'] ?? '(not set)'));
-      WP_CLI::log('Theme Dir: ' . ($config['themeDir'] ?? '(not set)'));
-      if (!empty($config['groups'])) {
-        WP_CLI::log('Groups:    ' . implode(', ', array_map(
+    $config = $this->get_config();
+    WP_CLI::log('--- Configuration (wp_options) ---');
+    WP_CLI::log('API URL:     ' . ($config['apiUrl'] ?? '(not set)'));
+    WP_CLI::log('Content Dir: ' . HANDOFF_CONTENT_DIR);
+    WP_CLI::log('Theme Dir:   ' . ($config['themeDir'] ?? '(not set)'));
+    if (!empty($config['groups']) && (is_array($config['groups']) || is_object($config['groups']))) {
+      $groups = (array) $config['groups'];
+      if (count($groups) > 0) {
+        WP_CLI::log('Groups:      ' . implode(', ', array_map(
           fn($k, $v) => "$k ($v)",
-          array_keys($config['groups']),
-          array_values($config['groups'])
+          array_keys($groups),
+          array_values($groups)
         )));
       }
-    } else {
-      WP_CLI::warning('No handoff-wp.config.json found. Run `wp handoff init` first.');
     }
 
     // Source blocks

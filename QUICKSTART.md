@@ -41,19 +41,26 @@ npm run build:compiler
 
 ### 3. Configure Handoff (optional but typical)
 
-Copy the example config and edit API URL / secrets:
+Config is stored in the WordPress **database** (`wp_options`). After wp-env is running (step 5), configure via the admin Settings tab or WP-CLI:
 
 ```bash
-cp handoff-wp.config.example.json handoff-wp.config.json
+npm run wp:cli -- wp handoff init --api-url https://your-handoff-site.com
 ```
 
-Or generate one:
+For credentials or path overrides you can also add constants to `wp-config.php`:
+
+```php
+define('HANDOFF_API_URL', 'https://your-handoff-site.com');
+define('HANDOFF_API_USERNAME', 'user');
+define('HANDOFF_API_PASSWORD', 'pass');
+```
+
+To version-control config across environments, use export/import:
 
 ```bash
-npm run compile -- init --api-url https://your-handoff-site.com
+wp handoff config export > handoff-config.json   # commit this file
+wp handoff config import handoff-config.json      # restore on fresh install
 ```
-
-Paths in config should stay **relative to the plugin root**, e.g. `"output": "./blocks"`, `"themeDir": "./theme"`.
 
 ### 4. Generate blocks and webpack output
 
@@ -103,7 +110,7 @@ In wp-admin, open **Handoff** (left menu). One screen with tabs:
 - **Blocks** — what’s in `build/`, links to Handoff/Figma when present.
 - **Usage** — where blocks appear in published content (refresh to rescan).
 - **Migration** — map legacy Handoff pages to blocks (same tool as the old standalone **Handoff Migration** menu).
-- **Settings** — *(Administrators only)* edit `handoff-wp.config.json` (connection, paths, groups). Editors with **Edit others’ posts** still see Blocks, Usage, and Migration. Complex `import` rules may be easier in the file or via `npm run compile -- wizard`.
+- **Settings** — *(Administrators only)* edit plugin config in the database (connection, paths, groups). Editors with **Edit others’ posts** still see Blocks, Usage, and Migration. Complex `import` rules can be configured via `wp handoff wizard` or managed with `wp handoff config export/import`.
 
 ### 8. Use blocks in the editor
 
@@ -113,17 +120,21 @@ Create a page/post, **+** → look for **Handoff** block categories.
 
 ## B. Install on your own WordPress site
 
-1. Copy the **entire plugin directory** into `wp-content/plugins/` (so `handoff-blocks.php` is at `wp-content/plugins/<your-folder>/handoff-blocks.php`).
-2. On a machine with **Node**, from that folder:
-   - `npm install`
-   - `npm run build:compiler`
-   - Add `handoff-wp.config.json` (or copy from example).
-   - `npm run compile:all` (and `npm run compile:theme` if you use the bundled theme workflow).
-   - `npm run build`
-3. Deploy the folder (including `build/` and `blocks/`).
-4. Activate **Handoff Blocks** in **Plugins**.
+No Node.js required — the plugin works out of the box.
 
-Production **PHP** only needs to serve WordPress; **Node** is for your build/CI step unless you run `wp handoff` on the server (see below).
+1. Install the plugin via **release ZIP**, **Composer**, or manual copy into `wp-content/plugins/`.
+2. Activate **Handoff Blocks** in **Plugins**.
+3. Configure via **Handoff → Settings** or WP-CLI: `wp handoff init --api-url=https://…`
+
+To **generate blocks** from your Handoff design system (requires Node 22+):
+
+```bash
+npm install                  # once
+npm run compile:all          # fetch from Handoff API → blocks/
+npm run build                # webpack → build/
+```
+
+Compiled blocks are written to `wp-content/handoff/` by default, outside the plugin directory. See [docs/COMPOSER.md](docs/COMPOSER.md) for details on customizing the content directory.
 
 ---
 
@@ -162,7 +173,7 @@ The default **wp-env CLI container** often has **no Node** — use **`npm run co
 
 **Blocks missing in editor** — Plugin activated? `build/` present? Run `npm run build` again after `compile`.
 
-**CLI / compile errors** — Run `npm run build:compiler` and ensure `handoff-wp.config.json` exists and `apiUrl` is reachable.
+**CLI / compile errors** — Run `npm run build:compiler` and ensure config is set (`wp handoff status`) with a reachable `apiUrl`.
 
 ---
 

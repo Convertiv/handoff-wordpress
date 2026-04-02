@@ -11,7 +11,9 @@ blocks/*
 !blocks/.gitkeep
 
 # Webpack output (rebuilt from blocks/ via wp-scripts)
+# Track build/admin/ so the dashboard ships without npm — block builds are project-specific.
 build/*
+!build/admin
 !build/.gitkeep
 
 # Uploads

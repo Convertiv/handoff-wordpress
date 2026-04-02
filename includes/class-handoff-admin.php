@@ -19,11 +19,14 @@ class Handoff_Admin {
 
   private const USAGE_TRANSIENT = 'handoff_block_usage';
   private const USAGE_TTL = 3600; // 1 hour
+  private const CONFIG_OPTION = 'handoff_config';
 
   public function __construct() {
     add_action('admin_menu', [$this, 'register_menu']);
     add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
     add_action('rest_api_init', [$this, 'register_rest_routes']);
+    add_action('admin_init', [$this, 'maybe_migrate_config_file']);
+    add_action('admin_init', [$this, 'maybe_secure_content_dir']);
   }
 
   /**
@@ -125,6 +128,12 @@ class Handoff_Admin {
       'callback'            => [$this, 'rest_save_config'],
       'permission_callback' => [$this, 'settings_permission'],
     ]);
+
+    register_rest_route($ns, '/themes', [
+      'methods'             => 'GET',
+      'callback'            => [$this, 'rest_get_themes'],
+      'permission_callback' => [$this, 'settings_permission'],
+    ]);
   }
 
   /**
@@ -146,7 +155,8 @@ class Handoff_Admin {
   // ------------------------------------------------------------------
 
   public function rest_get_blocks(\WP_REST_Request $request): \WP_REST_Response {
-    $build_dir = HANDOFF_BLOCKS_PATH . 'build/';
+    $build_dir = rtrim(HANDOFF_CONTENT_DIR, '/') . '/build/';
+    $build_url = rtrim(HANDOFF_CONTENT_URL, '/') . '/build/';
     $blocks = [];
 
     if (!is_dir($build_dir)) {
@@ -183,7 +193,7 @@ class Handoff_Admin {
         'handoffUrl'     => $meta['__handoff']['handoffUrl'] ?? '',
         'figmaUrl'       => $meta['__handoff']['figmaUrl'] ?? '',
         'hasScreenshot'  => $has_screenshot,
-        'screenshotUrl'  => $has_screenshot ? HANDOFF_BLOCKS_URL . 'build/' . $item . '/screenshot.png' : '',
+        'screenshotUrl'  => $has_screenshot ? $build_url . $item . '/screenshot.png' : '',
         'lastModified'   => $last_modified,
       ];
     }
@@ -294,42 +304,177 @@ class Handoff_Admin {
   }
 
   // ------------------------------------------------------------------
-  // REST: GET/POST /config
+  // REST: GET/POST /config  (backed by wp_options)
   // ------------------------------------------------------------------
 
+  /**
+   * Read the stored config, applying wp-config.php constant overrides.
+   */
+  public static function get_config(): array {
+    $config = get_option(self::CONFIG_OPTION, []);
+    if (!is_array($config)) {
+      $config = [];
+    }
+
+    $defaults = [
+      'apiUrl'   => '',
+      'themeDir' => get_stylesheet_directory(),
+      'username' => '',
+      'password' => '',
+      'groups'   => new \stdClass(),
+      'import'   => new \stdClass(),
+    ];
+    $config = array_merge($defaults, $config);
+
+    // output is always HANDOFF_CONTENT_DIR/blocks — not configurable via UI
+    $config['output'] = rtrim(HANDOFF_CONTENT_DIR, '/') . '/blocks';
+
+    if (defined('HANDOFF_API_URL')) {
+      $config['apiUrl'] = HANDOFF_API_URL;
+    }
+    if (defined('HANDOFF_API_USERNAME')) {
+      $config['username'] = HANDOFF_API_USERNAME;
+    }
+    if (defined('HANDOFF_API_PASSWORD')) {
+      $config['password'] = HANDOFF_API_PASSWORD;
+    }
+
+    return $config;
+  }
+
   public function rest_get_config(\WP_REST_Request $request): \WP_REST_Response {
-    $path = HANDOFF_BLOCKS_PATH . 'handoff-wp.config.json';
-    if (!file_exists($path)) {
-      return new \WP_REST_Response(['error' => 'Config file not found.'], 404);
-    }
-    $config = json_decode(file_get_contents($path), true);
-    if (json_last_error() !== JSON_ERROR_NONE) {
-      return new \WP_REST_Response(['error' => 'Invalid JSON in config file.'], 500);
-    }
-    return new \WP_REST_Response($config);
+    return new \WP_REST_Response(self::get_config());
   }
 
   public function rest_save_config(\WP_REST_Request $request): \WP_REST_Response {
-    $path = HANDOFF_BLOCKS_PATH . 'handoff-wp.config.json';
     $body = $request->get_json_params();
 
     if (empty($body) || !is_array($body)) {
       return new \WP_REST_Response(['error' => 'Invalid request body.'], 400);
     }
 
-    // Validate required fields
     if (empty($body['apiUrl']) || !filter_var($body['apiUrl'], FILTER_VALIDATE_URL)) {
       return new \WP_REST_Response(['error' => 'A valid apiUrl is required.'], 400);
     }
 
-    $json = json_encode($body, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
-    $written = file_put_contents($path, $json);
+    // Strip credential fields that are provided via wp-config.php constants
+    $stored = $body;
+    if (defined('HANDOFF_API_URL'))      unset($stored['apiUrl']);
+    if (defined('HANDOFF_API_USERNAME')) unset($stored['username']);
+    if (defined('HANDOFF_API_PASSWORD')) unset($stored['password']);
 
-    if ($written === false) {
-      return new \WP_REST_Response(['error' => 'Failed to write config file.'], 500);
+    update_option(self::CONFIG_OPTION, $stored);
+
+    return new \WP_REST_Response(['success' => true, 'config' => self::get_config()]);
+  }
+
+  // ------------------------------------------------------------------
+  // REST: GET /themes
+  // ------------------------------------------------------------------
+
+  public function rest_get_themes(\WP_REST_Request $request): \WP_REST_Response {
+    $themes = wp_get_themes();
+    $active = get_stylesheet();
+    $list = [];
+
+    foreach ($themes as $slug => $theme) {
+      $list[] = [
+        'slug'   => $slug,
+        'name'   => $theme->get('Name'),
+        'path'   => $theme->get_stylesheet_directory(),
+        'active' => $slug === $active,
+      ];
     }
 
-    return new \WP_REST_Response(['success' => true, 'config' => $body]);
+    usort($list, fn($a, $b) => $b['active'] <=> $a['active'] ?: strcmp($a['name'], $b['name']));
+
+    return new \WP_REST_Response($list);
+  }
+
+  // ------------------------------------------------------------------
+  // One-time migration: import handoff-wp.config.json → wp_options
+  // ------------------------------------------------------------------
+
+  /**
+   * Ensure the content directory exists and is hardened against directory
+   * browsing and direct PHP execution.
+   */
+  public function maybe_secure_content_dir(): void {
+    $dir = rtrim(HANDOFF_CONTENT_DIR, '/');
+
+    if (!is_dir($dir)) {
+      wp_mkdir_p($dir);
+    }
+
+    // Silence index — prevents directory listing as a baseline
+    $index = $dir . '/index.php';
+    if (!file_exists($index)) {
+      file_put_contents($index, "<?php\n// Silence is golden.\n");
+    }
+
+    // Apache: disable directory indexes and block direct PHP execution in build/
+    $htaccess = $dir . '/.htaccess';
+    if (!file_exists($htaccess)) {
+      $rules = <<<'HTACCESS'
+# Handoff content directory security
+Options -Indexes
+
+# Block direct PHP execution in build artifacts
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^build/.*\.php$ - [F,L]
+  RewriteRule ^blocks/.*\.php$ - [F,L]
+</IfModule>
+HTACCESS;
+      file_put_contents($htaccess, $rules . "\n");
+    }
+
+    // IIS: equivalent rules
+    $webconfig = $dir . '/web.config';
+    if (!file_exists($webconfig)) {
+      $xml = <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+    <directoryBrowse enabled="false" />
+    <rewrite>
+      <rules>
+        <rule name="Block PHP in build" stopProcessing="true">
+          <match url="^build/.*\.php$" />
+          <action type="AbortRequest" />
+        </rule>
+        <rule name="Block PHP in blocks" stopProcessing="true">
+          <match url="^blocks/.*\.php$" />
+          <action type="AbortRequest" />
+        </rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>
+XML;
+      file_put_contents($webconfig, $xml . "\n");
+    }
+  }
+
+  public function maybe_migrate_config_file(): void {
+    if (get_option(self::CONFIG_OPTION) !== false) {
+      return;
+    }
+
+    $candidates = [
+      rtrim(HANDOFF_CONTENT_DIR, '/') . '/handoff-wp.config.json',
+      HANDOFF_BLOCKS_PATH . 'handoff-wp.config.json',
+    ];
+
+    foreach ($candidates as $path) {
+      if (file_exists($path)) {
+        $data = json_decode(file_get_contents($path), true);
+        if (is_array($data)) {
+          update_option(self::CONFIG_OPTION, $data);
+          return;
+        }
+      }
+    }
   }
 }
 

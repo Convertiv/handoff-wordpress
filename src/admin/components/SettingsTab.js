@@ -10,14 +10,29 @@ import apiFetch from '@wordpress/api-fetch';
 
 export default function SettingsTab() {
   const [config, setConfig] = useState(null);
+  const [themes, setThemes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
-    apiFetch({ path: '/handoff/v1/config' })
-      .then(setConfig)
-      .catch(() => setConfig({ apiUrl: '', output: './blocks', themeDir: './theme', username: '', password: '', groups: {}, import: {} }))
+    Promise.all([
+      apiFetch({ path: '/handoff/v1/config' }).then((data) => {
+        if (data.groups && typeof data.groups === 'object' && !Array.isArray(data.groups) && Object.keys(data.groups).length === 0) {
+          data.groups = {};
+        }
+        if (data.import && typeof data.import === 'object' && !Array.isArray(data.import) && Object.keys(data.import).length === 0) {
+          data.import = {};
+        }
+        return data;
+      }),
+      apiFetch({ path: '/handoff/v1/themes' }).catch(() => []),
+    ])
+      .then(([configData, themeList]) => {
+        setConfig(configData);
+        setThemes(themeList);
+      })
+      .catch(() => setConfig({ apiUrl: '', themeDir: '', username: '', password: '', groups: {}, import: {} }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -79,6 +94,11 @@ export default function SettingsTab() {
 
   const groups = config?.groups || {};
 
+  const themeOptions = themes.map((t) => ({
+    label: t.active ? `${t.name} (active)` : t.name,
+    value: t.path,
+  }));
+
   return (
     <div style={{ padding: '16px 0' }}>
       {notice && (
@@ -123,22 +143,25 @@ export default function SettingsTab() {
         </div>
 
         <div className="form-section">
-          <h3>Paths</h3>
+          <h3>Theme</h3>
           <div className="field-row">
-            <TextControl
-              label="Output Directory"
-              value={config?.output || ''}
-              onChange={(val) => updateField('output', val)}
-              help="Where compiled block source is written (relative to plugin root)."
-            />
-          </div>
-          <div className="field-row">
-            <TextControl
-              label="Theme Directory"
-              value={config?.themeDir || ''}
-              onChange={(val) => updateField('themeDir', val)}
-              help="Where theme templates are written (relative to plugin root)."
-            />
+            {themeOptions.length > 0 ? (
+              <SelectControl
+                label="Theme Directory"
+                value={config?.themeDir || ''}
+                options={themeOptions}
+                onChange={(val) => updateField('themeDir', val)}
+                help="Where compiled theme templates (header, footer, etc.) are written."
+                __nextHasNoMarginBottom
+              />
+            ) : (
+              <TextControl
+                label="Theme Directory"
+                value={config?.themeDir || ''}
+                onChange={(val) => updateField('themeDir', val)}
+                help="Absolute path to the theme directory."
+              />
+            )}
           </div>
         </div>
 
@@ -182,10 +205,10 @@ export default function SettingsTab() {
         <div className="form-section">
           <h3>Import Rules</h3>
           <p style={{ fontSize: 13, color: '#757575', marginTop: 0 }}>
-            The full import configuration is stored in the config file.
-            For complex import rules (dynamic arrays, field mappings), edit{' '}
-            <code>handoff-wp.config.json</code> directly or use{' '}
-            <code>wp handoff wizard</code>.
+            Import rules are stored in the database alongside the rest of the
+            config. For complex import rules (dynamic arrays, field mappings),
+            use <code>wp handoff wizard</code> or export/import via{' '}
+            <code>wp handoff config export</code>.
           </p>
           <pre
             style={{

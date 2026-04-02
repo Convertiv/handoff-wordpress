@@ -46,22 +46,43 @@ For theme templates, it generates:
 
 ## Installing the plugin on a WordPress site
 
-1. Copy this directory (or a built ZIP of it) into `wp-content/plugins/`, e.g. `wp-content/plugins/handoff-wordpress/`. The main file **`handoff-blocks.php` must sit at the root of that folder**.
-2. On a machine with **Node.js** (local dev, CI, or a build server), from the plugin root:
-   - `npm install`
-   - `npm run build:compiler` — builds the compiler into `compiler/dist/`
-   - Ensure `handoff-wp.config.json` exists (see [Configuration](#configuration)); then `npm run compile:all` (and optionally `npm run compile:theme`) to refresh `blocks/` and theme files
-   - `npm run build` — runs `@wordpress/scripts` and fills `build/`
-3. Deploy the **same tree** (including `build/` and generated `blocks/` / `theme/` as needed) to the server.
-4. In **Plugins**, activate **Handoff Blocks**.
+The plugin works out of the box — **no Node.js or npm required** for installation.
 
-**PHP**: align with your WordPress version (see plugin headers).
+1. Install the plugin using one of:
+   - **Release ZIP** — download from the [Releases page](../../releases) and upload via **Plugins → Add New → Upload Plugin**, or extract into `wp-content/plugins/`.
+   - **Composer** — see [Install via Composer](#install-via-composer-private-github) below.
+   - **Manual copy** — copy this directory into `wp-content/plugins/handoff-blocks/`.
+2. In **Plugins**, activate **Handoff Blocks**.
+3. Go to **Handoff → Settings** to configure your API URL and credentials, or use WP-CLI:
+   ```bash
+   wp handoff init --api-url=https://your-handoff-site.com
+   ```
 
-**Do site owners need Node?** Not if they install a **release that already contains `build/`** (webpack output). In that case they upload the ZIP, activate the plugin, and never run npm. Node is needed when someone is **generating or refreshing** blocks from Handoff (`npm run compile:*`) or **rebuilding** editor bundles (`npm run build`).
+The admin dashboard is pre-built and ships with the plugin. Blocks are generated separately via the compiler — see [Generating blocks from Handoff](#generating-blocks-from-handoff) below.
 
-**Why `compiler/dist` is in the repo:** The compiled CLI is committed so you only need `npm install` (for webpack dependencies if you run `npm run build`, or a global `node` if you only run `node compiler/dist/index.js`). You can skip `npm run build:compiler` unless you change TypeScript under `compiler/src/`.
+**Config storage**: Settings are stored in the WordPress database (`wp_options`), not in a file. Credentials can also be set via `wp-config.php` constants (`HANDOFF_API_URL`, `HANDOFF_API_USERNAME`, `HANDOFF_API_PASSWORD`). Use `wp handoff config export` / `config import` to version-control your config.
 
-To use the bundled **theme**, copy `theme/` into `wp-content/themes/` (or symlink). With the default folder name, the theme slug is usually `theme`.
+To use the bundled **theme**, copy `theme/` into `wp-content/themes/` (or symlink).
+
+## Generating blocks from Handoff
+
+Blocks are generated from your Handoff design system API using the built-in compiler. This step requires **Node.js 22+** and is typically done on a developer machine or in CI — not on the production server.
+
+```bash
+npm install                  # once, to install webpack dependencies
+npm run compile:all          # fetch components from Handoff API → blocks/
+npm run compile:theme        # optional: regenerate theme templates
+npm run build                # webpack: blocks/ → build/ (production assets)
+```
+
+Compiled blocks are written to `wp-content/handoff/` by default (configurable via `HANDOFF_CONTENT_DIR` in `wp-config.php`). See [docs/COMPOSER.md](docs/COMPOSER.md) for details.
+
+You can also use WP-CLI if `node` is available on the same machine:
+
+```bash
+wp handoff compile --all
+wp handoff build
+```
 
 ## Install via Composer (private GitHub)
 
@@ -73,16 +94,20 @@ If you manage WordPress dependencies with Composer, add the private repo and req
     { "type": "vcs", "url": "https://github.com/YOUR_ORG/handoff-wordpress.git" }
   ],
   "require": {
-    "handoff/blocks": "^1.0"
+    "handoff/blocks": "^0.0"
   }
 }
 ```
 
 The plugin installs into `wp-content/plugins/handoff-blocks/`. Pre-built release ZIPs (no Node required) are attached to every GitHub Release automatically.
 
-See [docs/COMPOSER.md](docs/COMPOSER.md) for authentication setup, SSH vs HTTPS tokens, Bedrock paths, and more.
+Generated blocks and build output default to `wp-content/handoff/` — outside the plugin directory — so they survive `composer update` and can be version-controlled in your project repo. Config is stored in `wp_options` (the database).
 
-## Local install: dependencies and builds
+See [docs/COMPOSER.md](docs/COMPOSER.md) for full setup, authentication, content directory layout, config export/import, and Bedrock notes.
+
+## Developing the plugin
+
+These commands are for **plugin developers** — people working on the plugin itself or generating blocks. They are **not** needed to install and use the plugin.
 
 From the **plugin root**:
 
@@ -96,8 +121,9 @@ npm install
 | `npm run compile` | Run compiler CLI (`node compiler/dist/index.js …`) |
 | `npm run compile:all` | Regenerate all blocks from Handoff (uses config) |
 | `npm run compile:theme` | Regenerate theme templates (header/footer, etc.) |
-| `npm run build` | Webpack: `blocks/` + admin + migration → `build/` |
+| `npm run build` | Webpack: `blocks/` → `build/` (block production assets) |
 | `npm run dev` | Webpack **watch** (`wp-scripts start`) for JS/CSS development |
+| `npm run release <ver>` | Bump version, build, tag, and create a GitHub Release |
 
 If you modify the compiler TypeScript, run `npm run build:compiler` before `npm run compile:*`. The repo normally includes an up-to-date `compiler/dist/`, so this step is optional for standard use.
 

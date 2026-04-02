@@ -77,6 +77,53 @@ wp plugin activate handoff-blocks
 
 Or activate from **Plugins** in the WordPress admin.
 
+## Content directory
+
+Generated blocks and build output live in `wp-content/handoff/` by default — outside the plugin directory. This means they survive `composer update` and can be version-controlled in your project repo.
+
+```
+wp-content/
+├── plugins/
+│   └── handoff-blocks/   ← Composer-managed (not in your repo)
+├── handoff/              ← HANDOFF_CONTENT_DIR (in your repo)
+│   ├── blocks/           ← compiler output
+│   ├── build/            ← webpack output (WordPress loads from here)
+│   ├── shared/           ← shared editor components (written by compiler)
+│   └── includes/         ← handoff-categories.php (generated)
+```
+
+Commit `wp-content/handoff/` to your project's git repo. The plugin reads blocks from `HANDOFF_CONTENT_DIR/build/` at runtime.
+
+To use a different location, define the constant in `wp-config.php`:
+
+```php
+define('HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff');
+```
+
+For Handoff API credentials, add these to `wp-config.php` (never stored in the database):
+
+```php
+define('HANDOFF_API_URL', 'https://your-handoff-instance.com/api');
+define('HANDOFF_API_USERNAME', 'user');
+define('HANDOFF_API_PASSWORD', 'pass');
+```
+
+## Config storage
+
+Plugin configuration (API URL, groups, import rules) is stored in the WordPress database (`wp_options`). The admin **Settings** tab reads and writes this option directly. Credentials can be overridden via `wp-config.php` constants (see above) and are never persisted to the database when set that way.
+
+To version-control your config, use the WP-CLI export/import commands:
+
+```bash
+# Export current config to a file
+wp handoff config export > handoff-config.json
+
+# Import config from a file (e.g. after a fresh install)
+wp handoff config import handoff-config.json
+```
+
+On first activation, if `wp_options` has no config but a `handoff-wp.config.json` file exists (in the content directory or plugin root), it is automatically imported.
+
 ## Using a release ZIP instead
 
 Every tagged release automatically builds a ready-to-install ZIP via GitHub Actions. The ZIP contains compiled compiler output and webpack bundles — no Node.js required on the server.

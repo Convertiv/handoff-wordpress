@@ -14,10 +14,45 @@ if (!defined('ABSPATH')) {
   exit; // Exit if accessed directly
 }
 
-define('HANDOFF_BLOCKS_VERSION', '1.0.0');
+define('HANDOFF_BLOCKS_VERSION', '0.0.2');
 define('HANDOFF_BLOCKS_PATH', plugin_dir_path(__FILE__));
 define('HANDOFF_BLOCKS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
+
+/**
+ * Resolve the content directory where project-specific blocks live.
+ *
+ * Default: WP_CONTENT_DIR . '/handoff'  (i.e. wp-content/handoff/).
+ * This keeps generated blocks outside the plugin directory so they survive
+ * Composer updates and can be version-controlled in the consuming project.
+ *
+ * Override in wp-config.php if you want a different location:
+ *
+ *   define( 'HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff' );
+ */
+if (!defined('HANDOFF_CONTENT_DIR')) {
+  define('HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff');
+}
+
+/**
+ * Derive a web-accessible URL for the content directory.
+ */
+if (!defined('HANDOFF_CONTENT_URL')) {
+  if (HANDOFF_CONTENT_DIR === HANDOFF_BLOCKS_PATH) {
+    define('HANDOFF_CONTENT_URL', HANDOFF_BLOCKS_URL);
+  } else {
+    $content_dir_real = rtrim(wp_normalize_path(HANDOFF_CONTENT_DIR), '/');
+    $wp_content_real  = rtrim(wp_normalize_path(WP_CONTENT_DIR), '/');
+    if (strpos($content_dir_real, $wp_content_real) === 0) {
+      $relative = substr($content_dir_real, strlen($wp_content_real));
+      define('HANDOFF_CONTENT_URL', content_url($relative) . '/');
+    } else {
+      $abspath_real = rtrim(wp_normalize_path(ABSPATH), '/');
+      $relative = substr($content_dir_real, strlen($abspath_real));
+      define('HANDOFF_CONTENT_URL', site_url($relative) . '/');
+    }
+  }
+}
 
 /**
  * Returns true when running in a local/development environment.
@@ -42,9 +77,13 @@ function handoff_is_dev_env() {
     return $env === 'development';
 }
 
-// Include the auto-generated categories file if it exists
-if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-categories.php')) {
-  require_once HANDOFF_BLOCKS_PATH . 'includes/handoff-categories.php';
+// Include the auto-generated categories file — prefer the content dir copy
+$handoff_cats_file = rtrim(HANDOFF_CONTENT_DIR, '/') . '/includes/handoff-categories.php';
+if (!file_exists($handoff_cats_file)) {
+  $handoff_cats_file = HANDOFF_BLOCKS_PATH . 'includes/handoff-categories.php';
+}
+if (file_exists($handoff_cats_file)) {
+  require_once $handoff_cats_file;
 }
 
 // Include admin dashboard
@@ -78,23 +117,54 @@ if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-migration-rest.php')) {
 }
 
 /**
+ * Fix asset URLs for blocks that live outside wp-content/plugins/.
+ *
+ * register_block_type_from_metadata() uses plugins_url() to resolve
+ * file: URIs in block.json. That only produces correct URLs when the
+ * block.json is inside WP_PLUGIN_DIR. When blocks live under
+ * HANDOFF_CONTENT_DIR (e.g. wp-content/handoff/build/), we intercept
+ * the filter and derive the URL from HANDOFF_CONTENT_URL instead.
+ */
+function handoff_fix_block_asset_urls($url, $path, $plugin) {
+  if (empty($plugin)) {
+    return $url;
+  }
+
+  $content_dir = wp_normalize_path(rtrim(HANDOFF_CONTENT_DIR, '/'));
+  $plugin_norm = wp_normalize_path($plugin);
+
+  if (strpos($plugin_norm, $content_dir . '/') !== 0) {
+    return $url;
+  }
+
+  $relative_dir = substr(dirname($plugin_norm), strlen($content_dir));
+  $content_url  = rtrim(HANDOFF_CONTENT_URL, '/');
+
+  return $content_url . $relative_dir . '/' . ltrim(wp_normalize_path($path), '/');
+}
+
+$handoff_content_norm = wp_normalize_path(rtrim(HANDOFF_CONTENT_DIR, '/'));
+$handoff_plugin_norm  = wp_normalize_path(rtrim(HANDOFF_BLOCKS_PATH, '/'));
+if ($handoff_content_norm !== $handoff_plugin_norm) {
+  add_filter('plugins_url', 'handoff_fix_block_asset_urls', 10, 3);
+}
+
+/**
  * Register all Handoff blocks
  */
 function handoff_blocks_register_blocks() {
-  // Get all block directories
-  $blocks_dir = HANDOFF_BLOCKS_PATH . 'build/';
-  
+  $blocks_dir = rtrim(HANDOFF_CONTENT_DIR, '/') . '/build/';
+
   if (!is_dir($blocks_dir)) {
     return;
   }
 
-  // Register each block
   $blocks = scandir($blocks_dir);
   foreach ($blocks as $block) {
     if ($block === '.' || $block === '..') {
       continue;
     }
-    
+
     $block_path = $blocks_dir . $block;
     if (is_dir($block_path) && file_exists($block_path . '/block.json')) {
       register_block_type($block_path);
