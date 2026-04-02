@@ -1,0 +1,30 @@
+{
+  "name": "handoff-wordpress-compiler",
+  "version": "1.0.0",
+  "description": "Compiler that reads the Handoff API and generates WordPress Gutenberg blocks and theme templates.",
+  "license": "MIT",
+  "author": "Brad Mering <brad@convertiv.com>",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "bin": {
+    "handoff-wordpress": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@prettier/plugin-php": "^0.22.2",
+    "commander": "^11.0.0",
+    "handlebars": "^4.7.8",
+    "node-html-parser": "^6.1.13",
+    "prettier": "^3.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,8 +1,8 @@
 {
   "core": null,
   "phpVersion": "8.4",
-  "plugins": ["./demo/plugin"],
-  "themes": ["./demo/theme"],
+  "plugins": ["."],
+  "themes": ["./theme"],
   "config": {
     "WP_DEBUG": true,
     "WP_DEBUG_LOG": true,
@@ -10,6 +10,6 @@
     "SCRIPT_DEBUG": true
   },
   "mappings": {
-    "wp-content/uploads": "./demo/uploads"
+    "wp-content/uploads": "./uploads"
   }
 }

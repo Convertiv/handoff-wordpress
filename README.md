@@ -1,12 +1,14 @@
-# Handoff WordPress Compiler
+# Handoff Blocks (WordPress plugin)
 
-A compiler that transpiles Handoff design system components into WordPress Gutenberg blocks and theme templates.
+This repository is a **WordPress plugin** that ships Handoff-driven Gutenberg blocks, a **companion theme** in `theme/`, and an embedded **Handoff compiler** in `compiler/` that reads your design system API and generates block source into `blocks/`.
 
-> **New here?** Check out the [Quickstart Guide](./QUICKSTART.md) to get up and running in 5 minutes.
+> **New here?** See [QUICKSTART.md](./QUICKSTART.md) for a short walkthrough (local wp-env, compile, build, activate).
 
 ## Overview
 
-The Handoff WordPress Compiler reads component definitions from the Handoff API and generates fully-functional WordPress Gutenberg blocks. It converts Handlebars templates to JSX for the editor and PHP for server-side rendering, along with all necessary configuration files.
+The **compiler** turns Handoff components (Handlebars) into `blocks/` assets: JSX for the block editor, PHP for server-side rendering, `block.json`, styles, and related files. **Webpack** (`npm run build`) bundles those sources into `build/`, which is what WordPress loads via `handoff-blocks.php`.
+
+Use the **Handoff** screen in wp-admin (plugin root → `src/admin/`, **Migration** tab → `src/migration/`) to browse compiled blocks, Handoff/Figma links, block usage, run **content migration** from legacy pages, and (for administrators) edit `handoff-wp.config.json`. Compilation itself is run from the command line (npm or WP-CLI where Node is available)—not from that screen.
 
 ### Generated Files
 
@@ -26,21 +28,78 @@ For theme templates, it generates:
 * `footer.php` - Theme footer template
 * `template-parts/*.php` - Additional template parts (e.g., header-compact, footer-compact)
 
-## Installation
+## Repository layout
+
+| Path | Purpose |
+|------|---------|
+| `handoff-blocks.php` | Main plugin bootstrap |
+| `blocks/` | Generated block **source** (output of the compiler) |
+| `build/` | Webpack **output**; block registration points here |
+| `shared/` | Shared editor JS used by generated blocks |
+| `includes/` | PHP: REST, field resolver, migration, categories, admin dashboard, WP-CLI |
+| `src/migration/` | React UI for the **Migration** tab (page mapping); bundled into admin app |
+| `src/admin/` | React UI for **Handoff** wp-admin hub (Blocks, Usage, Migration, Settings) |
+| `theme/` | Companion Handoff theme (optional install under `wp-content/themes/`) |
+| `uploads/` | Local uploads folder (wp-env mapping) |
+| `compiler/src/` | TypeScript source for the Handoff → Gutenberg compiler |
+| `compiler/dist/` | Compiled compiler CLI (`node compiler/dist/index.js`, …) |
+
+## Installing the plugin on a WordPress site
+
+1. Copy this directory (or a built ZIP of it) into `wp-content/plugins/`, e.g. `wp-content/plugins/handoff-wordpress/`. The main file **`handoff-blocks.php` must sit at the root of that folder**.
+2. On a machine with **Node.js** (local dev, CI, or a build server), from the plugin root:
+   - `npm install`
+   - `npm run build:compiler` — builds the compiler into `compiler/dist/`
+   - Ensure `handoff-wp.config.json` exists (see [Configuration](#configuration)); then `npm run compile:all` (and optionally `npm run compile:theme`) to refresh `blocks/` and theme files
+   - `npm run build` — runs `@wordpress/scripts` and fills `build/`
+3. Deploy the **same tree** (including `build/` and generated `blocks/` / `theme/` as needed) to the server.
+4. In **Plugins**, activate **Handoff Blocks**.
+
+**PHP**: align with your WordPress version (see plugin headers).
+
+**Do site owners need Node?** Not if they install a **release that already contains `build/`** (webpack output). In that case they upload the ZIP, activate the plugin, and never run npm. Node is needed when someone is **generating or refreshing** blocks from Handoff (`npm run compile:*`) or **rebuilding** editor bundles (`npm run build`).
+
+**Why `compiler/dist` is in the repo:** The compiled CLI is committed so you only need `npm install` (for webpack dependencies if you run `npm run build`, or a global `node` if you only run `node compiler/dist/index.js`). You can skip `npm run build:compiler` unless you change TypeScript under `compiler/src/`.
+
+To use the bundled **theme**, copy `theme/` into `wp-content/themes/` (or symlink). With the default folder name, the theme slug is usually `theme`.
+
+## Install via Composer (private GitHub)
+
+If you manage WordPress dependencies with Composer, add the private repo and require the package:
+
+```json
+{
+  "repositories": [
+    { "type": "vcs", "url": "https://github.com/YOUR_ORG/handoff-wordpress.git" }
+  ],
+  "require": {
+    "handoff/blocks": "^1.0"
+  }
+}
+```
+
+The plugin installs into `wp-content/plugins/handoff-blocks/`. Pre-built release ZIPs (no Node required) are attached to every GitHub Release automatically.
+
+See [docs/COMPOSER.md](docs/COMPOSER.md) for authentication setup, SSH vs HTTPS tokens, Bedrock paths, and more.
+
+## Local install: dependencies and builds
+
+From the **plugin root**:
 
 ```bash
 npm install
 ```
 
-## Building
+| Script | What it does |
+|--------|----------------|
+| `npm run build:compiler` | Compile compiler TypeScript → `compiler/dist/` |
+| `npm run compile` | Run compiler CLI (`node compiler/dist/index.js …`) |
+| `npm run compile:all` | Regenerate all blocks from Handoff (uses config) |
+| `npm run compile:theme` | Regenerate theme templates (header/footer, etc.) |
+| `npm run build` | Webpack: `blocks/` + admin + migration → `build/` |
+| `npm run dev` | Webpack **watch** (`wp-scripts start`) for JS/CSS development |
 
-Compile the TypeScript source to JavaScript:
-
-```bash
-npm run build
-```
-
-This outputs the compiled JavaScript to the `dist/` directory.
+If you modify the compiler TypeScript, run `npm run build:compiler` before `npm run compile:*`. The repo normally includes an up-to-date `compiler/dist/`, so this step is optional for standard use.
 
 ## Local WordPress Environment (wp-env)
 
@@ -61,11 +120,11 @@ This starts a WordPress site at:
 * **WordPress**: http://localhost:8888
 * **Admin**: http://localhost:8888/wp-admin (username: `admin`, password: `password`)
 
-The environment automatically mounts:
+`.wp-env.json` mounts:
 
-* **Theme**: `./demo/theme`
-* **Plugin**: `./demo/plugin`
-* **Uploads**: `./demo/uploads`
+* **Plugin**: `.` (this directory — the plugin root)
+* **Theme**: `./theme`
+* **Uploads**: `./uploads`
 
 ### wp-env Commands
 
@@ -78,36 +137,50 @@ The environment automatically mounts:
 | `npm run wp:logs` | View container logs |
 | `npm run wp:cli -- <command>` | Run WP-CLI commands |
 
-### WP-CLI Examples
+### WP-CLI examples
 
 ```bash
-# List installed plugins
+# List plugins and themes (find the slug WordPress assigned to this plugin)
 npm run wp:cli -- wp plugin list
+npm run wp:cli -- wp theme list
 
-# Activate the theme
+# Activate the companion theme (folder name is usually `theme`)
 npm run wp:cli -- wp theme activate theme
 
-# Activate the blocks plugin
-npm run wp:cli -- wp plugin activate plugin
+# Activate Handoff Blocks — use the slug from `wp plugin list` (often the parent folder name)
+npm run wp:cli -- wp plugin activate handoff-wordpress
+
+# Handoff compiler / build (requires Node on the same environment as `wp`)
+wp handoff compile --all
+wp handoff build
+wp handoff status
 
 # Export the database
 npm run wp:cli -- wp db export
 ```
 
+**Note:** `@wordpress/env`’s default **CLI** container often does **not** include Node.js. For local Docker workflows, run `npm run compile:*` and `npm run build` on your **host** in the plugin root; use `wp handoff …` on servers or shells where both `wp` and `node` are available.
+
 ## Configuration
 
 ### Creating a Config File
 
-Use the `init` command to create a config file:
+Create a config file from the **plugin root** (same directory as `handoff-wp.config.json` should live):
 
 ```bash
-npm run dev -- init
+npm run compile -- init
 
 # Or with options
-npm run dev -- init --api-url https://my-handoff-site.com --output ./blocks
+npm run compile -- init --api-url https://my-handoff-site.com --output ./blocks
 ```
 
-This creates a `handoff-wp.config.json` file in the current directory.
+Or, where WP-CLI and Node share an environment:
+
+```bash
+wp handoff init --api-url=https://my-handoff-site.com
+```
+
+This writes `handoff-wp.config.json` in the current working directory; keep it in the **plugin root** so paths like `./blocks` and `./theme` resolve correctly.
 
 ### Config File Format
 
@@ -116,8 +189,8 @@ You can also manually create a `handoff-wp.config.json` file in your project roo
 ```json
 {
   "apiUrl": "https://demo.handoff.com",
-  "output": "./demo/plugin/blocks",
-  "themeDir": "./demo/theme",
+  "output": "./blocks",
+  "themeDir": "./theme",
   "username": "your-username",
   "password": "your-password"
 }
@@ -143,7 +216,7 @@ The `import` key controls which component types are imported and configures per-
 ```json
 {
   "apiUrl": "https://demo.handoff.com",
-  "output": "./demo/plugin/blocks",
+  "output": "./blocks",
   "import": {
     "element": false,
     "block": {
@@ -576,13 +649,13 @@ Instead of manually editing the config file, use the interactive wizard to confi
 
 ```bash
 # Start the wizard and select a component interactively
-npm run dev -- wizard
+npm run compile -- wizard
 
 # Configure a specific component
-npm run dev -- wizard posts-latest
+npm run compile -- wizard posts-latest
 
 # List all components with array fields
-npm run dev -- wizard --list
+npm run compile -- wizard --list
 ```
 
 The wizard will:
@@ -653,27 +726,33 @@ This is automatically converted to the equivalent `import` structure. We recomme
 
 ## Usage
 
-### Development Mode
+### Compiler CLI (plugin root)
 
-Run directly from TypeScript source:
-
-```bash
-npm run dev -- <component-name> [options]
-```
-
-### Production Mode
-
-After building, run the compiled version:
+After `npm run build:compiler`, run the compiled CLI via npm scripts (recommended):
 
 ```bash
-npm run fetch -- <component-name> [options]
+npm run compile -- <component-name> [options]
+npm run compile -- --all
+npm run compile -- --theme
 ```
 
-Or use node directly:
+Or invoke Node directly:
 
 ```bash
-node dist/index.js <component-name> [options]
+node compiler/dist/index.js <component-name> [options]
 ```
+
+### TypeScript development (compiler only)
+
+To run the compiler from **`compiler/`** TypeScript during development:
+
+```bash
+cd compiler && npx ts-node src/index.ts -- --help
+```
+
+### Publishing npm package (optional)
+
+The compiler can still be treated as a small package inside `compiler/` (`compiler/package.json`). The **plugin** root `package.json` is for WordPress/webpack, not for publishing the old unified `handoff-wordpress` CLI from repo root.
 
 ## CLI Commands
 
@@ -692,9 +771,9 @@ node dist/index.js <component-name> [options]
 
 | Option | Alias | Description | Default |
 |--------|-------|-------------|---------|
-| `--api-url <url>` | `-a` | Handoff API base URL | `http://localhost:4000` |
-| `--output <dir>` | `-o` | Output directory for blocks | `./demo/plugin/blocks` |
-| `--theme-dir <dir>` | `-t` | Theme directory for header/footer templates | `./demo/theme` |
+| `--api-url <url>` | `-a` | Handoff API base URL | From config, else `http://localhost:4000` |
+| `--output <dir>` | `-o` | Output directory for blocks | `./blocks` (relative to config / cwd) |
+| `--theme-dir <dir>` | `-t` | Theme directory for header/footer templates | `./theme` |
 | `--username <user>` | `-u` | Basic auth username for Handoff API | |
 | `--password <pass>` | `-p` | Basic auth password for Handoff API | |
 | `--validate` | | Validate a component for breaking property changes | |
@@ -715,49 +794,50 @@ node dist/index.js <component-name> [options]
 ### Compile a Single Component
 
 ```bash
-# Using default API URL
-npm run fetch -- hero-article
+# Using default API URL from handoff-wp.config.json
+npm run compile -- hero-article
 
 # With custom API URL and output directory
-npm run fetch -- hero-article --api-url https://demo.handoff.com --output ./blocks
+npm run compile -- hero-article --api-url https://demo.handoff.com --output ./blocks
 ```
 
-### Compile All Components
+### Compile all components
 
 ```bash
-npm run fetch -- --all
+npm run compile -- --all
+# or
+npm run compile:all
 ```
 
-### Compile Theme Templates
+### Compile theme templates
 
-Generate header.php and footer.php for your WordPress theme:
+Generate `header.php`, `footer.php`, and related theme files under `theme/`:
 
 ```bash
-npm run fetch -- --theme
+npm run compile -- --theme
+# or
+npm run compile:theme
 
 # With custom theme directory
-npm run fetch -- --theme --theme-dir ./my-theme
+npm run compile -- --theme --theme-dir ./my-theme
 ```
 
-### Validate Components
+### Validate components
 
 Check for breaking property changes before compiling:
 
 ```bash
-# Validate a single component
-npm run fetch -- --validate hero-article
-
-# Validate all components
-npm run fetch -- --validate-all
+npm run compile -- --validate hero-article
+npm run compile -- --validate-all
 ```
 
-### Force Compilation
+### Force compilation
 
 Skip validation and compile even with breaking changes:
 
 ```bash
-npm run fetch -- hero-article --force
-npm run fetch -- --all --force
+npm run compile -- hero-article --force
+npm run compile -- --all --force
 ```
 
 ## Validation
@@ -768,12 +848,19 @@ If breaking changes are detected, the compiler will exit with an error unless th
 
 ## Dependencies
 
-* **commander** - CLI argument parsing
-* **handlebars** - Template parsing
-* **node-html-parser** - HTML parsing for template conversion
-* **prettier** - Code formatting for generated files
-* **@prettier/plugin-php** - PHP formatting support
-* **@wordpress/env** - Local WordPress development environment
+**Plugin root (`package.json`)** — block editor and tooling:
+
+* **@10up/block-components** — shared block UI primitives
+* **@wordpress/scripts** — webpack / `wp-scripts` build for `blocks/` and the unified **Handoff** admin app (blocks, usage, migration, settings)
+* **@wordpress/env** — local Docker WordPress (wp-env)
+* **copy-webpack-plugin** — copy `block.json`, `render.php`, variations into `build/`
+
+**Compiler (`compiler/package.json`)** — Handoff → Gutenberg:
+
+* **commander** — CLI parsing
+* **handlebars** — template structure
+* **node-html-parser** — HTML/JSX conversion helpers
+* **prettier** + **@prettier/plugin-php** — format generated JS/PHP
 
 ## License
 

@@ -1,0 +1,64 @@
+name: Build release ZIP
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build compiler
+        run: npm run build:compiler
+
+      - name: Build webpack bundles
+        run: npm run build
+
+      - name: Determine version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin ZIP
+        run: |
+          SLUG="handoff-blocks"
+          mkdir -p "$SLUG"
+
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='.wp-env.json' \
+            --exclude='.wp-env.override.json' \
+            --exclude='compiler/src' \
+            --exclude='compiler/node_modules' \
+            --exclude='uploads' \
+            --exclude='*.plan.md' \
+            --exclude='.cursor' \
+            ./ "$SLUG/"
+
+          zip -r "${SLUG}-${{ steps.version.outputs.tag }}.zip" "$SLUG"
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: handoff-blocks-${{ steps.version.outputs.tag }}.zip

@@ -752,7 +752,11 @@ const compileGroup = async (
   const pluginDir = path.dirname(outputDir);
   const categoriesPhp = generateCategoriesPhp(groupComponents);
   const formattedCategoriesPhp = await formatCode(categoriesPhp, 'php');
-  const categoriesPath = path.join(pluginDir, 'handoff-categories.php');
+  const includesDir = path.join(pluginDir, 'includes');
+  if (!fs.existsSync(includesDir)) {
+    fs.mkdirSync(includesDir, { recursive: true });
+  }
+  const categoriesPath = path.join(includesDir, 'handoff-categories.php');
   fs.writeFileSync(categoriesPath, formattedCategoriesPhp);
   console.log(`   📄 ${categoriesPath}`);
 };
@@ -852,9 +856,12 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
       const categoriesPhp = generateCategoriesPhp(compiledComponents);
       const formattedCategoriesPhp = await formatCode(categoriesPhp, 'php');
       
-      // Write to the plugin directory (parent of blocks directory)
       const pluginDir = path.dirname(outputDir);
-      const categoriesPath = path.join(pluginDir, 'handoff-categories.php');
+      const includesDir = path.join(pluginDir, 'includes');
+      if (!fs.existsSync(includesDir)) {
+        fs.mkdirSync(includesDir, { recursive: true });
+      }
+      const categoriesPath = path.join(includesDir, 'handoff-categories.php');
       fs.writeFileSync(categoriesPath, formattedCategoriesPhp);
       console.log(`✅ Generated: ${categoriesPath}`);
     }

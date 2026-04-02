@@ -18,7 +18,11 @@ import PageList from './PageList';
 import PageMapper from './PageMapper';
 import SavedMappings from './SavedMappings';
 
-export default function MigrationApp() {
+/**
+ * @param {{ embedded?: boolean }} props
+ * When embedded is true (Handoff hub), skip outer title and .wrap — parent layout provides context.
+ */
+export default function MigrationApp({ embedded = false }) {
   const [schemas, setSchemas] = useState(null);
   const [mappings, setMappings] = useState({});
   const [selectedPageId, setSelectedPageId] = useState(null);
@@ -33,10 +37,12 @@ export default function MigrationApp() {
     apiFetch({ path: '/handoff/v1/migration/mappings' }).then(setMappings);
   };
 
+  const shellClass = embedded ? 'handoff-migration handoff-migration--embedded' : 'wrap handoff-migration';
+
   if (schemas === null) {
     return (
-      <div className="wrap handoff-migration">
-        <h1>{__('Handoff Migration', 'handoff')}</h1>
+      <div className={shellClass}>
+        {!embedded && <h1>{__('Handoff Migration', 'handoff')}</h1>}
         <Spinner />
       </div>
     );
@@ -44,8 +50,8 @@ export default function MigrationApp() {
 
   if (selectedPageId) {
     return (
-      <div className="wrap handoff-migration">
-        <h1>{__('Handoff Migration', 'handoff')}</h1>
+      <div className={shellClass}>
+        {!embedded && <h1>{__('Handoff Migration', 'handoff')}</h1>}
         {notice && (
           <Notice status={notice.status} isDismissible onDismiss={() => setNotice(null)}>
             {notice.message}
@@ -66,8 +72,8 @@ export default function MigrationApp() {
   }
 
   return (
-    <div className="wrap handoff-migration">
-      <h1>{__('Handoff Migration', 'handoff')}</h1>
+    <div className={shellClass}>
+      {!embedded && <h1>{__('Handoff Migration', 'handoff')}</h1>}
       {notice && (
         <Notice status={notice.status} isDismissible onDismiss={() => setNotice(null)}>
           {notice.message}

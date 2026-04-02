@@ -1,2 +1,5 @@
-demo
-src
+blocks
+build
+uploads
+compiler/src
+theme

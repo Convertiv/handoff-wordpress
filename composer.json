@@ -1,0 +1,19 @@
+{
+  "name": "handoff/blocks",
+  "description": "Handoff Blocks — WordPress plugin that generates Gutenberg blocks from a Handoff design system.",
+  "type": "wordpress-plugin",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Brad Mering",
+      "email": "brad@convertiv.com"
+    }
+  ],
+  "require": {
+    "php": ">=7.4",
+    "composer/installers": "^1.0 || ^2.0"
+  },
+  "extra": {
+    "installer-name": "handoff-blocks"
+  }
+}

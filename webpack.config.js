@@ -15,8 +15,8 @@ const blockFolders = fs.existsSync(blocksDir)
 
 // Exit early with helpful message if no blocks found
 if (blockFolders.length === 0) {
-  console.log('\n⚠️  No blocks found in demo/plugin/blocks/');
-  console.log('   Run "npm run dev" or "npm run fetch" first to generate blocks from Handoff.\n');
+  console.log('\n⚠️  No blocks found in blocks/');
+  console.log('   Run "npm run compile:all" first to generate blocks from Handoff.\n');
   // Export a minimal valid config that does nothing
   module.exports = {
     entry: {},
@@ -42,10 +42,10 @@ blockFolders.forEach(block => {
   }
 });
 
-// Migration admin page entry point
-const migrationEntry = path.resolve(__dirname, 'src/migration/index.js');
-if (fs.existsSync(migrationEntry)) {
-  entry['migration/index'] = migrationEntry;
+// Handoff admin dashboard (includes Migration tab — see src/admin/)
+const adminEntry = path.resolve(__dirname, 'src/admin/index.js');
+if (fs.existsSync(adminEntry)) {
+  entry['admin/index'] = adminEntry;
 }
 
 // Create copy patterns for block.json and render.php files
