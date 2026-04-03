@@ -174,6 +174,41 @@ function handoff_blocks_register_blocks() {
 add_action('init', 'handoff_blocks_register_blocks');
 
 /**
+ * Enqueue Handoff design system assets (main.css / main.js) for both the
+ * frontend and the block editor so blocks render with the correct styles.
+ *
+ * Assets are downloaded by `wp handoff compile --all` into
+ * HANDOFF_CONTENT_DIR/assets/.
+ */
+function handoff_enqueue_design_assets() {
+  $assets_dir = rtrim(HANDOFF_CONTENT_DIR, '/') . '/assets';
+  $assets_url = rtrim(HANDOFF_CONTENT_URL, '/') . '/assets';
+  $version    = HANDOFF_BLOCKS_VERSION;
+
+  $css_file = $assets_dir . '/css/main.css';
+  if (file_exists($css_file)) {
+    wp_enqueue_style(
+      'handoff-design-system',
+      $assets_url . '/css/main.css',
+      array(),
+      $version
+    );
+  }
+
+  $js_file = $assets_dir . '/js/main.js';
+  if (file_exists($js_file)) {
+    wp_enqueue_script(
+      'handoff-design-system',
+      $assets_url . '/js/main.js',
+      array(),
+      $version,
+      true
+    );
+  }
+}
+add_action('enqueue_block_assets', 'handoff_enqueue_design_assets');
+
+/**
  * Register block categories
  * Uses the auto-generated categories from handoff-categories.php if available
  */

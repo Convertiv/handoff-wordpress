@@ -894,6 +894,37 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
       console.log(`✅ Shared components generated`);
     }
     
+    // Download main.css and main.js design system assets
+    console.log(`\n📡 Downloading design system assets...`);
+    const assetsDir = path.join(outputDir, '..', 'assets');
+    const assetsCssDir = path.join(assetsDir, 'css');
+    const assetsJsDir = path.join(assetsDir, 'js');
+
+    if (!fs.existsSync(assetsCssDir)) {
+      fs.mkdirSync(assetsCssDir, { recursive: true });
+    }
+    if (!fs.existsSync(assetsJsDir)) {
+      fs.mkdirSync(assetsJsDir, { recursive: true });
+    }
+
+    const cssUrl = `${apiUrl}/api/component/main.css`;
+    const cssPath = path.join(assetsCssDir, 'main.css');
+    const cssDownloaded = await downloadFile(cssUrl, cssPath, auth);
+    if (cssDownloaded) {
+      console.log(`   ✅ assets/css/main.css`);
+    } else {
+      console.warn(`   ⚠️  Could not download main.css from ${cssUrl}`);
+    }
+
+    const jsUrl = `${apiUrl}/api/component/main.js`;
+    const jsPath = path.join(assetsJsDir, 'main.js');
+    const jsDownloaded = await downloadFile(jsUrl, jsPath, auth);
+    if (jsDownloaded) {
+      console.log(`   ✅ assets/js/main.js`);
+    } else {
+      console.warn(`   ⚠️  Could not download main.js from ${jsUrl}`);
+    }
+
     console.log(`\n✨ Compilation complete!`);
     console.log(`   ✅ Success: ${success}`);
     if (failed > 0) {
