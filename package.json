@@ -12,7 +12,7 @@
     "build": "wp-scripts build",
     "dev": "wp-scripts start",
     "clean": "rm -rf build",
-    "build:compiler": "cd compiler && npm run build",
+    "build:compiler": "cd compiler && npm ci && npm run build",
     "compile": "node compiler/dist/index.js",
     "compile:all": "node compiler/dist/index.js --all",
     "compile:theme": "node compiler/dist/index.js --theme",
