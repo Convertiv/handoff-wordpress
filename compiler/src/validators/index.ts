@@ -7,12 +7,17 @@ export {
   saveManifest,
   validateComponent,
   updateManifest,
+  getComponentHistory,
+  extractProperties,
   formatValidationResult,
   PropertyManifest,
   PropertyManifestEntry,
   PropertySchema,
   PropertyChange,
-  ValidationResult
+  ValidationResult,
+  SchemaHistory,
+  SchemaHistoryEntry,
+  SchemaHistoryVersion,
 } from './property-manifest';
 
 export {

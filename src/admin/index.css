@@ -53,46 +53,40 @@
 
 .handoff-block-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
 }
 
 .handoff-block-card {
   background: #fff;
   border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 16px;
+  border-radius: 6px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  overflow: hidden;
+}
+
+.handoff-block-card .card-screenshot {
+  width: 100%;
+  max-height: 180px;
+  overflow: hidden;
+  background: #f5f5f5;
+  border-bottom: 1px solid #eee;
+}
+
+.handoff-block-card .card-screenshot img {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+  max-height: 180px;
 }
 
 .handoff-block-card .card-header {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-}
-
-.handoff-block-card .card-thumb {
-  width: 48px;
-  height: 48px;
-  border-radius: 4px;
-  object-fit: cover;
-  border: 1px solid #eee;
-  flex-shrink: 0;
-}
-
-.handoff-block-card .card-thumb-placeholder {
-  width: 48px;
-  height: 48px;
-  border-radius: 4px;
-  background: #f0f0f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-  font-size: 20px;
-  flex-shrink: 0;
+  padding: 12px 16px 0;
 }
 
 .handoff-block-card .card-info {
@@ -111,25 +105,93 @@
   font-size: 12px;
   color: #757575;
   font-family: monospace;
+  margin: 2px 0 0;
 }
 
 .handoff-block-card .card-meta {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   font-size: 12px;
   color: #757575;
   flex-wrap: wrap;
+  padding: 8px 16px;
+  align-items: center;
+}
+
+.handoff-block-card .card-usage-badge {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 1px 10px;
+  font-size: 11px;
+  cursor: default;
+  line-height: 1.6;
+}
+
+.handoff-block-card .card-usage-badge.has-usage {
+  color: #00a32a;
+  border-color: #00a32a;
+  cursor: pointer;
+}
+
+.handoff-block-card .card-usage-badge.has-usage:hover {
+  background: #f0faf0;
+}
+
+.handoff-block-card .card-usage-badge.no-usage {
+  color: #cc1818;
+  border-color: #cc1818;
+  opacity: 0.7;
+}
+
+.handoff-block-card .card-usage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 16px 8px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.handoff-block-card .card-usage-list li {
+  padding: 4px 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.handoff-block-card .card-usage-list li a {
+  text-decoration: none;
+  color: #2271b1;
+}
+
+.handoff-block-card .card-usage-list li a:hover {
+  text-decoration: underline;
+}
+
+.handoff-block-card .card-usage-list .post-type-label {
+  color: #999;
+  font-size: 10px;
+  text-transform: uppercase;
 }
 
 .handoff-block-card .card-links {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 12px;
+  padding: 0 16px 12px;
 }
 
 .handoff-block-card .card-links a {
   font-size: 12px;
   text-decoration: none;
+}
+
+.handoff-stat-usage {
+  position: relative;
+}
+
+.handoff-stat-usage .stat-refresh {
+  font-size: 11px;
+  margin-top: 4px;
 }
 
 .handoff-category-group {
@@ -197,7 +259,7 @@
   border: 1px solid #ddd;
   border-radius: 4px;
   padding: 24px;
-  max-width: 700px;
+  max-width: 960px;
 }
 
 .handoff-settings-form .form-section {
@@ -233,4 +295,740 @@
 
 .handoff-group-row .components-text-control__input {
   flex: 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Import Rules Editor                                                 */
+/* ------------------------------------------------------------------ */
+
+.handoff-import-editor {
+  margin-top: 8px;
+}
+
+.handoff-import-editor-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 0;
+  color: #757575;
+  font-size: 13px;
+}
+
+.import-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.import-editor-toolbar .help-text {
+  font-size: 13px;
+  color: #757575;
+  margin: 0;
+  flex: 1;
+}
+
+/* Type section (Level 1) */
+
+.handoff-type-section {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.handoff-type-section.is-disabled {
+  opacity: 0.6;
+}
+
+.type-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid transparent;
+}
+
+.handoff-type-section:not(.is-disabled) .type-section-header:hover {
+  background: #f9f9f9;
+}
+
+.type-toggle-arrow {
+  font-size: 14px;
+  color: #757575;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+
+.type-toggle-arrow.is-open {
+  transform: rotate(90deg);
+}
+
+.type-name {
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: capitalize;
+}
+
+.type-count {
+  font-size: 12px;
+  color: #757575;
+}
+
+.type-configured {
+  font-size: 11px;
+  color: #2271b1;
+  background: #f0f6fc;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.type-toggle {
+  margin-left: auto;
+}
+
+.type-toggle .components-toggle-control {
+  margin: 0;
+}
+
+.type-toggle .components-base-control__field {
+  margin: 0;
+}
+
+.type-section-body {
+  border-top: 1px solid #eee;
+}
+
+/* Component row (Level 2) */
+
+.handoff-component-row {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.handoff-component-row:last-child {
+  border-bottom: none;
+}
+
+.handoff-component-row.is-skipped .component-info {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.component-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+}
+
+.component-row-main .components-toggle-control {
+  margin: 0;
+}
+
+.component-row-main .components-base-control__field {
+  margin: 0;
+}
+
+.component-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.component-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.component-id {
+  font-size: 11px;
+  color: #757575;
+  background: #f0f0f0;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.component-group-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #2271b1;
+  background: #f0f6fc;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.component-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Component detail / array config (Level 3) */
+
+.component-row-detail {
+  background: #f9f9f9;
+  border-top: 1px solid #eee;
+  padding: 16px 16px 16px 52px;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.component-row-screenshot {
+  flex-shrink: 0;
+  width: 260px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff;
+  position: sticky;
+  top: 48px;
+}
+
+.component-row-screenshot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.component-row-config {
+  flex: 1;
+  min-width: 0;
+}
+
+.component-row-detail h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #555;
+  margin: 0 0 12px;
+}
+
+.handoff-array-field-editor {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+}
+
+.handoff-array-field-editor:last-child {
+  margin-bottom: 0;
+}
+
+.array-field-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.array-field-header code {
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 120px;
+}
+
+.array-field-header .components-select-control__input {
+  min-width: 200px;
+}
+
+.array-field-header .components-base-control__field {
+  margin: 0;
+}
+
+/* Dynamic Posts / Taxonomy / Pagination panels */
+
+.handoff-dynamic-posts-panel,
+.handoff-taxonomy-panel,
+.handoff-pagination-panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+}
+
+.handoff-dynamic-posts-panel h4,
+.handoff-taxonomy-panel h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #555;
+  margin: 16px 0 8px;
+}
+
+.handoff-dynamic-posts-panel .help-text {
+  font-size: 12px;
+  color: #757575;
+  margin: 0 0 8px;
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.panel-grid .components-base-control {
+  margin-bottom: 0;
+}
+
+/* Field mapping table */
+
+.handoff-field-mapping-table {
+  border: 1px solid #eee;
+  border-radius: 4px;
+}
+
+.handoff-field-mapping-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.handoff-field-mapping-row:last-child {
+  border-bottom: none;
+}
+
+.mapping-field-name {
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+}
+
+.mapping-field-name code {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.mapping-field-type {
+  font-size: 10px;
+  color: #999;
+  text-transform: uppercase;
+}
+
+.mapping-field-value {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mapping-field-value .components-base-control {
+  margin-bottom: 0;
+}
+
+.mapping-field-value .components-base-control__field {
+  margin-bottom: 0;
+}
+
+.mapping-field-value .components-text-control__input {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+/* Schema badge on block cards */
+
+.handoff-block-card .card-schema-badge {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.handoff-block-card .card-schema-badge.up-to-date {
+  color: #757575;
+  border-color: #ccc;
+}
+
+.handoff-block-card .card-schema-badge.needs-review {
+  color: #dba617;
+  border-color: #dba617;
+  background: #fffbe6;
+}
+
+/* Schema Health Section */
+
+.handoff-schema-section {
+  margin-top: 32px;
+  border-top: 1px solid #ddd;
+  padding-top: 16px;
+}
+
+.handoff-schema-section h3 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+.handoff-schema-panel.handoff-schema-empty {
+  padding: 12px 0;
+  color: #757575;
+}
+
+.schema-summary {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.schema-summary-count {
+  color: #555;
+  font-weight: 500;
+}
+
+.schema-summary-review {
+  color: #dba617;
+  font-weight: 600;
+}
+
+/* Schema block list */
+
+.schema-block-list {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.schema-block-item {
+  border-bottom: 1px solid #eee;
+}
+
+.schema-block-item:last-child {
+  border-bottom: none;
+}
+
+.schema-block-item.has-review {
+  border-left: 3px solid #dba617;
+}
+
+.schema-block-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  background: #fff;
+}
+
+.schema-block-header:hover {
+  background: #f9f9f9;
+}
+
+.schema-toggle-arrow {
+  display: inline-block;
+  transition: transform 0.15s;
+  color: #999;
+  font-size: 12px;
+}
+
+.schema-toggle-arrow.is-open {
+  transform: rotate(90deg);
+}
+
+.schema-block-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schema-block-info strong {
+  font-size: 13px;
+}
+
+.schema-block-info code {
+  font-size: 11px;
+  color: #757575;
+  background: #f0f0f0;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.schema-version-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #2271b1;
+  background: #f0f6fc;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.schema-deprecation-count,
+.schema-affected-count {
+  font-size: 12px;
+  color: #757575;
+}
+
+/* Schema detail / expanded view */
+
+.schema-block-detail {
+  background: #f9f9f9;
+  border-top: 1px solid #eee;
+  padding: 16px;
+  display: flex;
+  gap: 20px;
+}
+
+.schema-history-list {
+  flex: 1;
+  min-width: 0;
+}
+
+.schema-version-entry {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.schema-version-entry:last-child {
+  margin-bottom: 0;
+}
+
+.schema-version-entry.status-needs-review {
+  border-left: 3px solid #dba617;
+}
+
+.schema-version-entry.status-auto {
+  border-left: 3px solid #00a32a;
+}
+
+.version-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.version-label {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.version-date {
+  font-size: 11px;
+  color: #999;
+}
+
+.version-status {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.version-status.status-auto {
+  color: #00a32a;
+  background: #f0faf0;
+}
+
+.version-status.status-needs-review {
+  color: #dba617;
+  background: #fffbe6;
+}
+
+.version-status.status-non-breaking {
+  color: #757575;
+  background: #f0f0f0;
+}
+
+.version-changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.version-changes .change-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.change-type {
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.change-item.change-removed .change-type {
+  color: #cc1818;
+  background: #fef0f0;
+}
+
+.change-item.change-type_changed .change-type {
+  color: #dba617;
+  background: #fffbe6;
+}
+
+.change-item.change-added .change-type {
+  color: #00a32a;
+  background: #f0faf0;
+}
+
+.change-path {
+  font-size: 11px;
+  color: #555;
+  background: #f0f0f0;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.change-types {
+  font-size: 11px;
+  color: #999;
+}
+
+/* Affected posts in schema detail */
+
+.schema-affected-section {
+  width: 280px;
+  flex-shrink: 0;
+}
+
+.schema-affected-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #555;
+  margin: 0 0 8px;
+}
+
+.schema-affected-section .no-posts {
+  font-size: 12px;
+  color: #999;
+}
+
+.affected-post-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.affected-post-list li {
+  padding: 4px 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.affected-post-list li a {
+  text-decoration: none;
+  color: #2271b1;
+}
+
+.affected-post-list li a:hover {
+  text-decoration: underline;
+}
+
+.affected-post-list .post-meta {
+  color: #999;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.schema-migrate-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Rename mapper */
+
+.rename-mapper {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+
+.rename-mapper h5 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #555;
+  margin: 0 0 4px;
+}
+
+.rename-mapper .rename-help {
+  font-size: 11px;
+  color: #999;
+  margin: 0 0 8px;
+}
+
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.rename-row .rename-old {
+  font-size: 11px;
+  color: #cc1818;
+  background: #fef0f0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  min-width: 100px;
+}
+
+.rename-row .rename-arrow {
+  color: #999;
+  font-size: 14px;
+}
+
+.rename-row .components-text-control__input {
+  font-size: 12px;
+  padding: 4px 8px;
+  max-width: 200px;
+}
+
+.rename-row .components-base-control__field {
+  margin: 0;
+}
+
+/* Schema overrides toolbar */
+
+.schema-overrides-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: #f0f6fc;
+  border: 1px solid #c3ddf5;
+  border-radius: 4px;
+}
+
+.schema-overrides-help {
+  font-size: 12px;
+  color: #555;
 }

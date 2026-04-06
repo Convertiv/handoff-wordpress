@@ -42,7 +42,16 @@ interface ResolvedConfig {
     password?: string;
     import: ImportConfig;
     groups: Record<string, 'merged' | 'individual'>;
+    schemaMigrations?: Record<string, Record<string, {
+        renames?: Record<string, string>;
+        transforms?: Record<string, {
+            from: string;
+            to: string;
+            rule: string;
+        }>;
+    }>>;
 }
+import type { SchemaHistory } from './validators';
 /**
  * Fetch component data from Handoff API
  */
@@ -53,7 +62,7 @@ declare const fetchComponent: (apiUrl: string, componentName: string, auth?: Aut
  * @param apiUrl - The base API URL for fetching screenshots
  * @param resolvedConfig - The resolved configuration including dynamic array settings
  */
-declare const generateBlock: (component: HandoffComponent, apiUrl: string, resolvedConfig: ResolvedConfig) => GeneratedBlock;
+declare const generateBlock: (component: HandoffComponent, apiUrl: string, resolvedConfig: ResolvedConfig, schemaHistory?: SchemaHistory) => GeneratedBlock;
 /**
  * Main compilation function
  */

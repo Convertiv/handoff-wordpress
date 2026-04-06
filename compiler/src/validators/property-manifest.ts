@@ -1,6 +1,7 @@
 /**
- * Property Manifest - Tracks property names across compilations
- * to detect breaking changes to WordPress data structures
+ * Schema History - Tracks property schemas across compilations with
+ * versioned history to detect breaking changes and enable automatic
+ * Gutenberg block deprecation generation.
  */
 
 import * as fs from 'fs';
@@ -12,10 +13,32 @@ import { HandoffComponent, HandoffProperty } from '../types';
  */
 export interface PropertySchema {
   type: string;
-  properties?: Record<string, PropertySchema>; // For objects
-  items?: PropertySchema; // For arrays (describes the array item structure)
+  properties?: Record<string, PropertySchema>;
+  items?: PropertySchema;
 }
 
+export interface SchemaHistoryVersion {
+  version: number;
+  schema: Record<string, PropertySchema>;
+  changedAt: string;
+  changes: PropertyChange[];
+}
+
+export interface SchemaHistoryEntry {
+  componentId: string;
+  componentTitle: string;
+  schemaVersion: number;
+  current: Record<string, PropertySchema>;
+  lastUpdated: string;
+  history: SchemaHistoryVersion[];
+}
+
+export interface SchemaHistory {
+  version: string;
+  components: Record<string, SchemaHistoryEntry>;
+}
+
+/** @deprecated Kept for backward-compat loading of old property-manifest.json */
 export interface PropertyManifestEntry {
   componentId: string;
   componentTitle: string;
@@ -23,6 +46,7 @@ export interface PropertyManifestEntry {
   lastUpdated: string;
 }
 
+/** @deprecated Kept for backward-compat loading of old property-manifest.json */
 export interface PropertyManifest {
   version: string;
   components: Record<string, PropertyManifestEntry>;
@@ -44,85 +68,104 @@ export interface ValidationResult {
   isNew: boolean;
 }
 
-const MANIFEST_FILENAME = 'property-manifest.json';
+const HISTORY_FILENAME = 'schema-history.json';
+const LEGACY_FILENAME = 'property-manifest.json';
 
 /**
- * Load the property manifest from disk
+ * Load the schema history from disk, migrating from the legacy format if needed.
  */
-export const loadManifest = (outputDir: string): PropertyManifest => {
-  const manifestPath = path.join(outputDir, MANIFEST_FILENAME);
-  
-  if (!fs.existsSync(manifestPath)) {
-    return {
-      version: '1.0.0',
-      components: {}
-    };
+export const loadManifest = (outputDir: string): SchemaHistory => {
+  const historyPath = path.join(outputDir, HISTORY_FILENAME);
+
+  if (fs.existsSync(historyPath)) {
+    try {
+      const content = fs.readFileSync(historyPath, 'utf-8');
+      return JSON.parse(content) as SchemaHistory;
+    } catch {
+      console.warn(`Warning: Could not parse ${HISTORY_FILENAME}, starting fresh`);
+      return { version: '2.0.0', components: {} };
+    }
   }
-  
-  try {
-    const content = fs.readFileSync(manifestPath, 'utf-8');
-    return JSON.parse(content) as PropertyManifest;
-  } catch (error) {
-    console.warn(`⚠️  Could not parse manifest file, starting fresh`);
-    return {
-      version: '1.0.0',
-      components: {}
-    };
+
+  const legacyPath = path.join(outputDir, LEGACY_FILENAME);
+  if (fs.existsSync(legacyPath)) {
+    try {
+      const content = fs.readFileSync(legacyPath, 'utf-8');
+      const legacy = JSON.parse(content) as PropertyManifest;
+      const migrated = migrateLegacyManifest(legacy);
+      saveManifest(outputDir, migrated);
+      console.log(`Migrated ${LEGACY_FILENAME} to ${HISTORY_FILENAME}`);
+      return migrated;
+    } catch {
+      console.warn(`Warning: Could not parse legacy manifest, starting fresh`);
+    }
   }
+
+  return { version: '2.0.0', components: {} };
 };
 
 /**
- * Save the property manifest to disk
+ * Convert old property-manifest.json into the new schema-history format.
  */
-export const saveManifest = (outputDir: string, manifest: PropertyManifest): void => {
-  const manifestPath = path.join(outputDir, MANIFEST_FILENAME);
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+const migrateLegacyManifest = (legacy: PropertyManifest): SchemaHistory => {
+  const history: SchemaHistory = { version: '2.0.0', components: {} };
+
+  for (const [id, entry] of Object.entries(legacy.components)) {
+    history.components[id] = {
+      componentId: entry.componentId,
+      componentTitle: entry.componentTitle,
+      schemaVersion: 1,
+      current: entry.properties,
+      lastUpdated: entry.lastUpdated,
+      history: [],
+    };
+  }
+
+  return history;
+};
+
+/**
+ * Save the schema history to disk
+ */
+export const saveManifest = (outputDir: string, history: SchemaHistory): void => {
+  const historyPath = path.join(outputDir, HISTORY_FILENAME);
+  fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
 };
 
 /**
  * Recursively extract property schema from a HandoffProperty
  */
 const extractPropertySchema = (prop: HandoffProperty): PropertySchema => {
-  const schema: PropertySchema = {
-    type: prop.type
-  };
-  
-  // Handle object type - descend into properties
+  const schema: PropertySchema = { type: prop.type };
+
   if (prop.type === 'object' && prop.properties) {
     schema.properties = {};
     for (const [key, nestedProp] of Object.entries(prop.properties)) {
       schema.properties[key] = extractPropertySchema(nestedProp);
     }
   }
-  
-  // Handle array type - descend into items.properties
+
   if (prop.type === 'array') {
-    // Arrays have item structure defined in items.properties or properties
     const itemProperties = prop.items?.properties || prop.properties;
     if (itemProperties) {
-      schema.items = {
-        type: 'object',
-        properties: {}
-      };
+      schema.items = { type: 'object', properties: {} };
       for (const [key, nestedProp] of Object.entries(itemProperties)) {
         schema.items.properties![key] = extractPropertySchema(nestedProp);
       }
     }
   }
-  
+
   return schema;
 };
 
 /**
  * Extract all property schemas from a component
  */
-const extractProperties = (properties: Record<string, HandoffProperty>): Record<string, PropertySchema> => {
+export const extractProperties = (properties: Record<string, HandoffProperty>): Record<string, PropertySchema> => {
   const result: Record<string, PropertySchema> = {};
-  
   for (const [key, prop] of Object.entries(properties)) {
     result[key] = extractPropertySchema(prop);
   }
-  
   return result;
 };
 
@@ -132,117 +175,107 @@ const extractProperties = (properties: Record<string, HandoffProperty>): Record<
 const compareSchemas = (
   oldSchema: PropertySchema | undefined,
   newSchema: PropertySchema | undefined,
-  path: string,
+  propPath: string,
   changes: PropertyChange[]
 ): boolean => {
   let isValid = true;
-  
-  // Property was removed
+
   if (oldSchema && !newSchema) {
     isValid = false;
     changes.push({
       type: 'removed',
-      propertyPath: path,
+      propertyPath: propPath,
       oldType: oldSchema.type,
-      message: `Property "${path}" was removed. This will break existing content.`
+      message: `Property "${propPath}" was removed. This will break existing content.`
     });
     return isValid;
   }
-  
-  // Property was added
+
   if (!oldSchema && newSchema) {
     changes.push({
       type: 'added',
-      propertyPath: path,
+      propertyPath: propPath,
       newType: newSchema.type,
-      message: `New property "${path}" (${newSchema.type}) was added.`
+      message: `New property "${propPath}" (${newSchema.type}) was added.`
     });
     return isValid;
   }
-  
-  // Both exist - compare types
+
   if (oldSchema && newSchema) {
     if (oldSchema.type !== newSchema.type) {
       isValid = false;
       changes.push({
         type: 'type_changed',
-        propertyPath: path,
+        propertyPath: propPath,
         oldType: oldSchema.type,
         newType: newSchema.type,
-        message: `Property "${path}" type changed from "${oldSchema.type}" to "${newSchema.type}". This may break existing content.`
+        message: `Property "${propPath}" type changed from "${oldSchema.type}" to "${newSchema.type}". This may break existing content.`
       });
-      // Don't descend further if type changed
       return isValid;
     }
-    
-    // Compare nested properties for objects
+
     if (oldSchema.properties || newSchema.properties) {
       const oldProps = oldSchema.properties || {};
       const newProps = newSchema.properties || {};
       const allKeys = new Set([...Object.keys(oldProps), ...Object.keys(newProps)]);
-      
+
       for (const key of allKeys) {
         const nestedValid = compareSchemas(
           oldProps[key],
           newProps[key],
-          `${path}.${key}`,
+          `${propPath}.${key}`,
           changes
         );
         if (!nestedValid) isValid = false;
       }
     }
-    
-    // Compare array item structure
+
     if (oldSchema.items || newSchema.items) {
-      // Compare the items schema recursively
       if (oldSchema.items && newSchema.items) {
-        // Compare item properties
         const oldItemProps = oldSchema.items.properties || {};
         const newItemProps = newSchema.items.properties || {};
         const allKeys = new Set([...Object.keys(oldItemProps), ...Object.keys(newItemProps)]);
-        
+
         for (const key of allKeys) {
           const nestedValid = compareSchemas(
             oldItemProps[key],
             newItemProps[key],
-            `${path}[].${key}`,
+            `${propPath}[].${key}`,
             changes
           );
           if (!nestedValid) isValid = false;
         }
       } else if (oldSchema.items && !newSchema.items) {
-        // Array item structure was removed
         isValid = false;
         changes.push({
           type: 'removed',
-          propertyPath: `${path}[]`,
-          message: `Array item structure for "${path}" was removed. This will break existing content.`
+          propertyPath: `${propPath}[]`,
+          message: `Array item structure for "${propPath}" was removed. This will break existing content.`
         });
       } else if (!oldSchema.items && newSchema.items) {
-        // Array item structure was added
         changes.push({
           type: 'added',
-          propertyPath: `${path}[]`,
-          message: `Array item structure for "${path}" was added.`
+          propertyPath: `${propPath}[]`,
+          message: `Array item structure for "${propPath}" was added.`
         });
       }
     }
   }
-  
+
   return isValid;
 };
 
 /**
- * Compare current properties against the manifest
+ * Compare current properties against the stored history entry
  */
 export const validateComponent = (
   component: HandoffComponent,
-  manifest: PropertyManifest
+  history: SchemaHistory
 ): ValidationResult => {
   const componentId = component.id;
   const currentProperties = extractProperties(component.properties);
-  const existingEntry = manifest.components[componentId];
-  
+  const existingEntry = history.components[componentId];
+
   const result: ValidationResult = {
     componentId,
     componentTitle: component.title,
@@ -250,21 +283,14 @@ export const validateComponent = (
     changes: [],
     isNew: !existingEntry
   };
-  
+
   if (!existingEntry) {
-    // New component, no breaking changes possible
     return result;
   }
-  
-  const oldProperties = existingEntry.properties;
-  
-  // Get all top-level property keys
-  const allKeys = new Set([
-    ...Object.keys(oldProperties),
-    ...Object.keys(currentProperties)
-  ]);
-  
-  // Compare each property recursively
+
+  const oldProperties = existingEntry.current;
+  const allKeys = new Set([...Object.keys(oldProperties), ...Object.keys(currentProperties)]);
+
   for (const key of allKeys) {
     const isKeyValid = compareSchemas(
       oldProperties[key],
@@ -276,31 +302,100 @@ export const validateComponent = (
       result.isValid = false;
     }
   }
-  
+
   return result;
 };
 
 /**
- * Update the manifest with the current component properties
+ * Update the history with the current component properties.
+ * If there are breaking changes, the old schema is pushed to history
+ * and the schema version is incremented.
  */
 export const updateManifest = (
   component: HandoffComponent,
-  manifest: PropertyManifest
-): PropertyManifest => {
-  const entry: PropertyManifestEntry = {
-    componentId: component.id,
-    componentTitle: component.title,
-    properties: extractProperties(component.properties),
-    lastUpdated: new Date().toISOString()
-  };
-  
+  history: SchemaHistory
+): SchemaHistory => {
+  const currentProperties = extractProperties(component.properties);
+  const existingEntry = history.components[component.id];
+
+  if (!existingEntry) {
+    return {
+      ...history,
+      components: {
+        ...history.components,
+        [component.id]: {
+          componentId: component.id,
+          componentTitle: component.title,
+          schemaVersion: 1,
+          current: currentProperties,
+          lastUpdated: new Date().toISOString(),
+          history: [],
+        },
+      },
+    };
+  }
+
+  const changes: PropertyChange[] = [];
+  const allKeys = new Set([
+    ...Object.keys(existingEntry.current),
+    ...Object.keys(currentProperties),
+  ]);
+  let hasBreaking = false;
+
+  for (const key of allKeys) {
+    const valid = compareSchemas(
+      existingEntry.current[key],
+      currentProperties[key],
+      key,
+      changes
+    );
+    if (!valid) hasBreaking = true;
+  }
+
+  const breakingChanges = changes.filter(
+    (c) => c.type === 'removed' || c.type === 'type_changed'
+  );
+
+  let updatedHistory = [...existingEntry.history];
+  let nextVersion = existingEntry.schemaVersion;
+
+  if (hasBreaking && breakingChanges.length > 0) {
+    updatedHistory = [
+      {
+        version: existingEntry.schemaVersion,
+        schema: existingEntry.current,
+        changedAt: new Date().toISOString(),
+        changes: breakingChanges,
+      },
+      ...updatedHistory,
+    ];
+    nextVersion = existingEntry.schemaVersion + 1;
+  }
+
   return {
-    ...manifest,
+    ...history,
     components: {
-      ...manifest.components,
-      [component.id]: entry
-    }
+      ...history.components,
+      [component.id]: {
+        componentId: component.id,
+        componentTitle: component.title,
+        schemaVersion: nextVersion,
+        current: currentProperties,
+        lastUpdated: new Date().toISOString(),
+        history: updatedHistory,
+      },
+    },
   };
+};
+
+/**
+ * Get the full history entry for a component (used by deprecation generator)
+ */
+export const getComponentHistory = (
+  history: SchemaHistory,
+  componentId: string
+): SchemaHistoryEntry | undefined => {
+  return history.components[componentId];
 };
 
 /**
@@ -308,38 +403,36 @@ export const updateManifest = (
  */
 export const formatValidationResult = (result: ValidationResult): string => {
   const lines: string[] = [];
-  
+
   if (result.isNew) {
-    lines.push(`📦 ${result.componentTitle} (${result.componentId})`);
-    lines.push(`   ✨ New component - will be added to manifest on compilation`);
+    lines.push(`  ${result.componentTitle} (${result.componentId})`);
+    lines.push(`   New component - will be added to manifest on compilation`);
     return lines.join('\n');
   }
-  
-  const icon = result.isValid ? '✅' : '❌';
+
+  const icon = result.isValid ? 'OK' : 'FAIL';
   lines.push(`${icon} ${result.componentTitle} (${result.componentId})`);
-  
+
   if (result.changes.length === 0) {
     lines.push(`   No property changes detected`);
   } else {
-    // Group changes by type for cleaner output
     const breaking = result.changes.filter(c => c.type === 'removed' || c.type === 'type_changed');
     const additions = result.changes.filter(c => c.type === 'added');
-    
+
     if (breaking.length > 0) {
-      lines.push(`   🚨 Breaking Changes:`);
+      lines.push(`   Breaking Changes:`);
       for (const change of breaking) {
-        const changeIcon = change.type === 'removed' ? '🗑️' : '⚠️';
-        lines.push(`      ${changeIcon} ${change.message}`);
+        lines.push(`      ${change.message}`);
       }
     }
-    
+
     if (additions.length > 0) {
-      lines.push(`   ➕ Additions:`);
+      lines.push(`   Additions:`);
       for (const change of additions) {
         lines.push(`      ${change.message}`);
       }
     }
   }
-  
+
   return lines.join('\n');
 };

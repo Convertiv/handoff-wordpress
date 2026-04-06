@@ -1,0 +1,9 @@
+# Handoff content directory security
+Options -Indexes
+
+# Block direct PHP execution in build artifacts
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^build/.*\.php$ - [F,L]
+  RewriteRule ^blocks/.*\.php$ - [F,L]
+</IfModule>

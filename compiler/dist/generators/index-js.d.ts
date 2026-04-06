@@ -37,6 +37,6 @@ declare const generatePropertyControl: (key: string, property: HandoffProperty, 
  * @param dynamicArrayConfigs - Optional dynamic array configurations keyed by field name
  * @param innerBlocksField - The richtext field that uses InnerBlocks, or null if none
  */
-declare const generateIndexJs: (component: HandoffComponent, dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>, innerBlocksField?: string | null) => string;
+declare const generateIndexJs: (component: HandoffComponent, dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>, innerBlocksField?: string | null, deprecationsCode?: string) => string;
 export { generateIndexJs, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl };
 export type { FieldContext };

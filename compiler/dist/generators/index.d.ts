@@ -13,3 +13,4 @@ export { generateSharedComponents, generatePostSelector, generatePostQueryBuilde
 export { generateMigrationSchema, extractMigrationProperty } from './schema-json';
 export { generateMergedBlock, buildSupersetAttributes } from './group-block';
 export type { VariantInfo, FieldMap } from './group-block';
+export { generateDeprecations, generateSchemaChangelog } from './deprecation';

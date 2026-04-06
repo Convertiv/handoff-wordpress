@@ -441,7 +441,8 @@ const generateArrayHelpers = (properties: Record<string, HandoffProperty>): stri
 const generateIndexJs = (
   component: HandoffComponent,
   dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>,
-  innerBlocksField?: string | null
+  innerBlocksField?: string | null,
+  deprecationsCode?: string
 ): string => {
   const blockName = toBlockName(component.id);
   const properties = component.properties;
@@ -1103,9 +1104,8 @@ import { ${elementImports.join(', ')} } from '@wordpress/element';
 ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${hasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
-${linkFieldImport}
-registerBlockType(metadata.name, {
-  ...metadata,
+${linkFieldImport}${deprecationsCode ? `${deprecationsCode}\n\n` : ''}registerBlockType(metadata.name, {
+  ...metadata,${deprecationsCode ? '\n  deprecated,' : ''}
   edit: ({ attributes, setAttributes, isSelected }) => {
     const blockProps = useBlockProps();
 ${useInnerBlocks || previewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}

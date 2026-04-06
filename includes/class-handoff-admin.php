@@ -18,7 +18,9 @@ if (!defined('ABSPATH')) {
 class Handoff_Admin {
 
   private const USAGE_TRANSIENT = 'handoff_block_usage';
+  private const COMPONENTS_TRANSIENT = 'handoff_remote_components';
   private const USAGE_TTL = 3600; // 1 hour
+  private const COMPONENTS_TTL = 3600; // 1 hour
   private const CONFIG_OPTION = 'handoff_config';
 
   public function __construct() {
@@ -134,6 +136,48 @@ class Handoff_Admin {
       'callback'            => [$this, 'rest_get_themes'],
       'permission_callback' => [$this, 'settings_permission'],
     ]);
+
+    register_rest_route($ns, '/remote-components', [
+      'methods'             => 'GET',
+      'callback'            => [$this, 'rest_get_remote_components'],
+      'permission_callback' => [$this, 'settings_permission'],
+      'args'                => [
+        'refresh' => [
+          'type'    => 'boolean',
+          'default' => false,
+        ],
+      ],
+    ]);
+
+    register_rest_route($ns, '/schema/status', [
+      'methods'             => 'GET',
+      'callback'            => [$this, 'rest_get_schema_status'],
+      'permission_callback' => [$this, 'dashboard_read_permission'],
+    ]);
+
+    register_rest_route($ns, '/schema/affected/(?P<block>[a-zA-Z0-9_-]+)', [
+      'methods'             => 'GET',
+      'callback'            => [$this, 'rest_get_affected_posts'],
+      'permission_callback' => [$this, 'dashboard_read_permission'],
+    ]);
+
+    register_rest_route($ns, '/schema/migrate', [
+      'methods'             => 'POST',
+      'callback'            => [$this, 'rest_batch_migrate'],
+      'permission_callback' => [$this, 'settings_permission'],
+    ]);
+
+    register_rest_route($ns, '/schema/overrides', [
+      'methods'             => 'GET',
+      'callback'            => [$this, 'rest_get_migration_overrides'],
+      'permission_callback' => [$this, 'settings_permission'],
+    ]);
+
+    register_rest_route($ns, '/schema/overrides', [
+      'methods'             => 'POST',
+      'callback'            => [$this, 'rest_save_migration_overrides'],
+      'permission_callback' => [$this, 'settings_permission'],
+    ]);
   }
 
   /**
@@ -181,6 +225,22 @@ class Handoff_Admin {
       $has_screenshot = file_exists($build_dir . $item . '/screenshot.png');
       $last_modified  = date('Y-m-d H:i:s', filemtime($block_json_path));
 
+      $changelog_path = $build_dir . $item . '/schema-changelog.json';
+      $schema_changes = null;
+      if (file_exists($changelog_path)) {
+        $changelog = json_decode(file_get_contents($changelog_path), true);
+        if (!empty($changelog['history'])) {
+          $needs_review = array_filter($changelog['history'], function ($h) {
+            return ($h['migrationStatus'] ?? '') === 'needs-review';
+          });
+          $schema_changes = [
+            'currentVersion' => $changelog['currentVersion'] ?? 1,
+            'totalVersions'  => count($changelog['history']),
+            'needsReview'    => count($needs_review),
+          ];
+        }
+      }
+
       $blocks[] = [
         'slug'           => $item,
         'name'           => $meta['name'] ?? '',
@@ -195,6 +255,7 @@ class Handoff_Admin {
         'hasScreenshot'  => $has_screenshot,
         'screenshotUrl'  => $has_screenshot ? $build_url . $item . '/screenshot.png' : '',
         'lastModified'   => $last_modified,
+        'schemaChanges'  => $schema_changes,
       ];
     }
 
@@ -392,6 +453,124 @@ class Handoff_Admin {
   }
 
   // ------------------------------------------------------------------
+  // REST: GET /remote-components  (proxies the Handoff API)
+  // ------------------------------------------------------------------
+
+  public function rest_get_remote_components(\WP_REST_Request $request): \WP_REST_Response {
+    $config = self::get_config();
+    $api_url = $config['apiUrl'] ?? '';
+
+    if (empty($api_url)) {
+      return new \WP_REST_Response(
+        ['error' => 'No API URL configured. Set your Handoff API URL in Settings first.'],
+        400
+      );
+    }
+
+    $refresh = (bool) $request->get_param('refresh');
+
+    if (!$refresh) {
+      $cached = get_transient(self::COMPONENTS_TRANSIENT);
+      if ($cached !== false) {
+        return new \WP_REST_Response($cached);
+      }
+    }
+
+    $url = rtrim($api_url, '/') . '/api/components.json';
+    $args = ['timeout' => 30, 'sslverify' => true];
+
+    $username = $config['username'] ?? '';
+    $password = $config['password'] ?? '';
+    if (!empty($username)) {
+      $args['headers'] = [
+        'Authorization' => 'Basic ' . base64_encode($username . ':' . $password),
+      ];
+    }
+
+    $response = wp_remote_get($url, $args);
+
+    if (is_wp_error($response)) {
+      return new \WP_REST_Response(
+        ['error' => 'Failed to reach Handoff API: ' . $response->get_error_message()],
+        502
+      );
+    }
+
+    $status = wp_remote_retrieve_response_code($response);
+    if ($status === 401) {
+      return new \WP_REST_Response(
+        ['error' => 'Authentication failed (HTTP 401). Check your username and password.'],
+        401
+      );
+    }
+    if ($status !== 200) {
+      return new \WP_REST_Response(
+        ['error' => "Handoff API returned HTTP $status."],
+        502
+      );
+    }
+
+    $body = json_decode(wp_remote_retrieve_body($response), true);
+    if (!is_array($body)) {
+      return new \WP_REST_Response(['error' => 'Invalid JSON from Handoff API.'], 502);
+    }
+
+    $simplified = [];
+    foreach ($body as $component) {
+      if (!isset($component['id'])) continue;
+
+      $props = [];
+      if (!empty($component['properties']) && is_array($component['properties'])) {
+        foreach ($component['properties'] as $key => $prop) {
+          $entry = [
+            'name' => $prop['name'] ?? $key,
+            'type' => $prop['type'] ?? 'text',
+          ];
+          if (($prop['type'] ?? '') === 'array' && !empty($prop['items']['properties'])) {
+            $sub = [];
+            foreach ($prop['items']['properties'] as $sk => $sp) {
+              $sub[$sk] = [
+                'name' => $sp['name'] ?? $sk,
+                'type' => $sp['type'] ?? 'text',
+              ];
+            }
+            $entry['items'] = ['properties' => $sub];
+          }
+          if (($prop['type'] ?? '') === 'array' && !empty($prop['pagination'])) {
+            $entry['hasPagination'] = true;
+          }
+          $props[$key] = $entry;
+        }
+      }
+
+      $comp_id = $component['id'];
+      $screenshot_path = rtrim(HANDOFF_CONTENT_DIR, '/') . '/build/' . $comp_id . '/screenshot.png';
+      $screenshot_url  = '';
+      if (file_exists($screenshot_path)) {
+        $screenshot_url = rtrim(HANDOFF_CONTENT_URL, '/') . '/build/' . $comp_id . '/screenshot.png';
+      }
+
+      $simplified[] = [
+        'id'            => $comp_id,
+        'title'         => $component['title'] ?? $comp_id,
+        'type'          => $component['type'] ?? 'block',
+        'group'         => $component['group'] ?? '',
+        'properties'    => $props,
+        'screenshotUrl' => $screenshot_url,
+      ];
+    }
+
+    usort($simplified, fn($a, $b) =>
+      strcmp($a['type'], $b['type']) ?: strcmp($a['group'], $b['group']) ?: strcmp($a['title'], $b['title'])
+    );
+
+    $data = ['components' => $simplified];
+    set_transient(self::COMPONENTS_TRANSIENT, $data, self::COMPONENTS_TTL);
+
+    return new \WP_REST_Response($data);
+  }
+
+  // ------------------------------------------------------------------
   // One-time migration: import handoff-wp.config.json → wp_options
   // ------------------------------------------------------------------
 
@@ -475,6 +654,224 @@ XML;
         }
       }
     }
+  }
+  // ------------------------------------------------------------------
+  // REST: Schema health, affected posts, batch migration
+  // ------------------------------------------------------------------
+
+  private const MIGRATION_OVERRIDES_OPTION = 'handoff_migration_overrides';
+
+  public function rest_get_schema_status(\WP_REST_Request $request): \WP_REST_Response {
+    $build_dir = rtrim(HANDOFF_CONTENT_DIR, '/') . '/build/';
+    $blocks = [];
+
+    if (!is_dir($build_dir)) {
+      return new \WP_REST_Response(['blocks' => []]);
+    }
+
+    foreach (scandir($build_dir) as $item) {
+      if ($item === '.' || $item === '..' || $item === '.gitkeep') continue;
+
+      $changelog_path = $build_dir . $item . '/schema-changelog.json';
+      if (!file_exists($changelog_path)) continue;
+
+      $changelog = json_decode(file_get_contents($changelog_path), true);
+      if (!is_array($changelog) || empty($changelog['history'])) continue;
+
+      $block_json_path = $build_dir . $item . '/block.json';
+      $meta = file_exists($block_json_path)
+        ? json_decode(file_get_contents($block_json_path), true)
+        : null;
+
+      $affected = $this->count_affected_posts($changelog['blockName'] ?? 'handoff/' . $item);
+
+      $blocks[] = [
+        'slug'           => $item,
+        'name'           => $changelog['blockName'] ?? 'handoff/' . $item,
+        'title'          => $meta['title'] ?? $item,
+        'currentVersion' => $changelog['currentVersion'] ?? 1,
+        'history'        => $changelog['history'],
+        'affectedPosts'  => $affected,
+      ];
+    }
+
+    return new \WP_REST_Response(['blocks' => $blocks]);
+  }
+
+  public function rest_get_affected_posts(\WP_REST_Request $request): \WP_REST_Response {
+    $block_slug = $request->get_param('block');
+    $block_name = 'handoff/' . $block_slug;
+
+    global $wpdb;
+    $pattern = '%<!-- wp:' . $wpdb->esc_like($block_name) . ' %';
+    $posts = $wpdb->get_results($wpdb->prepare(
+      "SELECT ID, post_title, post_type, post_status FROM {$wpdb->posts}
+       WHERE post_content LIKE %s
+       AND post_status IN ('publish','draft','pending','private')
+       ORDER BY post_title ASC
+       LIMIT 200",
+      $pattern
+    ));
+
+    $result = [];
+    foreach ($posts as $post) {
+      $result[] = [
+        'id'       => (int) $post->ID,
+        'title'    => $post->post_title ?: "(#{$post->ID})",
+        'type'     => $post->post_type,
+        'status'   => $post->post_status,
+        'editUrl'  => get_edit_post_link($post->ID, 'raw'),
+      ];
+    }
+
+    return new \WP_REST_Response([
+      'blockName' => $block_name,
+      'posts'     => $result,
+      'total'     => count($result),
+    ]);
+  }
+
+  public function rest_batch_migrate(\WP_REST_Request $request): \WP_REST_Response {
+    $block_name = sanitize_text_field($request->get_param('blockName') ?? '');
+    $dry_run    = (bool) ($request->get_param('dryRun') ?? false);
+
+    if (empty($block_name)) {
+      return new \WP_REST_Response(['error' => 'blockName is required.'], 400);
+    }
+
+    $build_dir = rtrim(HANDOFF_CONTENT_DIR, '/') . '/build/';
+    $slug = str_replace('handoff/', '', $block_name);
+    $changelog_path = $build_dir . $slug . '/schema-changelog.json';
+
+    if (!file_exists($changelog_path)) {
+      return new \WP_REST_Response(['error' => 'No schema changelog found for ' . $block_name], 404);
+    }
+
+    $changelog = json_decode(file_get_contents($changelog_path), true);
+    if (empty($changelog['history'])) {
+      return new \WP_REST_Response(['migrated' => 0, 'message' => 'No schema history to migrate.']);
+    }
+
+    $renames = $this->get_rename_map($slug, $changelog['history']);
+
+    global $wpdb;
+    $pattern = '%<!-- wp:' . $wpdb->esc_like($block_name) . ' %';
+    $post_ids = $wpdb->get_col($wpdb->prepare(
+      "SELECT ID FROM {$wpdb->posts}
+       WHERE post_content LIKE %s
+       AND post_status IN ('publish','draft','pending','private')",
+      $pattern
+    ));
+
+    $migrated = 0;
+    $changes = [];
+
+    foreach ($post_ids as $post_id) {
+      $post = get_post($post_id);
+      if (!$post) continue;
+
+      $updated_content = $this->migrate_block_attributes_in_content(
+        $post->post_content,
+        $block_name,
+        $renames
+      );
+
+      if ($updated_content === $post->post_content) continue;
+
+      if ($dry_run) {
+        $changes[] = ['postId' => (int) $post_id, 'title' => $post->post_title];
+        $migrated++;
+        continue;
+      }
+
+      wp_update_post([
+        'ID'           => $post_id,
+        'post_content' => $updated_content,
+      ]);
+      $migrated++;
+      $changes[] = ['postId' => (int) $post_id, 'title' => $post->post_title];
+    }
+
+    return new \WP_REST_Response([
+      'migrated' => $migrated,
+      'dryRun'   => $dry_run,
+      'changes'  => $changes,
+    ]);
+  }
+
+  public function rest_get_migration_overrides(\WP_REST_Request $request): \WP_REST_Response {
+    $overrides = get_option(self::MIGRATION_OVERRIDES_OPTION, []);
+    return new \WP_REST_Response($overrides);
+  }
+
+  public function rest_save_migration_overrides(\WP_REST_Request $request): \WP_REST_Response {
+    $overrides = $request->get_json_params();
+    update_option(self::MIGRATION_OVERRIDES_OPTION, $overrides);
+    return new \WP_REST_Response(['success' => true]);
+  }
+
+  // ------------------------------------------------------------------
+  // Schema migration helpers
+  // ------------------------------------------------------------------
+
+  private function count_affected_posts(string $block_name): int {
+    global $wpdb;
+    $pattern = '%<!-- wp:' . $wpdb->esc_like($block_name) . ' %';
+    return (int) $wpdb->get_var($wpdb->prepare(
+      "SELECT COUNT(DISTINCT ID) FROM {$wpdb->posts}
+       WHERE post_content LIKE %s
+       AND post_status IN ('publish','draft','pending','private')",
+      $pattern
+    ));
+  }
+
+  private function get_rename_map(string $slug, array $history): array {
+    $overrides = get_option(self::MIGRATION_OVERRIDES_OPTION, []);
+    $renames = [];
+    if (isset($overrides[$slug]) && is_array($overrides[$slug])) {
+      foreach ($overrides[$slug] as $version_key => $data) {
+        if (isset($data['renames']) && is_array($data['renames'])) {
+          $renames = array_merge($renames, $data['renames']);
+        }
+      }
+    }
+    return $renames;
+  }
+
+  /**
+   * Find block comments for a specific block name in post_content and
+   * apply attribute renames to the JSON payload.
+   */
+  private function migrate_block_attributes_in_content(
+    string $content,
+    string $block_name,
+    array $renames
+  ): string {
+    if (empty($renames)) return $content;
+
+    $escaped = preg_quote($block_name, '/');
+    return preg_replace_callback(
+      '/<!-- wp:' . $escaped . ' (\{[^}]*\})/',
+      function ($matches) use ($renames) {
+        $attrs = json_decode($matches[1], true);
+        if (!is_array($attrs)) return $matches[0];
+
+        $changed = false;
+        foreach ($renames as $old_key => $new_key) {
+          if (array_key_exists($old_key, $attrs) && !array_key_exists($new_key, $attrs)) {
+            $attrs[$new_key] = $attrs[$old_key];
+            unset($attrs[$old_key]);
+            $changed = true;
+          }
+        }
+
+        if (!$changed) return $matches[0];
+
+        $new_json = wp_json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return str_replace($matches[1], $new_json, $matches[0]);
+      },
+      $content
+    );
   }
 }
 

@@ -2,7 +2,6 @@ import { useMemo } from '@wordpress/element';
 import { TabPanel } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import BlocksTab from './BlocksTab';
-import UsageTab from './UsageTab';
 import SettingsTab from './SettingsTab';
 import MigrationApp from '../../migration/components/MigrationApp';
 
@@ -15,7 +14,6 @@ export default function HandoffDashboard() {
   const tabs = useMemo(() => {
     const list = [
       { name: 'blocks', title: __('Blocks', 'handoff'), className: 'handoff-tab' },
-      { name: 'usage', title: __('Usage', 'handoff'), className: 'handoff-tab' },
       { name: 'migration', title: __('Migration', 'handoff'), className: 'handoff-tab' },
     ];
     if (canManageOptions) {
@@ -29,7 +27,7 @@ export default function HandoffDashboard() {
       <h1>{__('Handoff', 'handoff')}</h1>
       <p className="handoff-dashboard__intro">
         {__(
-          'Block library overview, usage across your site, content migration from legacy Handoff pages, and plugin settings.',
+          'Block library overview, content migration, and plugin settings.',
           'handoff'
         )}
       </p>
@@ -38,8 +36,6 @@ export default function HandoffDashboard() {
           switch (tab.name) {
             case 'blocks':
               return <BlocksTab />;
-            case 'usage':
-              return <UsageTab />;
             case 'migration':
               return <MigrationApp embedded />;
             case 'settings':

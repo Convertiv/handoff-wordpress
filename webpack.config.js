@@ -78,6 +78,20 @@ const copyPatterns = blockFolders.flatMap(block => {
     });
   }
 
+  if (fs.existsSync(path.join(blockPath, 'schema-changelog.json'))) {
+    patterns.push({
+      from: path.join(blockPath, 'schema-changelog.json'),
+      to: path.join(block, 'schema-changelog.json'),
+    });
+  }
+
+  if (fs.existsSync(path.join(blockPath, 'screenshot.png'))) {
+    patterns.push({
+      from: path.join(blockPath, 'screenshot.png'),
+      to: path.join(block, 'screenshot.png'),
+    });
+  }
+
   const variationsDir = path.join(blockPath, 'variations');
   if (fs.existsSync(variationsDir)) {
     const variationPhp = fs.readdirSync(variationsDir).filter(f => f.endsWith('.php'));

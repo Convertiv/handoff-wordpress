@@ -22,16 +22,21 @@ define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
 /**
  * Resolve the content directory where project-specific blocks live.
  *
- * Default: WP_CONTENT_DIR . '/handoff'  (i.e. wp-content/handoff/).
- * This keeps generated blocks outside the plugin directory so they survive
- * Composer updates and can be version-controlled in the consuming project.
+ * Priority:
+ *   1. Explicit constant in wp-config.php  (always wins)
+ *   2. Plugin directory itself — if blocks/ or build/ exist there (local dev / wp-env)
+ *   3. WP_CONTENT_DIR . '/handoff'         (Composer installs)
  *
  * Override in wp-config.php if you want a different location:
  *
  *   define( 'HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff' );
  */
 if (!defined('HANDOFF_CONTENT_DIR')) {
-  define('HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff');
+  if (is_dir(HANDOFF_BLOCKS_PATH . 'blocks') || is_dir(HANDOFF_BLOCKS_PATH . 'build')) {
+    define('HANDOFF_CONTENT_DIR', HANDOFF_BLOCKS_PATH);
+  } else {
+    define('HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff');
+  }
 }
 
 /**

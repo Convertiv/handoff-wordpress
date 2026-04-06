@@ -7,6 +7,7 @@ import {
   Notice,
 } from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
+import ImportRulesEditor from './ImportRulesEditor';
 
 export default function SettingsTab() {
   const [config, setConfig] = useState(null);
@@ -204,27 +205,10 @@ export default function SettingsTab() {
 
         <div className="form-section">
           <h3>Import Rules</h3>
-          <p style={{ fontSize: 13, color: '#757575', marginTop: 0 }}>
-            Import rules are stored in the database alongside the rest of the
-            config. For complex import rules (dynamic arrays, field mappings),
-            use <code>wp handoff wizard</code> or export/import via{' '}
-            <code>wp handoff config export</code>.
-          </p>
-          <pre
-            style={{
-              background: '#f9f9f9',
-              border: '1px solid #ddd',
-              borderRadius: 4,
-              padding: 12,
-              fontSize: 12,
-              maxHeight: 300,
-              overflow: 'auto',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-            }}
-          >
-            {JSON.stringify(config?.import || {}, null, 2)}
-          </pre>
+          <ImportRulesEditor
+            value={config?.import || {}}
+            onChange={(updated) => updateField('import', updated)}
+          />
         </div>
 
         <Button

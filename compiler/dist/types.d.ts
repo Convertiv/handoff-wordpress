@@ -102,6 +102,7 @@ export interface GeneratedBlock {
     styleScss: string;
     readme: string;
     migrationSchema: string;
+    schemaChangelog?: string;
     screenshotUrl?: string;
     /** Per-variant include files for merged group blocks (key = variant id, e.g. 'hero-article') */
     variationFiles?: {
@@ -312,6 +313,18 @@ export interface HandoffWpConfig {
      * - "individual" (or omitted) : each component is its own block (default)
      */
     groups?: Record<string, 'merged' | 'individual'>;
+    /**
+     * Schema migration overrides keyed by component slug.
+     * Each entry maps version transitions (e.g. "1-to-2") to rename/transform rules.
+     */
+    schemaMigrations?: Record<string, Record<string, {
+        renames?: Record<string, string>;
+        transforms?: Record<string, {
+            from: string;
+            to: string;
+            rule: string;
+        }>;
+    }>>;
     /**
      * @deprecated Use `import` instead. Kept for backward compatibility.
      * Dynamic array configurations keyed by "componentId.fieldName"

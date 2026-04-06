@@ -52,6 +52,10 @@ interface ResolvedConfig {
   password?: string;
   import: ImportConfig;
   groups: Record<string, 'merged' | 'individual'>;
+  schemaMigrations?: Record<string, Record<string, {
+    renames?: Record<string, string>;
+    transforms?: Record<string, { from: string; to: string; rule: string }>;
+  }>>;
 }
 
 /**
@@ -140,6 +144,7 @@ const getConfig = (): ResolvedConfig => {
     password: fileConfig.password ?? DEFAULT_CONFIG.password,
     import: importConfig,
     groups: fileConfig.groups ?? DEFAULT_CONFIG.groups,
+    schemaMigrations: fileConfig.schemaMigrations,
   };
 };
 
@@ -185,6 +190,8 @@ import {
   generateSharedComponents,
   generateMigrationSchema,
   generateMergedBlock,
+  generateDeprecations,
+  generateSchemaChangelog,
 } from './generators';
 import type { VariantInfo } from './generators';
 import {
@@ -192,11 +199,14 @@ import {
   saveManifest,
   validateComponent,
   updateManifest,
+  getComponentHistory,
+  extractProperties,
   formatValidationResult,
   ValidationResult,
   validateTemplateVariables,
   formatTemplateValidationResult
 } from './validators';
+import type { SchemaHistory } from './validators';
 
 // Load PHP plugin for Prettier (using require for compatibility)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -319,7 +329,7 @@ const fetchComponent = async (apiUrl: string, componentName: string, auth?: Auth
  * @param apiUrl - The base API URL for fetching screenshots
  * @param resolvedConfig - The resolved configuration including dynamic array settings
  */
-const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConfig: ResolvedConfig): GeneratedBlock => {
+const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConfig: ResolvedConfig, schemaHistory?: SchemaHistory): GeneratedBlock => {
   const hasScreenshot = !!component.image;
   
   // Construct full screenshot URL if image path is available
@@ -385,14 +395,25 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
     innerBlocksField = null;
   }
   
+  const historyEntry = schemaHistory ? getComponentHistory(schemaHistory, component.id) : undefined;
+  const currentProps = extractProperties(component.properties);
+  const migrationOverrides = resolvedConfig.schemaMigrations?.[component.id];
+  const deprecationsCode = generateDeprecations(
+    historyEntry,
+    currentProps,
+    migrationOverrides,
+    !!innerBlocksField
+  );
+
   return {
     blockJson: generateBlockJson(component, hasScreenshot, apiUrl, componentDynamicArrays, innerBlocksField),
-    indexJs: generateIndexJs(component, componentDynamicArrays, innerBlocksField),
+    indexJs: generateIndexJs(component, componentDynamicArrays, innerBlocksField, deprecationsCode),
     renderPhp: generateRenderPhp(component, componentDynamicArrays, innerBlocksField),
     editorScss: generateEditorScss(component),
     styleScss: generateStyleScss(component),
     readme: generateReadme(component),
     migrationSchema: generateMigrationSchema(component),
+    schemaChangelog: generateSchemaChangelog(component.id, historyEntry),
     screenshotUrl
   };
 };
@@ -424,6 +445,9 @@ const writeBlockFiles = async (outputDir: string, componentId: string, block: Ge
   fs.writeFileSync(path.join(blockDir, 'style.scss'), formattedStyleScss);
   fs.writeFileSync(path.join(blockDir, 'README.md'), block.readme);
   fs.writeFileSync(path.join(blockDir, 'migration-schema.json'), block.migrationSchema);
+  if (block.schemaChangelog) {
+    fs.writeFileSync(path.join(blockDir, 'schema-changelog.json'), block.schemaChangelog);
+  }
   
   // Download screenshot if available
   let screenshotDownloaded = false;
@@ -477,9 +501,10 @@ const compile = async (options: CompilerOptions): Promise<void> => {
       process.exit(1);
     }
     
-    // Generate block files
+    // Generate block files (with deprecation support from schema history)
     console.log(`⚙️  Generating Gutenberg block...`);
-    const block = generateBlock(component, options.apiUrl, config);
+    const schemaHistory = loadManifest(options.outputDir);
+    const block = generateBlock(component, options.apiUrl, config, schemaHistory);
     
     // Write files (with Prettier formatting)
     await writeBlockFiles(options.outputDir, component.id, block, options.auth);
@@ -779,6 +804,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     let success = 0;
     let failed = 0;
     const compiledComponents: HandoffComponent[] = [];
+    const schemaHistory = loadManifest(outputDir);
     
     // Fetch all components first so we can partition by group
     const allComponents: HandoffComponent[] = [];
@@ -828,7 +854,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     // Compile individual components (existing behavior)
     for (const component of individualComponents) {
       try {
-        const block = generateBlock(component, apiUrl, config);
+        const block = generateBlock(component, apiUrl, config, schemaHistory);
         await writeBlockFiles(outputDir, component.id, block, auth);
         compiledComponents.push(component);
         success++;

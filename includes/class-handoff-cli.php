@@ -163,6 +163,8 @@ class Handoff_CLI {
       $cmd .= ' ' . escapeshellarg($args[0]);
     }
 
+    $this->write_compiler_config();
+
     $exit = $this->run($cmd);
 
     if ($exit === 0) {
@@ -170,6 +172,26 @@ class Handoff_CLI {
     } else {
       WP_CLI::error('Compilation failed (exit code ' . $exit . ').');
     }
+  }
+
+  /**
+   * Write a handoff-wp.config.json that the Node compiler reads,
+   * merging wp_options config with migration overrides.
+   */
+  private function write_compiler_config(): void {
+    $config = $this->get_config();
+
+    $overrides = get_option('handoff_migration_overrides', []);
+    if (!empty($overrides) && is_array($overrides)) {
+      $config['schemaMigrations'] = $overrides;
+    }
+
+    $content_dir = $this->content_dir();
+    $config_path = $content_dir . '/handoff-wp.config.json';
+    file_put_contents(
+      $config_path,
+      json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+    );
   }
 
   /**
@@ -324,6 +346,121 @@ class Handoff_CLI {
 
     update_option('handoff_config', $config);
     WP_CLI::success('Config saved to database.');
+  }
+
+  /**
+   * Display the full resolved configuration.
+   *
+   * Shows the merged result of wp_options + wp-config.php constant
+   * overrides + defaults. Credentials are masked unless --reveal is used.
+   *
+   * ## OPTIONS
+   *
+   * [--reveal]
+   * : Show credentials in plain text instead of masking them.
+   *
+   * [--format=<format>]
+   * : Output format. Default: table. Accepts: table, json, yaml.
+   *
+   * ## EXAMPLES
+   *
+   *     wp handoff config show
+   *     wp handoff config show --reveal
+   *     wp handoff config show --format=json
+   *
+   * @subcommand config show
+   */
+  public function config_show($args, $assoc_args) {
+    $config = $this->get_config();
+    $reveal = !empty($assoc_args['reveal']);
+    $format = $assoc_args['format'] ?? 'table';
+
+    if ($format === 'json') {
+      WP_CLI::line(json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+      return;
+    }
+
+    // --- Connection ---
+    WP_CLI::log('');
+    WP_CLI::log(WP_CLI::colorize('%B--- Connection ---%n'));
+    $this->config_line('API URL',  $config['apiUrl'] ?? '(not set)');
+    $this->config_line('Username', $this->mask_value($config['username'] ?? '', $reveal));
+    $this->config_line('Password', $this->mask_value($config['password'] ?? '', $reveal));
+
+    // --- Paths ---
+    WP_CLI::log('');
+    WP_CLI::log(WP_CLI::colorize('%B--- Paths ---%n'));
+    $this->config_line('Content Dir', HANDOFF_CONTENT_DIR);
+    $this->config_line('Content URL', HANDOFF_CONTENT_URL);
+    $this->config_line('Output',      ($config['output'] ?? HANDOFF_CONTENT_DIR . '/blocks'));
+    $this->config_line('Theme Dir',   ($config['themeDir'] ?? '(not set)'));
+    $this->config_line('Plugin Dir',  HANDOFF_BLOCKS_PATH);
+
+    // --- Groups ---
+    WP_CLI::log('');
+    WP_CLI::log(WP_CLI::colorize('%B--- Groups ---%n'));
+    $groups = isset($config['groups']) ? (array) $config['groups'] : [];
+    if (empty($groups)) {
+      WP_CLI::log('  (none configured)');
+    } else {
+      $rows = [];
+      foreach ($groups as $name => $mode) {
+        $rows[] = ['Group' => $name, 'Mode' => $mode];
+      }
+      WP_CLI\Utils\format_items('table', $rows, ['Group', 'Mode']);
+    }
+
+    // --- Import Rules ---
+    WP_CLI::log('');
+    WP_CLI::log(WP_CLI::colorize('%B--- Import Rules ---%n'));
+    $import = isset($config['import']) ? (array) $config['import'] : [];
+    if (empty($import)) {
+      WP_CLI::log('  (none configured)');
+    } else {
+      $this->print_import_rules($import);
+    }
+
+    // --- Source ---
+    WP_CLI::log('');
+    WP_CLI::log(WP_CLI::colorize('%B--- Source ---%n'));
+    $db_config = get_option('handoff_config', false);
+    $sources = [];
+    if ($db_config !== false) $sources[] = 'wp_options';
+    if (defined('HANDOFF_API_URL'))      $sources[] = 'HANDOFF_API_URL (wp-config.php)';
+    if (defined('HANDOFF_API_USERNAME')) $sources[] = 'HANDOFF_API_USERNAME (wp-config.php)';
+    if (defined('HANDOFF_API_PASSWORD')) $sources[] = 'HANDOFF_API_PASSWORD (wp-config.php)';
+    $this->config_line('Config from', implode(', ', $sources) ?: '(defaults only)');
+
+    WP_CLI::log('');
+  }
+
+  private function config_line(string $label, string $value): void {
+    WP_CLI::log(sprintf('  %-14s %s', $label . ':', $value));
+  }
+
+  private function mask_value(string $value, bool $reveal): string {
+    if (empty($value)) return '(not set)';
+    if ($reveal) return $value;
+    if (strlen($value) <= 4) return str_repeat('*', strlen($value));
+    return substr($value, 0, 2) . str_repeat('*', strlen($value) - 4) . substr($value, -2);
+  }
+
+  private function print_import_rules(array $import, string $indent = '  '): void {
+    foreach ($import as $key => $value) {
+      if (is_bool($value)) {
+        WP_CLI::log($indent . $key . ': ' . ($value ? 'true' : 'false'));
+      } elseif (is_scalar($value)) {
+        WP_CLI::log($indent . $key . ': ' . $value);
+      } elseif (is_array($value) || is_object($value)) {
+        $arr = (array) $value;
+        if (empty($arr)) {
+          WP_CLI::log($indent . $key . ': {}');
+        } else {
+          WP_CLI::log($indent . $key . ':');
+          $this->print_import_rules($arr, $indent . '  ');
+        }
+      }
+    }
   }
 
   /**
@@ -492,6 +629,235 @@ class Handoff_CLI {
     } else {
       WP_CLI::log('build/ directory not found. Run `wp handoff build`.');
     }
+  }
+
+  /**
+   * Show schema change status for all blocks with deprecation history.
+   *
+   * ## OPTIONS
+   *
+   * [--format=<format>]
+   * : Output format (table or json).
+   * ---
+   * default: table
+   * ---
+   *
+   * ## EXAMPLES
+   *
+   *     wp handoff schema status
+   *     wp handoff schema status --format=json
+   *
+   * @subcommand schema status
+   */
+  public function schema_status($args, $assoc_args) {
+    $content   = $this->content_dir();
+    $build_dir = $content . '/build/';
+    $format    = $assoc_args['format'] ?? 'table';
+
+    if (!is_dir($build_dir)) {
+      WP_CLI::warning('No build directory found.');
+      return;
+    }
+
+    $rows = [];
+    foreach (scandir($build_dir) as $item) {
+      if ($item === '.' || $item === '..' || $item === '.gitkeep') continue;
+
+      $changelog_path = $build_dir . $item . '/schema-changelog.json';
+      if (!file_exists($changelog_path)) continue;
+
+      $changelog = json_decode(file_get_contents($changelog_path), true);
+      if (!is_array($changelog) || empty($changelog['history'])) continue;
+
+      $needs_review = count(array_filter($changelog['history'], function ($h) {
+        return ($h['migrationStatus'] ?? '') === 'needs-review';
+      }));
+
+      $block_name = $changelog['blockName'] ?? 'handoff/' . $item;
+      $affected = $this->count_affected_posts_cli($block_name);
+
+      $rows[] = [
+        'Block'          => $block_name,
+        'Version'        => $changelog['currentVersion'] ?? 1,
+        'Deprecations'   => count($changelog['history']),
+        'Needs Review'   => $needs_review,
+        'Affected Posts' => $affected,
+      ];
+    }
+
+    if (empty($rows)) {
+      WP_CLI::success('No schema changes found. All blocks are up to date.');
+      return;
+    }
+
+    if ($format === 'json') {
+      WP_CLI::line(json_encode($rows, JSON_PRETTY_PRINT));
+      return;
+    }
+
+    WP_CLI\Utils\format_items('table', $rows, ['Block', 'Version', 'Deprecations', 'Needs Review', 'Affected Posts']);
+  }
+
+  /**
+   * Batch-migrate block attributes in post content.
+   *
+   * Applies rename mappings from migration overrides to all posts containing
+   * the specified block (or all blocks with deprecations).
+   *
+   * ## OPTIONS
+   *
+   * [<block-name>]
+   * : The block name to migrate (e.g. hero). Omit for --all.
+   *
+   * [--all]
+   * : Migrate all blocks with deprecations.
+   *
+   * [--dry-run]
+   * : Preview what would change without modifying posts.
+   *
+   * ## EXAMPLES
+   *
+   *     wp handoff schema migrate hero --dry-run
+   *     wp handoff schema migrate --all
+   *
+   * @subcommand schema migrate
+   */
+  public function schema_migrate($args, $assoc_args) {
+    $dry_run = !empty($assoc_args['dry-run']);
+    $all     = !empty($assoc_args['all']);
+
+    if (empty($args) && !$all) {
+      WP_CLI::error('Specify a block name or use --all.');
+      return;
+    }
+
+    $content   = $this->content_dir();
+    $build_dir = $content . '/build/';
+
+    if (!is_dir($build_dir)) {
+      WP_CLI::error('No build directory found.');
+      return;
+    }
+
+    $targets = [];
+    if ($all) {
+      foreach (scandir($build_dir) as $item) {
+        if ($item === '.' || $item === '..' || $item === '.gitkeep') continue;
+        $changelog_path = $build_dir . $item . '/schema-changelog.json';
+        if (file_exists($changelog_path)) {
+          $changelog = json_decode(file_get_contents($changelog_path), true);
+          if (!empty($changelog['history'])) {
+            $targets[] = $item;
+          }
+        }
+      }
+    } else {
+      $targets = [$args[0]];
+    }
+
+    if (empty($targets)) {
+      WP_CLI::success('No blocks with schema changes found.');
+      return;
+    }
+
+    $overrides = get_option('handoff_migration_overrides', []);
+    $total_migrated = 0;
+
+    foreach ($targets as $slug) {
+      $block_name = 'handoff/' . $slug;
+      $renames = [];
+
+      if (isset($overrides[$slug]) && is_array($overrides[$slug])) {
+        foreach ($overrides[$slug] as $data) {
+          if (isset($data['renames']) && is_array($data['renames'])) {
+            $renames = array_merge($renames, $data['renames']);
+          }
+        }
+      }
+
+      if (empty($renames)) {
+        WP_CLI::log("  $block_name: no rename mappings configured, skipping.");
+        continue;
+      }
+
+      global $wpdb;
+      $pattern = '%<!-- wp:' . $wpdb->esc_like($block_name) . ' %';
+      $post_ids = $wpdb->get_col($wpdb->prepare(
+        "SELECT ID FROM {$wpdb->posts}
+         WHERE post_content LIKE %s
+         AND post_status IN ('publish','draft','pending','private')",
+        $pattern
+      ));
+
+      $block_migrated = 0;
+      foreach ($post_ids as $post_id) {
+        $post = get_post($post_id);
+        if (!$post) continue;
+
+        $updated = $this->migrate_block_attrs_in_content_cli(
+          $post->post_content, $block_name, $renames
+        );
+
+        if ($updated === $post->post_content) continue;
+
+        if ($dry_run) {
+          WP_CLI::log("  Would migrate: {$post->post_title} (#{$post_id})");
+        } else {
+          wp_update_post(['ID' => $post_id, 'post_content' => $updated]);
+          WP_CLI::log("  Migrated: {$post->post_title} (#{$post_id})");
+        }
+        $block_migrated++;
+      }
+
+      WP_CLI::log("  $block_name: $block_migrated post(s)" . ($dry_run ? ' (dry run)' : ''));
+      $total_migrated += $block_migrated;
+    }
+
+    $verb = $dry_run ? 'would be migrated' : 'migrated';
+    WP_CLI::success("$total_migrated post(s) $verb.");
+  }
+
+  private function count_affected_posts_cli(string $block_name): int {
+    global $wpdb;
+    $pattern = '%<!-- wp:' . $wpdb->esc_like($block_name) . ' %';
+    return (int) $wpdb->get_var($wpdb->prepare(
+      "SELECT COUNT(DISTINCT ID) FROM {$wpdb->posts}
+       WHERE post_content LIKE %s
+       AND post_status IN ('publish','draft','pending','private')",
+      $pattern
+    ));
+  }
+
+  private function migrate_block_attrs_in_content_cli(
+    string $content,
+    string $block_name,
+    array $renames
+  ): string {
+    if (empty($renames)) return $content;
+
+    $escaped = preg_quote($block_name, '/');
+    return preg_replace_callback(
+      '/<!-- wp:' . $escaped . ' (\{[^}]*\})/',
+      function ($matches) use ($renames) {
+        $attrs = json_decode($matches[1], true);
+        if (!is_array($attrs)) return $matches[0];
+
+        $changed = false;
+        foreach ($renames as $old_key => $new_key) {
+          if (array_key_exists($old_key, $attrs) && !array_key_exists($new_key, $attrs)) {
+            $attrs[$new_key] = $attrs[$old_key];
+            unset($attrs[$old_key]);
+            $changed = true;
+          }
+        }
+
+        if (!$changed) return $matches[0];
+
+        $new_json = wp_json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return str_replace($matches[1], $new_json, $matches[0]);
+      },
+      $content
+    );
   }
 }
 
