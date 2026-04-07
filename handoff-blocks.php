@@ -3,7 +3,7 @@
  * Plugin Name: Handoff Blocks
  * Plugin URI: https://handoff.com
  * Description: A collection of Gutenberg blocks built from the Handoff design system.
- * Version: 0.0.7
+ * Version: 0.0.8
  * Author: Brad Mering
  * Author URI: https://www.handoff.com
  * License: MIT
