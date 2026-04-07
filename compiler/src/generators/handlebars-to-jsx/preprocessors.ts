@@ -377,6 +377,47 @@ export const preprocessBlocks = (template: string, currentLoopArray?: string): s
     }
   }
   
+  // Process {{#unless (eq/ne/gt/lt/etc ...)}} blocks with helper expressions
+  // Reuse processIfBlock with a negated condition: !(parsedCondition)
+  const unlessHelperRegex = /\{\{#unless\s+(\([^)]+\))\s*\}\}/g;
+  let unlessHelperMatch;
+  while ((unlessHelperMatch = unlessHelperRegex.exec(result)) !== null) {
+    const startPos = unlessHelperMatch.index;
+    const openTagEnd = startPos + unlessHelperMatch[0].length;
+    const closePos = findMatchingClose(result, '{{#unless', '{{/unless}}', openTagEnd);
+
+    if (closePos !== -1) {
+      const helperExpr = unlessHelperMatch[1];
+      const parsedCondition = parseHelperExpression(helperExpr);
+      const condition = parsedCondition || helperExpr;
+      const negated = `!(${condition})`;
+      const inner = result.substring(openTagEnd, closePos);
+      const replacement = processIfBlock(negated, inner, startPos, unlessHelperMatch[0]);
+
+      result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/unless}}'.length);
+      unlessHelperRegex.lastIndex = startPos + replacement.length;
+    }
+  }
+
+  // Process {{#unless properties.xxx}} blocks (negation of if)
+  const unlessPropsRegex = /\{\{#unless\s+(properties\.[^}]+)\}\}/g;
+  let unlessPropsMatch;
+  while ((unlessPropsMatch = unlessPropsRegex.exec(result)) !== null) {
+    const startPos = unlessPropsMatch.index;
+    const openTagEnd = startPos + unlessPropsMatch[0].length;
+    const closePos = findMatchingClose(result, '{{#unless', '{{/unless}}', openTagEnd);
+
+    if (closePos !== -1) {
+      const condition = unlessPropsMatch[1];
+      const negated = `!(${condition})`;
+      const inner = result.substring(openTagEnd, closePos);
+      const replacement = processIfBlock(negated, inner, startPos, unlessPropsMatch[0]);
+
+      result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/unless}}'.length);
+      unlessPropsRegex.lastIndex = startPos + replacement.length;
+    }
+  }
+
   // Process {{#if this.xxx}} blocks (conditionals on loop item properties)
   const ifThisRegex = /\{\{#if\s+(this\.[^}]+)\}\}/g;
   let ifThisMatch;

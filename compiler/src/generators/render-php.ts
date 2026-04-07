@@ -246,6 +246,29 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     // Next exec from start of replacement so we catch nested {{#if}}...{{else if}}...{{/if}} inside it
     helperIfRegex.lastIndex = openPos;
   }
+
+  // VERY EARLY: Convert {{#unless (eq/ne ...)}} with else and without else
+  // #unless is the negation of #if, so we invert the condition.
+  php = php.replace(
+    /\{\{#unless\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/unless\}\}/g,
+    (_, helperExpr, unlessContent, elseContent) => {
+      const phpCondition = parseHelperVeryEarly(helperExpr);
+      if (phpCondition) {
+        return `<?php if (!(${phpCondition})) : ?>${unlessContent}<?php else : ?>${elseContent}<?php endif; ?>`;
+      }
+      return `<?php if (true) : ?>${unlessContent}<?php else : ?>${elseContent}<?php endif; ?>`;
+    }
+  );
+  php = php.replace(
+    /\{\{#unless\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{\/unless\}\}/g,
+    (_, helperExpr, unlessContent) => {
+      const phpCondition = parseHelperVeryEarly(helperExpr);
+      if (phpCondition) {
+        return `<?php if (!(${phpCondition})) : ?>${unlessContent}<?php endif; ?>`;
+      }
+      return `<?php if (true) : ?>${unlessContent}<?php endif; ?>`;
+    }
+  );
   
   // Convert style with handlebars expressions
   // Keep 'src' as-is to match Handoff's image property naming
@@ -566,7 +589,31 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       return `<?php if (false) : ?>${ifContent}<?php endif; ?>`;
     }
   );
-  
+
+  // Convert {{#unless (eq/ne ...)}} helper expressions with else EARLY
+  php = php.replace(
+    /\{\{#unless\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/unless\}\}/g,
+    (_, helperExpr, unlessContent, elseContent) => {
+      const phpCondition = parseHelperEarly(helperExpr);
+      if (phpCondition) {
+        return `<?php if (!(${phpCondition})) : ?>${unlessContent}<?php else : ?>${elseContent}<?php endif; ?>`;
+      }
+      return `<?php if (true) : ?>${unlessContent}<?php else : ?>${elseContent}<?php endif; ?>`;
+    }
+  );
+
+  // Convert {{#unless (eq/ne ...)}} helper expressions without else EARLY
+  php = php.replace(
+    /\{\{#unless\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{\/unless\}\}/g,
+    (_, helperExpr, unlessContent) => {
+      const phpCondition = parseHelperEarly(helperExpr);
+      if (phpCondition) {
+        return `<?php if (!(${phpCondition})) : ?>${unlessContent}<?php endif; ?>`;
+      }
+      return `<?php if (true) : ?>${unlessContent}<?php endif; ?>`;
+    }
+  );
+
   // IMPORTANT: Handle attribute-specific patterns FIRST before generic ones
   // Handle properties.xxx.yyy patterns FIRST, then alias patterns for loops
   
@@ -730,6 +777,20 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     `<?php if ($index === $_loop_count - 1) : ?>`
   );
   
+  // Convert {{#unless properties.xxx}} — negation of {{#if properties.xxx}}
+  php = php.replace(
+    /\{\{#unless\s+properties\.([\w.]+)\s*\}\}/g,
+    (_, propPath) => {
+      const parts = propPath.split('.');
+      const camelProp = toCamelCase(parts[0]);
+      if (parts.length === 1) {
+        return `<?php if (empty($${camelProp})) : ?>`;
+      }
+      const nestedAccess = parts.slice(1).map((p: string) => `['${p}']`).join('');
+      return `<?php if (empty($${camelProp}${nestedAccess})) : ?>`;
+    }
+  );
+
   php = php.replace(/\{\{\/unless\}\}/g, '<?php endif; ?>');
   
   // Convert {{#if this.xxx}} conditionals inside loops
@@ -884,7 +945,31 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       return `<?php if (false) : ?>${ifContent}<?php endif; ?>`;
     }
   );
-  
+
+  // Convert {{#unless (eq/ne/gt/lt/etc ...)}} helper expressions with if/else
+  php = php.replace(
+    /\{\{#unless\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/unless\}\}/g,
+    (_, helperExpr, unlessContent, elseContent) => {
+      const phpCondition = parseHelperToPhp(helperExpr);
+      if (phpCondition) {
+        return `<?php if (!(${phpCondition})) : ?>${unlessContent}<?php else : ?>${elseContent}<?php endif; ?>`;
+      }
+      return `<?php if (true) : ?>${unlessContent}<?php else : ?>${elseContent}<?php endif; ?>`;
+    }
+  );
+
+  // Convert {{#unless (eq/ne/gt/lt/etc ...)}} helper expressions without else
+  php = php.replace(
+    /\{\{#unless\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{\/unless\}\}/g,
+    (_, helperExpr, unlessContent) => {
+      const phpCondition = parseHelperToPhp(helperExpr);
+      if (phpCondition) {
+        return `<?php if (!(${phpCondition})) : ?>${unlessContent}<?php endif; ?>`;
+      }
+      return `<?php if (true) : ?>${unlessContent}<?php endif; ?>`;
+    }
+  );
+
   // Convert {{#if properties.xxx.yyy.zzz...}} conditionals with deeply nested paths
   // e.g., {{#if properties.left_column.cta.link}} -> <?php if (!empty($leftColumn['cta']['link'])) : ?>
   php = php.replace(
