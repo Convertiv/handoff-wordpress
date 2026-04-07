@@ -24,7 +24,7 @@ define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
  *
  * Priority:
  *   1. Explicit constant in wp-config.php  (always wins)
- *   2. Plugin directory itself — if blocks/ or build/ exist there (local dev / wp-env)
+ *   2. Plugin directory itself — if it contains actual compiled blocks (local dev / wp-env)
  *   3. WP_CONTENT_DIR . '/handoff'         (Composer installs)
  *
  * Override in wp-config.php if you want a different location:
@@ -32,11 +32,30 @@ define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
  *   define( 'HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff' );
  */
 if (!defined('HANDOFF_CONTENT_DIR')) {
-  if (is_dir(HANDOFF_BLOCKS_PATH . 'blocks') || is_dir(HANDOFF_BLOCKS_PATH . 'build')) {
+  if (handoff_has_local_blocks(HANDOFF_BLOCKS_PATH)) {
     define('HANDOFF_CONTENT_DIR', HANDOFF_BLOCKS_PATH);
   } else {
     define('HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff');
   }
+}
+
+/**
+ * Check whether a directory contains actual compiled block content
+ * (as opposed to just an empty blocks/ dir or the admin build output).
+ */
+function handoff_has_local_blocks(string $base): bool {
+  $dirs_to_check = ['blocks', 'build'];
+  foreach ($dirs_to_check as $sub) {
+    $dir = rtrim($base, '/') . '/' . $sub;
+    if (!is_dir($dir)) continue;
+    foreach (scandir($dir) as $item) {
+      if ($item === '.' || $item === '..' || $item === '.gitkeep' || $item === 'admin') continue;
+      if (is_dir($dir . '/' . $item) && file_exists($dir . '/' . $item . '/block.json')) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
