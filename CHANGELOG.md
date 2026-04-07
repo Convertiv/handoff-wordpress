@@ -2,6 +2,12 @@
 
 All notable changes to Handoff Blocks are documented here.
 
+
+## [0.0.6] - 2026-04-06
+
+### Changes
+* Removed git keep from blocks directory so the blocks dir doesnt' get created by default. This allows us to force normal failover to the shared directory.  
+
 ## [0.0.5] - 2026-04-06
 
 ### Added
