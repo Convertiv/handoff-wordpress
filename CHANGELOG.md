@@ -3,6 +3,13 @@
 All notable changes to Handoff Blocks are documented here.
 
 
+## [0.0.8] - 2026-04-07
+
+### Fixed
+
+- `{{#unless (eq ...)}}` and other `#unless` subexpressions now transpile correctly in both PHP (`render.php`) and JSX (`index.js`). Previously only `{{#unless @first}}` and `{{#unless @last}}` were handled; the general `{{#unless (eq/ne/gt/lt ...)}}` pattern leaked raw Handlebars into the output.
+- Content directory auto-detection no longer triggers on empty `blocks/` or `build/` directories. The check now requires actual block content (`block.json` files) and skips the `build/admin/` directory, fixing incorrect fallback behavior on Composer installs.
+
 ## [0.0.6] - 2026-04-06
 
 ### Changes
