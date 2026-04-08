@@ -196,7 +196,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
           branches[branches.length - 1].content = str.substring(contentStart, closest.pos);
           return { branches, closePos: closest.pos };
         }
-        pos = closest.pos + 8;
+        pos = closest.pos + 7; // '{{/if}}'.length === 7
       } else if ((closest.type === 'elseif' || closest.type === 'else') && depth === 1) {
         const tagLen = closest.type === 'elseif' ? (closest.tagLen ?? 0) : 8;
         branches[branches.length - 1].content = str.substring(contentStart, closest.pos);
@@ -242,7 +242,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     parts.push('<?php endif; ?>');
     const replacement = parts.join('');
 
-    php = php.substring(0, openPos) + replacement + php.substring(closePos + 8); // 8 = "{{/if}}"
+    php = php.substring(0, openPos) + replacement + php.substring(closePos + 7); // '{{/if}}'.length === 7
     // Next exec from start of replacement so we catch nested {{#if}}...{{else if}}...{{/if}} inside it
     helperIfRegex.lastIndex = openPos;
   }

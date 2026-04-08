@@ -2,6 +2,12 @@
 
 All notable changes to Handoff Blocks are documented here.
 
+## [0.0.13] - 2026-04-08
+
+### Fixed
+
+- Small bug in edge case if/else with eq
+
 ## [0.0.12] - 2026-04-08
 
 ### Added
