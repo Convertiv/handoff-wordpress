@@ -2,12 +2,17 @@
 
 All notable changes to Handoff Blocks are documented here.
 
-## [0.0.11] - 2026-04-07
+## [0.0.12] - 2026-04-08
 
-### Fixed
-- Fixing a bug where __dirname wasn't avaliable in ESM modules
+### Added
 
-## [0.0.10] - 2026-04-07
+- `compile --all` now generates a `package.json` in the content directory (`wp-content/handoff/`) and auto-runs `npm install` to provide block build dependencies (`@wordpress/*`, `@10up/block-components`, `@wordpress/scripts`). This lets users build blocks from their own project without manual dependency setup.
+
+## [0.0.11] - 2026-04-08
+
+- `__dirname is not defined` error in the ESM-bundled compiler — replaced with `process.argv[1]` which works in both CJS and ESM.
+
+## [0.0.10] - 2026-04-08
 
 ### Fixed
 
