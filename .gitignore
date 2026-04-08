@@ -2,9 +2,15 @@ node_modules
 .env
 .DS_Store
 
-# Compiler: track compiler/dist in git so clones can run `npm run compile`
-# without installing TypeScript or running `build:compiler`, unless you edit compiler/src/.
+# Compiler: track compiler/dist/compiler.mjs (the self-contained bundle) in git
+# so installs can run `wp handoff compile` without npm install or build steps.
+# Intermediate tsc output is not tracked — only the esbuild bundle matters.
 compiler/node_modules
+compiler/dist/index.js
+compiler/dist/index.unbundled.js
+compiler/dist/generators
+compiler/dist/validators
+compiler/dist/types.*
 
 # Generated blocks (rebuilt from Handoff API via compiler)
 blocks/*

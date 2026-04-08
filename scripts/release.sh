@@ -145,6 +145,15 @@ rsync -a \
   --exclude='.wp-env.override.json' \
   --exclude='compiler/src' \
   --exclude='compiler/node_modules' \
+  --exclude='compiler/tsconfig.json' \
+  --exclude='compiler/esbuild.config.mjs' \
+  --exclude='compiler/package.json' \
+  --exclude='compiler/package-lock.json' \
+  --exclude='compiler/dist/index.js' \
+  --exclude='compiler/dist/index.unbundled.js' \
+  --exclude='compiler/dist/generators' \
+  --exclude='compiler/dist/validators' \
+  --exclude='compiler/dist/types.*' \
   --exclude='uploads' \
   --exclude='*.plan.md' \
   --exclude='.cursor' \

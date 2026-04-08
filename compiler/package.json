@@ -5,15 +5,17 @@
   "license": "MIT",
   "author": "Brad Mering <brad@convertiv.com>",
   "type": "commonjs",
-  "main": "dist/index.js",
+  "main": "dist/compiler.mjs",
   "engines": {
     "node": ">=22.0.0"
   },
   "bin": {
-    "handoff-wordpress": "dist/index.js"
+    "handoff-wordpress": "dist/compiler.mjs"
   },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc && npm run bundle",
+    "build:types": "tsc",
+    "bundle": "node esbuild.config.mjs"
   },
   "dependencies": {
     "@prettier/plugin-php": "^0.22.2",
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.28.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.0.0"
   }

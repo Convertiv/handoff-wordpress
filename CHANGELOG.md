@@ -3,6 +3,16 @@
 All notable changes to Handoff Blocks are documented here.
 
 
+## [0.0.9] - 2026-04-08
+
+### Changed
+
+- Compiler is now bundled into a single self-contained file (`compiler/dist/compiler.mjs`) via esbuild. Users no longer need to run `npm install` in the plugin directory — Node.js on the PATH is the only requirement.
+
+### Fixed
+
+- `Cannot find module '@prettier/plugin-php'` error when running the compiler from a Composer install or release ZIP. All Node.js dependencies (Prettier, Handlebars, node-html-parser, Commander) are now inlined into the bundle.
+
 ## [0.0.8] - 2026-04-07
 
 ### Fixed

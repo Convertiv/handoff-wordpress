@@ -22,7 +22,7 @@ class Handoff_CLI {
    * Absolute path to the compiler entry point.
    */
   private function compiler_bin(): string {
-    return HANDOFF_BLOCKS_PATH . 'compiler/dist/index.js';
+    return HANDOFF_BLOCKS_PATH . 'compiler/dist/compiler.mjs';
   }
 
   /**

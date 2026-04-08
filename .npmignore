@@ -2,4 +2,14 @@ blocks
 build
 uploads
 compiler/src
+compiler/node_modules
+compiler/tsconfig.json
+compiler/esbuild.config.mjs
+compiler/package.json
+compiler/package-lock.json
+compiler/dist/index.js
+compiler/dist/index.unbundled.js
+compiler/dist/generators
+compiler/dist/validators
+compiler/dist/types.*
 theme
