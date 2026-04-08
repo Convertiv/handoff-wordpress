@@ -2,8 +2,13 @@
 
 All notable changes to Handoff Blocks are documented here.
 
+## [0.0.10] - 2026-04-07
 
-## [0.0.9] - 2026-04-08
+### Fixed
+
+- Shared components (`TaxonomySelector`, `PaginationSelector`, `LinkField`, `utils/`) are now copied to the output directory during `compile --all`, fixing `Module not found` errors when blocks live outside the plugin (e.g. `wp-content/handoff/`).
+
+## [0.0.9] - 2026-04-07
 
 ### Changed
 
@@ -23,7 +28,8 @@ All notable changes to Handoff Blocks are documented here.
 ## [0.0.6] - 2026-04-06
 
 ### Changes
-* Removed git keep from blocks directory so the blocks dir doesnt' get created by default. This allows us to force normal failover to the shared directory.  
+
+- Removed git keep from blocks directory so the blocks dir doesnt' get created by default. This allows us to force normal failover to the shared directory.
 
 ## [0.0.5] - 2026-04-06
 

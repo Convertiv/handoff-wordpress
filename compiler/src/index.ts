@@ -244,6 +244,24 @@ const formatCode = async (code: string, parser: 'babel' | 'json' | 'scss' | 'php
 const program = new Command();
 
 /**
+ * Recursively copy a directory tree, creating target dirs as needed.
+ */
+const copyDirRecursive = (src: string, dest: string): void => {
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(dest, { recursive: true });
+  }
+  for (const entry of fs.readdirSync(src)) {
+    const srcPath = path.join(src, entry);
+    const destPath = path.join(dest, entry);
+    if (fs.statSync(srcPath).isDirectory()) {
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+};
+
+/**
  * Download a file from a URL and save it to disk
  */
 const downloadFile = async (url: string, destPath: string, auth?: AuthCredentials): Promise<boolean> => {
@@ -892,32 +910,17 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
       console.log(`✅ Generated: ${categoriesPath}`);
     }
     
-    // Generate shared components if any component has dynamic array configs
-    const hasDynamicArraysInImport = Object.values(config.import).some(typeConfig => {
-      if (typeof typeConfig !== 'object') return false;
-      return Object.values(typeConfig).some(compConfig =>
-        typeof compConfig === 'object' && Object.keys(compConfig).length > 0
-      );
-    });
-    if (hasDynamicArraysInImport) {
-      console.log(`\n⚙️  Generating shared components...`);
-      const sharedComponents = generateSharedComponents();
-      
-      for (const [relativePath, content] of Object.entries(sharedComponents)) {
-        const fullPath = path.join(outputDir, '..', relativePath);
-        const dirPath = path.dirname(fullPath);
-        
-        // Ensure directory exists
-        if (!fs.existsSync(dirPath)) {
-          fs.mkdirSync(dirPath, { recursive: true });
-        }
-        
-        // Format and write the file
-        const formattedContent = await formatCode(content, 'babel');
-        fs.writeFileSync(fullPath, formattedContent);
-        console.log(`   📄 ${relativePath}`);
-      }
-      console.log(`✅ Shared components generated`);
+    // Copy shared components & utils to the output directory so blocks can
+    // resolve their ../../shared/... imports regardless of where they live.
+    const pluginRoot = path.resolve(__dirname, '..', '..');
+    const pluginSharedDir = path.join(pluginRoot, 'shared');
+    const targetSharedDir = path.join(outputDir, '..', 'shared');
+
+    if (fs.existsSync(pluginSharedDir) &&
+        path.resolve(pluginSharedDir) !== path.resolve(targetSharedDir)) {
+      console.log(`\n⚙️  Copying shared components...`);
+      copyDirRecursive(pluginSharedDir, targetSharedDir);
+      console.log(`✅ Shared components copied to ${targetSharedDir}`);
     }
     
     // Download main.css and main.js design system assets
