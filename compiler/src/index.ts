@@ -912,7 +912,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     
     // Copy shared components & utils to the output directory so blocks can
     // resolve their ../../shared/... imports regardless of where they live.
-    const pluginRoot = path.resolve(__dirname, '..', '..');
+    const pluginRoot = path.resolve(path.dirname(process.argv[1]), '..', '..');
     const pluginSharedDir = path.join(pluginRoot, 'shared');
     const targetSharedDir = path.join(outputDir, '..', 'shared');
 

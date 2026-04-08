@@ -2,6 +2,11 @@
 
 All notable changes to Handoff Blocks are documented here.
 
+## [0.0.11] - 2026-04-07
+
+### Fixed
+- Fixing a bug where __dirname wasn't avaliable in ESM modules
+
 ## [0.0.10] - 2026-04-07
 
 ### Fixed
