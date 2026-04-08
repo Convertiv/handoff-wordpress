@@ -1,6 +1,6 @@
 {
   "name": "@handoff/blocks",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Handoff WordPress plugin — Gutenberg blocks generated from your Handoff design system.",
   "license": "MIT",
   "author": "Brad Mering <brad@convertiv.com>",
