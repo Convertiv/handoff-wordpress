@@ -75,8 +75,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const preprocessed = preprocessBlocks(cleanedInner, propPath);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, loopContext);
-      innerJsx = postprocessJsx(innerJsx, loopContext, loopVarName);
-      
+      innerJsx = postprocessJsx(innerJsx, loopContext, loopVarName, innerBlocksField);
+
       // propPath can be "items" or "jumpNav.links" - use as-is for the map expression
       return `{${propPath} && ${propPath}.map((${loopVarName}, index) => (
         <Fragment key={index}>
@@ -106,8 +106,8 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const preprocessed = preprocessBlocks(cleanedInner, propPath);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, loopContext);
-      innerJsx = postprocessJsx(innerJsx, loopContext, 'item');
-      
+      innerJsx = postprocessJsx(innerJsx, loopContext, 'item', innerBlocksField);
+
       // propPath can be "items" or "jumpNav.links" - use as-is for the map expression
       return `{${propPath} && ${propPath}.map((item, index) => (
         <Fragment key={index}>
@@ -155,7 +155,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       innerJsx = innerJsx.replace(/\{item\./g, `{${nestedVar}.`);
       innerJsx = innerJsx.replace(/\{item\}/g, `{${nestedVar}}`);
       
-      innerJsx = postprocessJsx(innerJsx, nestedContext, nestedVar);
+      innerJsx = postprocessJsx(innerJsx, nestedContext, nestedVar, innerBlocksField);
       
       return `{${arrayRef} && ${arrayRef}.map((${nestedVar}, ${nestedIndex}) => (
         <Fragment key={${nestedIndex}}>
@@ -194,7 +194,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       innerJsx = innerJsx.replace(/\{item\./g, `{${nestedVar}.`);
       innerJsx = innerJsx.replace(/\{item\}/g, `{${nestedVar}}`);
 
-      innerJsx = postprocessJsx(innerJsx, nestedContext, nestedVar);
+      innerJsx = postprocessJsx(innerJsx, nestedContext, nestedVar, innerBlocksField);
 
       return `{${arrayRef} && ${arrayRef}.map((${nestedVar}, ${nestedIndex}) => (
         <Fragment key={${nestedIndex}}>
@@ -218,7 +218,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const cleanedInner = cleanTemplate(innerContent);
       const root = parseHTML(cleanedInner, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, expandContext);
-      innerJsx = postprocessJsx(innerJsx, expandContext, parentLoopVar);
+      innerJsx = postprocessJsx(innerJsx, expandContext, parentLoopVar, innerBlocksField);
       
       return `{index < ${arrayName}?.length - 1 && (
         <Fragment>
@@ -239,7 +239,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const cleanedInner = cleanTemplate(innerContent);
       const root = parseHTML(cleanedInner, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, context);
-      innerJsx = postprocessJsx(innerJsx, context, parentLoopVar);
+      innerJsx = postprocessJsx(innerJsx, context, parentLoopVar, innerBlocksField);
       
       // @first is true when index === 0, so unless @first means index !== 0
       return `{index !== 0 && (
@@ -264,7 +264,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const preprocessed = preprocessBlocks(cleanedInner);
       const root = parseHTML(preprocessed, { lowerCaseTagName: false, comment: false });
       let innerJsx = nodeToJsx(root, context);
-      innerJsx = postprocessJsx(innerJsx, context, parentLoopVar);
+      innerJsx = postprocessJsx(innerJsx, context, parentLoopVar, innerBlocksField);
       
       return `{${expr} && (
         <Fragment>
@@ -289,14 +289,14 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const preprocessedIf = preprocessBlocks(cleanedIf);
       const rootIf = parseHTML(preprocessedIf, { lowerCaseTagName: false, comment: false });
       let ifJsx = nodeToJsx(rootIf, context);
-      ifJsx = postprocessJsx(ifJsx, context, parentLoopVar);
+      ifJsx = postprocessJsx(ifJsx, context, parentLoopVar, innerBlocksField);
       
       // Parse else content
       const cleanedElse = cleanTemplate(elseContent);
       const preprocessedElse = preprocessBlocks(cleanedElse);
       const rootElse = parseHTML(preprocessedElse, { lowerCaseTagName: false, comment: false });
       let elseJsx = nodeToJsx(rootElse, context);
-      elseJsx = postprocessJsx(elseJsx, context, parentLoopVar);
+      elseJsx = postprocessJsx(elseJsx, context, parentLoopVar, innerBlocksField);
       
       return `{${expr} ? (
         <Fragment>
@@ -326,13 +326,13 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       const preprocessedIf = preprocessBlocks(cleanedIf);
       const rootIf = parseHTML(preprocessedIf, { lowerCaseTagName: false, comment: false });
       let ifJsx = nodeToJsx(rootIf, context);
-      ifJsx = postprocessJsx(ifJsx, context, parentLoopVar);
+      ifJsx = postprocessJsx(ifJsx, context, parentLoopVar, innerBlocksField);
       
       // The nested marker is already a preprocessed if/if-else/if-elseif marker
       // We need to parse it through HTML parser and process it
       const rootNested = parseHTML(nestedMarker, { lowerCaseTagName: false, comment: false });
       let nestedJsx = nodeToJsx(rootNested, context);
-      nestedJsx = postprocessJsx(nestedJsx, context, parentLoopVar);
+      nestedJsx = postprocessJsx(nestedJsx, context, parentLoopVar, innerBlocksField);
       
       // The nested JSX should be a conditional expression like {condition ? ... : ...}
       // We need to extract the inner part and chain it

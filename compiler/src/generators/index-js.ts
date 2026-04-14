@@ -520,9 +520,11 @@ const generateIndexJs = (
     .map(toCamelCase);
 
   // Include any attribute names referenced in the template but missing from API properties
-  // (e.g. body -> blockBody so JSX has a defined variable and no ReferenceError)
+  // (e.g. body -> blockBody so JSX has a defined variable and no ReferenceError).
+  // Skip the innerBlocksField — its content is stored via InnerBlocks, not as an attribute.
+  const innerBlocksAttrName = innerBlocksField ? toCamelCase(innerBlocksField) : null;
   for (const name of getTemplateReferencedAttributeNames(component.code)) {
-    if (!attrNames.includes(name)) attrNames.push(name);
+    if (!attrNames.includes(name) && name !== innerBlocksAttrName) attrNames.push(name);
   }
   
   // Add dynamic array attribute names based on config type

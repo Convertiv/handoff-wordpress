@@ -390,11 +390,16 @@ const generateBlockJson = (
     propTypeByAttr[toCamelCase(key)] = prop.type;
   }
 
+  // The innerBlocksField's camelCase name must be excluded from the safety net below,
+  // otherwise it gets re-added as a string attribute after being intentionally skipped.
+  const innerBlocksAttrName = innerBlocksField ? toCamelCase(innerBlocksField) : null;
+
   // Ensure any property referenced in the template has an attribute (API may omit from properties).
   // Skip properties whose type is excluded from block attributes (pagination, richtext used as InnerBlocks).
   const EXCLUDED_TYPES = new Set(['pagination']);
   for (const attrName of getTemplateReferencedAttributeNames(component.code)) {
     if (attrName in attributes) continue;
+    if (attrName === innerBlocksAttrName) continue;
     const propType = propTypeByAttr[attrName];
     if (propType && EXCLUDED_TYPES.has(propType)) continue;
     attributes[attrName] = { type: 'string', default: '' };
