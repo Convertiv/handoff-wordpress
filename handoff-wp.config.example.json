@@ -1,6 +1,6 @@
 {
   "apiUrl": "https://demo.handoff.com",
-  "output": "./demo/plugin",
+  "output": ".",
   "themeDir": "./demo/theme",
   "username": "",
   "password": "",

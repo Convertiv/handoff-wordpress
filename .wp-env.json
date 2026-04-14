@@ -1,7 +1,7 @@
 {
   "core": null,
   "phpVersion": "8.4",
-  "plugins": [".demo/plugin"],
+  "plugins": ["."],
   "themes": ["./demo/theme"],
   "config": {
     "WP_DEBUG": true,

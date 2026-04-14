@@ -175,22 +175,30 @@ class Handoff_CLI {
   }
 
   /**
-   * Write a handoff-wp.config.json that the Node compiler reads,
-   * merging wp_options config with migration overrides.
+   * Write a handoff-wp.config.json that the Node compiler reads.
+   *
+   * When a JSON config file already exists it is treated as the source of
+   * truth — only migration overrides are merged in. When no file exists
+   * the full resolved config from the database is written instead.
    */
   private function write_compiler_config(): void {
-    $config = $this->get_config();
+    $content_dir = $this->content_dir();
+    $config_path = $content_dir . '/handoff-wp.config.json';
+
+    if (file_exists($config_path)) {
+      $config = json_decode(file_get_contents($config_path), true) ?: [];
+    } else {
+      $config = $this->get_config();
+    }
 
     $overrides = get_option('handoff_migration_overrides', []);
     if (!empty($overrides) && is_array($overrides)) {
       $config['schemaMigrations'] = $overrides;
     }
 
-    $content_dir = $this->content_dir();
-    $config_path = $content_dir . '/handoff-wp.config.json';
     file_put_contents(
       $config_path,
-      json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+      json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
     );
   }
 

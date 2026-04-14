@@ -9,6 +9,16 @@ import {
 import apiFetch from '@wordpress/api-fetch';
 import ImportRulesEditor from './ImportRulesEditor';
 
+const configReadOnly =
+  typeof window !== 'undefined' &&
+  window.handoffAdmin &&
+  !!window.handoffAdmin.configReadOnly;
+
+const configSource =
+  typeof window !== 'undefined' &&
+  window.handoffAdmin &&
+  window.handoffAdmin.configSource;
+
 export default function SettingsTab() {
   const [config, setConfig] = useState(null);
   const [themes, setThemes] = useState([]);
@@ -102,6 +112,28 @@ export default function SettingsTab() {
 
   return (
     <div style={{ padding: '16px 0' }}>
+      {configReadOnly && (
+        <Notice
+          status="warning"
+          isDismissible={false}
+          style={{ marginBottom: 16 }}
+        >
+          Configuration is managed by <code>handoff-wp.config.json</code>. To
+          make changes, update the config file and redeploy.
+        </Notice>
+      )}
+
+      {!configReadOnly && configSource === 'json' && (
+        <Notice
+          status="info"
+          isDismissible={false}
+          style={{ marginBottom: 16 }}
+        >
+          Changes will be saved to both the database and{' '}
+          <code>handoff-wp.config.json</code>.
+        </Notice>
+      )}
+
       {notice && (
         <Notice
           status={notice.status}
@@ -122,6 +154,7 @@ export default function SettingsTab() {
               value={config?.apiUrl || ''}
               onChange={(val) => updateField('apiUrl', val)}
               help="The Handoff design system API URL."
+              disabled={configReadOnly}
             />
           </div>
           <div className="field-row">
@@ -130,6 +163,7 @@ export default function SettingsTab() {
               value={config?.username || ''}
               onChange={(val) => updateField('username', val)}
               help="Basic auth username (leave blank if none)."
+              disabled={configReadOnly}
             />
           </div>
           <div className="field-row">
@@ -139,6 +173,7 @@ export default function SettingsTab() {
               value={config?.password || ''}
               onChange={(val) => updateField('password', val)}
               help="Basic auth password."
+              disabled={configReadOnly}
             />
           </div>
         </div>
@@ -154,6 +189,7 @@ export default function SettingsTab() {
                 onChange={(val) => updateField('themeDir', val)}
                 help="Where compiled theme templates (header, footer, etc.) are written."
                 __nextHasNoMarginBottom
+                disabled={configReadOnly}
               />
             ) : (
               <TextControl
@@ -161,6 +197,7 @@ export default function SettingsTab() {
                 value={config?.themeDir || ''}
                 onChange={(val) => updateField('themeDir', val)}
                 help="Absolute path to the theme directory."
+                disabled={configReadOnly}
               />
             )}
           </div>
@@ -187,20 +224,25 @@ export default function SettingsTab() {
                 ]}
                 onChange={(val) => updateGroup(name, val)}
                 __nextHasNoMarginBottom
+                disabled={configReadOnly}
               />
-              <Button
-                variant="tertiary"
-                isDestructive
-                onClick={() => updateGroup(name, '__delete__')}
-                size="small"
-              >
-                Remove
-              </Button>
+              {!configReadOnly && (
+                <Button
+                  variant="tertiary"
+                  isDestructive
+                  onClick={() => updateGroup(name, '__delete__')}
+                  size="small"
+                >
+                  Remove
+                </Button>
+              )}
             </div>
           ))}
-          <Button variant="secondary" onClick={addGroup} size="small">
-            + Add Group
-          </Button>
+          {!configReadOnly && (
+            <Button variant="secondary" onClick={addGroup} size="small">
+              + Add Group
+            </Button>
+          )}
         </div>
 
         <div className="form-section">
@@ -208,17 +250,20 @@ export default function SettingsTab() {
           <ImportRulesEditor
             value={config?.import || {}}
             onChange={(updated) => updateField('import', updated)}
+            disabled={configReadOnly}
           />
         </div>
 
-        <Button
-          variant="primary"
-          onClick={handleSave}
-          disabled={saving}
-          isBusy={saving}
-        >
-          {saving ? 'Saving...' : 'Save Settings'}
-        </Button>
+        {!configReadOnly && (
+          <Button
+            variant="primary"
+            onClick={handleSave}
+            disabled={saving}
+            isBusy={saving}
+          >
+            {saving ? 'Saving...' : 'Save Settings'}
+          </Button>
+        )}
       </div>
     </div>
   );

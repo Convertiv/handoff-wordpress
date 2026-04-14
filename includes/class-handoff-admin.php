@@ -23,12 +23,57 @@ class Handoff_Admin {
   private const COMPONENTS_TTL = 3600; // 1 hour
   private const CONFIG_OPTION = 'handoff_config';
 
+  private static ?array $json_config_cache = null;
+
   public function __construct() {
     add_action('admin_menu', [$this, 'register_menu']);
     add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
     add_action('rest_api_init', [$this, 'register_rest_routes']);
-    add_action('admin_init', [$this, 'maybe_migrate_config_file']);
+    add_action('admin_init', [$this, 'sync_json_to_db']);
     add_action('admin_init', [$this, 'maybe_secure_content_dir']);
+  }
+
+  // ------------------------------------------------------------------
+  // JSON config file: source-of-truth helpers
+  // ------------------------------------------------------------------
+
+  /**
+   * Read config from the JSON file in HANDOFF_CONTENT_DIR.
+   *
+   * Returns the parsed array when the file exists and is valid JSON,
+   * or null when absent / unreadable. Result is cached for the request.
+   */
+  public static function get_json_config(): ?array {
+    if (self::$json_config_cache !== null) {
+      return self::$json_config_cache ?: null;
+    }
+
+    $path = rtrim(HANDOFF_CONTENT_DIR, '/') . '/handoff-wp.config.json';
+    if (file_exists($path)) {
+      $data = json_decode(file_get_contents($path), true);
+      if (is_array($data)) {
+        self::$json_config_cache = $data;
+        return $data;
+      }
+    }
+
+    self::$json_config_cache = [];
+    return null;
+  }
+
+  /**
+   * Whether a handoff-wp.config.json file exists in HANDOFF_CONTENT_DIR.
+   */
+  public static function has_json_config(): bool {
+    return self::get_json_config() !== null;
+  }
+
+  /**
+   * Config is read-only when a JSON file is the source of truth
+   * and the site is not running in a local/dev environment.
+   */
+  public static function is_config_readonly(): bool {
+    return self::has_json_config() && !handoff_is_dev_env();
   }
 
   /**
@@ -83,6 +128,8 @@ class Handoff_Admin {
 
     wp_localize_script('handoff-admin', 'handoffAdmin', [
       'canManageOptions' => current_user_can('manage_options'),
+      'configReadOnly'   => self::is_config_readonly(),
+      'configSource'     => self::has_json_config() ? 'json' : 'database',
     ]);
 
     wp_enqueue_style(
@@ -369,14 +416,15 @@ class Handoff_Admin {
   // ------------------------------------------------------------------
 
   /**
-   * Read the stored config, applying wp-config.php constant overrides.
+   * Read the resolved config.
+   *
+   * Merge order (last wins):
+   *   1. Hard-coded defaults
+   *   2. Database (wp_options)
+   *   3. JSON config file (handoff-wp.config.json in HANDOFF_CONTENT_DIR)
+   *   4. wp-config.php constants (always override)
    */
   public static function get_config(): array {
-    $config = get_option(self::CONFIG_OPTION, []);
-    if (!is_array($config)) {
-      $config = [];
-    }
-
     $defaults = [
       'apiUrl'   => '',
       'themeDir' => get_stylesheet_directory(),
@@ -385,7 +433,18 @@ class Handoff_Admin {
       'groups'   => new \stdClass(),
       'import'   => new \stdClass(),
     ];
-    $config = array_merge($defaults, $config);
+
+    $db_config = get_option(self::CONFIG_OPTION, []);
+    if (!is_array($db_config)) {
+      $db_config = [];
+    }
+
+    $config = array_merge($defaults, $db_config);
+
+    $json = self::get_json_config();
+    if ($json !== null) {
+      $config = array_merge($config, $json);
+    }
 
     // output is always HANDOFF_CONTENT_DIR/blocks — not configurable via UI
     $config['output'] = rtrim(HANDOFF_CONTENT_DIR, '/') . '/blocks';
@@ -408,6 +467,12 @@ class Handoff_Admin {
   }
 
   public function rest_save_config(\WP_REST_Request $request): \WP_REST_Response {
+    if (self::is_config_readonly()) {
+      return new \WP_REST_Response([
+        'error' => 'Configuration is managed by handoff-wp.config.json and cannot be edited in this environment.',
+      ], 403);
+    }
+
     $body = $request->get_json_params();
 
     if (empty($body) || !is_array($body)) {
@@ -425,6 +490,19 @@ class Handoff_Admin {
     if (defined('HANDOFF_API_PASSWORD')) unset($stored['password']);
 
     update_option(self::CONFIG_OPTION, $stored);
+
+    // In local/dev environments write changes back to the JSON file
+    // so they can be committed to version control.
+    if (handoff_is_dev_env() && self::has_json_config()) {
+      $json_stored = $stored;
+      unset($json_stored['output']);
+      $path = rtrim(HANDOFF_CONTENT_DIR, '/') . '/handoff-wp.config.json';
+      file_put_contents(
+        $path,
+        json_encode($json_stored, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
+      );
+      self::$json_config_cache = null;
+    }
 
     return new \WP_REST_Response(['success' => true, 'config' => self::get_config()]);
   }
@@ -571,7 +649,7 @@ class Handoff_Admin {
   }
 
   // ------------------------------------------------------------------
-  // One-time migration: import handoff-wp.config.json → wp_options
+  // Content directory security & JSON → DB sync
   // ------------------------------------------------------------------
 
   /**
@@ -635,24 +713,32 @@ XML;
     }
   }
 
-  public function maybe_migrate_config_file(): void {
-    if (get_option(self::CONFIG_OPTION) !== false) {
+  /**
+   * Keep the database in sync with the JSON config file.
+   *
+   * When a handoff-wp.config.json exists in HANDOFF_CONTENT_DIR the file
+   * is the source of truth. On every admin_init we compare the file
+   * contents to the stored option and update the DB when they differ.
+   *
+   * When no JSON file is present the DB option is left untouched (backward
+   * compatible with the old DB-only flow).
+   */
+  public function sync_json_to_db(): void {
+    $json = self::get_json_config();
+    if ($json === null) {
       return;
     }
 
-    $candidates = [
-      rtrim(HANDOFF_CONTENT_DIR, '/') . '/handoff-wp.config.json',
-      HANDOFF_BLOCKS_PATH . 'handoff-wp.config.json',
-    ];
+    $db_config = get_option(self::CONFIG_OPTION, []);
+    if (!is_array($db_config)) {
+      $db_config = [];
+    }
 
-    foreach ($candidates as $path) {
-      if (file_exists($path)) {
-        $data = json_decode(file_get_contents($path), true);
-        if (is_array($data)) {
-          update_option(self::CONFIG_OPTION, $data);
-          return;
-        }
-      }
+    $json_hash = md5(wp_json_encode($json));
+    $db_hash   = md5(wp_json_encode($db_config));
+
+    if ($json_hash !== $db_hash) {
+      update_option(self::CONFIG_OPTION, $json);
     }
   }
   // ------------------------------------------------------------------

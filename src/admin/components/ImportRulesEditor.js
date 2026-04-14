@@ -544,7 +544,7 @@ function TypeSection({ typeKey, components, importConfig, onChangeImport, taxono
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function ImportRulesEditor({ value, onChange }) {
+export default function ImportRulesEditor({ value, onChange, disabled }) {
   const [components, setComponents] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -658,16 +658,22 @@ export default function ImportRulesEditor({ value, onChange }) {
 
   const typeKeys = Object.keys(grouped).sort();
 
+  const disabledStyle = disabled
+    ? { pointerEvents: 'none', opacity: 0.6 }
+    : undefined;
+
   return (
-    <div className="handoff-import-editor">
+    <div className="handoff-import-editor" style={disabledStyle}>
       <div className="import-editor-toolbar">
         <p className="help-text">
           All components are imported by default. Toggle individual components off to
           skip them, or expand to configure dynamic array fields.
         </p>
-        <Button variant="tertiary" size="small" onClick={handleRefresh}>
-          Refresh from API
-        </Button>
+        {!disabled && (
+          <Button variant="tertiary" size="small" onClick={handleRefresh}>
+            Refresh from API
+          </Button>
+        )}
       </div>
       {typeKeys.map((typeKey) => (
         <TypeSection
