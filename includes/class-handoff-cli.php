@@ -223,7 +223,7 @@ class Handoff_CLI {
 
     $this->write_compiler_config();
 
-    $exit = $this->run($cmd);
+    $exit = $this->run($cmd, $this->content_dir());
 
     if ($exit === 0) {
       WP_CLI::success('Compilation finished.');
@@ -374,7 +374,7 @@ class Handoff_CLI {
       return;
     }
 
-    $exit = $this->run($cmd);
+    $exit = $this->run($cmd, $this->content_dir());
 
     if ($exit === 0) {
       WP_CLI::success('Validation passed.');
@@ -641,8 +641,8 @@ class Handoff_CLI {
       $cmd .= ' ' . escapeshellarg($args[0]);
     }
 
-    $exit = $this->run($cmd);
-
+    $exit = $this->run($cmd, $this->content_dir());
+    
     if ($exit !== 0) {
       WP_CLI::error('Wizard failed (exit code ' . $exit . ').');
     }
