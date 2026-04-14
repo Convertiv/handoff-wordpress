@@ -2,6 +2,13 @@
 
 All notable changes to Handoff Blocks are documented here.
 
+
+## [0.0.18]
+
+### Fixed
+
+- Config path read issue. Config paths are not correctly read if they aren't in the root directory.  This updates them to find them in the content directory proeprly. 
+
 ## [0.0.17]
 
 ### Improvement
