@@ -49,10 +49,10 @@ export const sanitizeReservedName = (name: string): string => {
 };
 
 /**
- * Convert snake_case to camelCase, sanitizing reserved words
+ * Convert snake_case or kebab-case to camelCase, sanitizing reserved words
  */
 export const toCamelCase = (str: string): string => {
-  const camelCased = str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  const camelCased = str.replace(/[-_]([a-z])/g, (_, letter) => letter.toUpperCase());
   return sanitizeReservedName(camelCased);
 };
 
@@ -65,7 +65,7 @@ export const toCamelCase = (str: string): string => {
 export const getTemplateReferencedAttributeNames = (template: string): string[] => {
   const names = new Set<string>();
   // Match `properties.xxx` anywhere (handles {{properties.x}}, {{#if properties.x}}, {{#each properties.x}}, etc.)
-  const propertiesRegex = /\bproperties\.([a-zA-Z_][a-zA-Z0-9_]*)/g;
+  const propertiesRegex = /\bproperties\.([a-zA-Z_][a-zA-Z0-9_-]*)/g;
   let m;
   while ((m = propertiesRegex.exec(template)) !== null) {
     names.add(toCamelCase(m[1]));

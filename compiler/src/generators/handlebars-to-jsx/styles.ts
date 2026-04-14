@@ -30,32 +30,25 @@ export const cssStringToReactObject = (cssStr: string): string => {
 };
 
 /**
- * Parse a CSS style string into a React style object string
+ * Convert a Handlebars property reference (e.g. "properties.overlay-opacity")
+ * to a camelCase JS variable, stripping the "properties." prefix.
+ */
+const resolvePropertyRef = (raw: string): string => {
+  let ref = raw.trim();
+  while (ref.startsWith('../')) ref = ref.substring(3);
+  if (ref.startsWith('properties.')) {
+    const parts = ref.replace('properties.', '').split('.');
+    const propName = toCamelCase(parts[0]);
+    return parts.length > 1 ? `${propName}?.${parts.slice(1).join('.')}` : propName;
+  }
+  return toCamelCase(ref);
+};
+
+/**
+ * Parse a CSS style string into a React style object string.
+ * Handles mixed static and dynamic (Handlebars) values per-property.
  */
 export const parseStyleToObject = (styleStr: string, context: TranspilerContext): string => {
-  // Check for handlebars expressions in the style
-  if (styleStr.includes('{{')) {
-    // Handle background-image with handlebars
-    if (styleStr.includes('background-image')) {
-      const match = styleStr.match(/background-image:\s*url\(['"]?\{\{\s*properties\.(\w+)\.(\w+)\s*\}\}['"]?\)/);
-      if (match) {
-        const [, prop, field] = match;
-        const camelProp = toCamelCase(prop);
-        // Keep 'src' as-is to match Handoff's image property naming
-        return `{{ backgroundImage: ${camelProp}?.${field} ? \`url('\${${camelProp}.${field}}')\` : undefined }}`;
-      }
-    }
-    
-    // Handle opacity with handlebars — preserve the expression as-is
-    if (styleStr.includes('opacity')) {
-      const opacityMatch = styleStr.match(/opacity:\s*\{\{\s*(.+?)\s*\}\}/);
-      if (opacityMatch) {
-        return `{{ opacity: ${opacityMatch[1]} }}`;
-      }
-    }
-  }
-  
-  // Parse static styles
   const styles = styleStr.split(';')
     .filter(s => s.trim())
     .map(s => {
@@ -64,23 +57,40 @@ export const parseStyleToObject = (styleStr: string, context: TranspilerContext)
       const prop = s.substring(0, colonIndex).trim();
       const val = s.substring(colonIndex + 1).trim();
       const camelProp = cssToCamelCase(prop);
-      
+
+      // background-image with a Handlebars image property reference
+      if (prop === 'background-image') {
+        const bgMatch = val.match(/url\(['"]?\{\{\s*(.+?)\s*\}\}['"]?\)/);
+        if (bgMatch) {
+          const ref = resolvePropertyRef(bgMatch[1]);
+          // Two-part refs like background.src → conditional with template literal
+          if (ref.includes('?.')) {
+            return `backgroundImage: ${ref} ? \`url('\${${ref}}')\` : undefined`;
+          }
+          return `backgroundImage: ${ref} ? \`url('\${${ref}}')\` : undefined`;
+        }
+      }
+
+      // Value is a simple Handlebars expression → resolve to JS variable
+      const hbsMatch = val.match(/^\{\{\s*(.+?)\s*\}\}$/);
+      if (hbsMatch) {
+        return `${camelProp}: ${resolvePropertyRef(hbsMatch[1])}`;
+      }
+
       // Numeric values don't need quotes
       if (/^-?\d+(\.\d+)?$/.test(val)) {
         return `${camelProp}: ${val}`;
       }
-      
-      // If value contains single quotes (like url('...')), use double quotes for the wrapper
-      // or escape the inner single quotes
+
+      // If value contains single quotes (like url('...')), use double quotes
       if (val.includes("'")) {
-        // Use double quotes to wrap the value
         return `${camelProp}: "${val}"`;
       }
-      
+
       return `${camelProp}: '${val}'`;
     })
     .filter(Boolean)
     .join(', ');
-  
+
   return `{{ ${styles} }}`;
 };

@@ -9,6 +9,7 @@ import { TranspilerContext } from './types';
  */
 export declare const cssStringToReactObject: (cssStr: string) => string;
 /**
- * Parse a CSS style string into a React style object string
+ * Parse a CSS style string into a React style object string.
+ * Handles mixed static and dynamic (Handlebars) values per-property.
  */
 export declare const parseStyleToObject: (styleStr: string, context: TranspilerContext) => string;

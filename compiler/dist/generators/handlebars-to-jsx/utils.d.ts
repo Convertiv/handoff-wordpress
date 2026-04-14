@@ -11,7 +11,7 @@ export declare const isReservedWord: (name: string) => boolean;
  */
 export declare const sanitizeReservedName: (name: string) => string;
 /**
- * Convert snake_case to camelCase, sanitizing reserved words
+ * Convert snake_case or kebab-case to camelCase, sanitizing reserved words
  */
 export declare const toCamelCase: (str: string) => string;
 /**

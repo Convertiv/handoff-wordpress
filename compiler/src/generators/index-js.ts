@@ -53,14 +53,21 @@ ${indent}/>`;
       // richtext uses InnerBlocks on the canvas – no sidebar control needed
       return '';
 
-    case 'number':
+    case 'number': {
+      const isDecimal = /opacity|alpha|ratio/i.test(fieldKey) ||
+        (typeof property.default === 'number' && property.default > 0 && property.default <= 1);
+      const rangeMin = isDecimal ? 0 : 0;
+      const rangeMax = isDecimal ? 1 : 100;
+      const rangeStep = isDecimal ? 0.01 : 1;
       return `${indent}<RangeControl
 ${indent}  label={__('${label}', 'handoff')}
 ${indent}  value={${valueAccessor} || 0}
 ${indent}  onChange={(value) => ${onChangeHandler('value')}}
-${indent}  min={0}
-${indent}  max={100}
+${indent}  min={${rangeMin}}
+${indent}  max={${rangeMax}}
+${indent}  step={${rangeStep}}
 ${indent}/>`;
+    }
 
     case 'boolean':
       return `${indent}<ToggleControl
