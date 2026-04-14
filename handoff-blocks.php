@@ -165,11 +165,16 @@ function handoff_fix_block_asset_urls($url, $path, $plugin) {
   $content_dir = wp_normalize_path(rtrim(HANDOFF_CONTENT_DIR, '/'));
   $plugin_norm = wp_normalize_path($plugin);
 
-  if (strpos($plugin_norm, $content_dir . '/') !== 0) {
+  $content_dir_real = wp_normalize_path(rtrim(realpath(HANDOFF_CONTENT_DIR) ?: HANDOFF_CONTENT_DIR, '/'));
+
+  if (strpos($plugin_norm, $content_dir . '/') === 0) {
+    $relative_dir = substr(dirname($plugin_norm), strlen($content_dir));
+  } elseif (strpos($plugin_norm, $content_dir_real . '/') === 0) {
+    $relative_dir = substr(dirname($plugin_norm), strlen($content_dir_real));
+  } else {
     return $url;
   }
 
-  $relative_dir = substr(dirname($plugin_norm), strlen($content_dir));
   $content_url  = rtrim(HANDOFF_CONTENT_URL, '/');
 
   return $content_url . $relative_dir . '/' . ltrim(wp_normalize_path($path), '/');
