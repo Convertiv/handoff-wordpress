@@ -2,6 +2,41 @@
 
 All notable changes to Handoff Blocks are documented here.
 
+## [0.0.16]
+
+### Fixed
+
+- **Kebab-case property names** — `toCamelCase` now converts both hyphens and underscores (e.g. `overlay-opacity` → `overlayOpacity`). Previously only underscores were handled, causing runtime `ReferenceError` when Handoff properties used kebab-case naming.
+- **Style attribute transpilation** — Rewrote the inline style parser to handle any CSS property with a Handlebars expression generically, instead of brittle per-property handlers. Fixes `properties.overlayOpacity` leaking into generated JSX instead of the resolved variable name.
+- **`RangeControl` for decimal number properties** — Number fields whose names contain "opacity", "alpha", or "ratio" (or whose defaults are between 0–1) now generate a slider with `min=0 / max=1 / step=0.01` instead of the default integer 0–100 range.
+- **Template-referenced attribute regex** — `getTemplateReferencedAttributeNames` now matches hyphenated property paths like `properties.overlay-opacity`, ensuring they are included in block attribute destructuring.
+
+## [0.0.15] - 2026-04-13
+
+### Fixed
+
+- **Block asset URLs with symlinks** — When `HANDOFF_CONTENT_DIR` is a symlink (e.g. Docker bind mounts), PHP's `realpath()` resolves the target when reading `block.json`, causing the `plugins_url` filter to miss the match. Added a `realpath()` fallback so the filter matches both the symlink path and the resolved path, fixing broken editor script URLs that prevented blocks from appearing in Gutenberg.
+
+## [0.0.14] - 2026-04-13
+
+### Added
+
+- **Static screenshot previews** in the block inserter — blocks with screenshots from the Handoff API now display a static image in the inserter preview instead of attempting a live render. Uses a `__preview` attribute and `example` metadata in `block.json`.
+- **Unique SVG block icons** — Each block gets a generated SVG icon with colored background (hashed from group name) and 1–2 letter initials from the block title, replacing the generic `admin-customizer` dashicon.
+- **Config source of truth reconciliation** — `handoff-wp.config.json` now takes precedence over database settings. The JSON config syncs to `wp_options` on `admin_init`, and the admin UI shows a read-only notice when the JSON file is present.
+
+### Changed
+
+- **`wp-env` local development** — Block sources and theme moved to `wp-content/handoff/` and `wp-content/theme/` to mirror production layout. Added Docker volume mapping and nested content directory detection.
+- **Dynamic plugin version** — `HANDOFF_BLOCKS_VERSION` now reads from `composer.json` instead of a hardcoded constant.
+- **Webpack always builds admin** — Admin dashboard entry is always included in the webpack build, with an `afterEmit` hook to copy it back to the plugin root when building from an external content directory.
+- Removed bundled demo theme and assets from the plugin root (moved to `wp-content/` for local dev).
+
+### Fixed
+
+- **InnerBlocks not used for single-richtext fields** — The compiler's safety-net logic (`getTemplateReferencedAttributeNames`) was re-adding the designated `innerBlocksField` as a standard string attribute, causing `RichText` to be used instead of `InnerBlocks`. Now explicitly skips the inner blocks field in both `block-json.ts` and `index-js.ts`.
+- **InnerBlocks inside conditionals** — `postprocessJsx` recursive calls were not passing `innerBlocksField`, so richtext fields inside `{{#if}}` / `{{#each}}` branches were never substituted with `<InnerBlocks>`. All 11 recursive call sites now propagate the parameter.
+
 ## [0.0.13] - 2026-04-08
 
 ### Fixed
