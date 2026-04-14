@@ -2,7 +2,7 @@
   "core": null,
   "phpVersion": "8.4",
   "plugins": ["."],
-  "themes": ["./demo/theme"],
+  "themes": ["./wp-content/theme"],
   "config": {
     "WP_DEBUG": true,
     "WP_DEBUG_LOG": true,
@@ -10,6 +10,6 @@
     "SCRIPT_DEBUG": true
   },
   "mappings": {
-    "wp-content/uploads": "./uploads"
+    "wp-content/uploads": "./wp-content/uploads"
   }
 }

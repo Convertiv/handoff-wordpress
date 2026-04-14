@@ -1,7 +1,7 @@
 {
   "apiUrl": "https://demo.handoff.com",
-  "output": ".",
-  "themeDir": "./demo/theme",
+  "output": "wp-content/handoff/blocks",
+  "themeDir": "./wp-content/theme",
   "username": "",
   "password": "",
 

@@ -6,7 +6,7 @@ const CopyPlugin = require('copy-webpack-plugin');
 // When HANDOFF_CONTENT_DIR env var is set (Composer installs, `wp handoff build`),
 // block sources and build output point to the external content directory.
 // When unset, everything stays within the plugin root (development / self-contained mode).
-const contentDir = process.env.HANDOFF_CONTENT_DIR || __dirname;
+const contentDir = process.env.HANDOFF_CONTENT_DIR || 'wp-content/handoff';
 const isExternalContent = contentDir !== __dirname;
 
 const blocksDir = path.resolve(contentDir, 'blocks');

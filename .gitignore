@@ -13,6 +13,7 @@ compiler/dist/validators
 compiler/dist/types.*
 
 demo
+wp-content
 
 # Generated blocks (rebuilt from Handoff API via compiler)
 blocks/*
