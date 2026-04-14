@@ -12,6 +12,8 @@ compiler/dist/generators
 compiler/dist/validators
 compiler/dist/types.*
 
+demo
+
 # Generated blocks (rebuilt from Handoff API via compiler)
 blocks/*
 !blocks/.gitkeep

@@ -196,21 +196,6 @@ export const buildSupersetAttributes = (
   // Always add align
   attributes.align = { type: 'string', default: 'full' };
 
-  // Synthetic overlayOpacity when template uses overlay but component has no overlayOpacity property
-  // (single-block generator adds this in block-json; merged block must add it here and map for preview)
-  for (const variant of variants) {
-    const comp = variant.component;
-    if (!comp.code || !comp.code.includes('overlay')) continue;
-    const hasInProps = Object.keys(comp.properties || {}).some(
-      (k) => toCamelCase(k) === 'overlayOpacity' || k === 'overlayOpacity'
-    );
-    if (hasInProps) continue;
-    const variantCamel = variantIdToCamel(comp.id);
-    const attrName = variantCamel + 'OverlayOpacity';
-    attributes[attrName] = { type: 'number', default: 0.6 };
-    fieldMaps[comp.id]['overlayOpacity'] = attrName;
-  }
-
   return { attributes, fieldMaps };
 };
 
@@ -608,20 +593,6 @@ ${controlOutput}
       }
     }
 
-    // Synthetic overlay opacity panel (when template uses overlay but component has no overlayOpacity property)
-    if (fieldMap['overlayOpacity']) {
-      const mergedAttrName = fieldMap['overlayOpacity'];
-      panels.push(`              <PanelBody title={__('Overlay', 'handoff')} initialOpen={false}>
-                <RangeControl
-                  label={__('Overlay Opacity', 'handoff')}
-                  value={${mergedAttrName} ?? 0.6}
-                  onChange={(value) => setAttributes({ ${mergedAttrName}: value })}
-                  min={0}
-                  max={1}
-                  step={0.1}
-                />
-              </PanelBody>`);
-    }
 
     // Design System links panel (per-variant component URLs)
     let handoffUrl: string | undefined;
@@ -1292,12 +1263,6 @@ const generateVariantPhpFragment = (
     const defaultValue = getPhpDefaultValue(property);
     extractions.push(`$${origCamel} = isset($attributes['${mergedAttrName}']) ? $attributes['${mergedAttrName}'] : ${defaultValue};`);
   }
-  // Synthetic overlayOpacity (when template uses overlay but component has no overlayOpacity property)
-  if (fieldMap['overlayOpacity']) {
-    const mergedAttrName = fieldMap['overlayOpacity'];
-    extractions.push(`$overlayOpacity = isset($attributes['${mergedAttrName}']) ? $attributes['${mergedAttrName}'] : 0.6;`);
-  }
-
   // Dynamic array extraction for specialized array types (breadcrumbs, taxonomy, pagination)
   const dynArrayExtractions: string[] = [];
   if (variant.dynamicArrayConfigs) {

@@ -80,11 +80,6 @@ const generateReadme = (component: HandoffComponent): string => {
     attributeRows.push(`| \`${attrName}\` | ${type} | ${defaultVal} | ${description} |`);
   }
   
-  // Check for overlay
-  if (component.code.includes('overlay')) {
-    attributeRows.push('| `overlayOpacity` | number | `0.6` | Opacity of the overlay (0-1) |');
-  }
-  
   // Generate usage sections based on property types
   const usageSections: string[] = [];
   

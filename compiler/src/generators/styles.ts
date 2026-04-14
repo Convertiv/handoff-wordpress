@@ -23,7 +23,6 @@ import { HandoffComponent } from '../types';
 const generateEditorScss = (component: HandoffComponent): string => {
   const className = component.id.replace(/_/g, '-');
   const hasBackgroundImage = component.properties.background_image?.type === 'image';
-  const hasOverlay = component.code.includes('overlay');
 
   let scss = `// Editor-specific styles for ${component.title} block
 .${className}-editor-preview {

@@ -280,12 +280,6 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     }
   );
   
-  // Convert inline style with opacity
-  php = php.replace(
-    /style="opacity:\s*\.?\d+"/g,
-    'style="opacity: <?php echo esc_attr($overlayOpacity); ?>"'
-  );
-  
   // Track loop aliases for later reference conversion
   // Format: {{#each properties.xxx as |aliasName|}}
   const loopAliases: Record<string, string> = {};
@@ -1139,7 +1133,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
 /**
  * Generate attribute extraction code
  */
-const generateAttributeExtraction = (properties: Record<string, HandoffProperty>, hasOverlay: boolean, innerBlocksField?: string | null): string => {
+const generateAttributeExtraction = (properties: Record<string, HandoffProperty>, innerBlocksField?: string | null): string => {
   const extractions: string[] = [];
   
   for (const [key, property] of Object.entries(properties)) {
@@ -1152,11 +1146,6 @@ const generateAttributeExtraction = (properties: Record<string, HandoffProperty>
     const defaultValue = getPhpDefaultValue(property);
     
     extractions.push(`$${camelKey} = isset($attributes['${camelKey}']) ? $attributes['${camelKey}'] : ${defaultValue};`);
-  }
-  
-  // Add overlay opacity if detected
-  if (hasOverlay) {
-    extractions.push(`$overlayOpacity = isset($attributes['overlayOpacity']) ? $attributes['overlayOpacity'] : 0.6;`);
   }
   
   return extractions.join('\n');
@@ -1653,8 +1642,6 @@ const generateRenderPhp = (
   dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>,
   innerBlocksField?: string | null
 ): string => {
-  const hasOverlay = component.code.includes('overlay');
-
   // Only the innerBlocksField richtext uses $content (InnerBlocks);
   // other richtext fields are rendered from their string attributes.
   const richtextProps = new Set<string>();
@@ -1663,7 +1650,7 @@ const generateRenderPhp = (
     richtextProps.add(toCamelCase(innerBlocksField));
   }
 
-  const attributeExtraction = generateAttributeExtraction(component.properties, hasOverlay, innerBlocksField);
+  const attributeExtraction = generateAttributeExtraction(component.properties, innerBlocksField);
   const templatePhp = handlebarsToPhp(component.code, component.properties, richtextProps);
   
   // Generate dynamic array extraction code

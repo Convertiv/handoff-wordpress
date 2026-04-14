@@ -77,8 +77,6 @@ export const generateFallbackPreview = (
 ): string => {
   const className = componentId.replace(/_/g, '-');
   const hasBackgroundImage = properties.background_image?.type === 'image';
-  const hasOverlay = true;
-  
   let preview = `          <div className="${className}-editor-preview"`;
   
   if (hasBackgroundImage) {
@@ -90,11 +88,6 @@ export const generateFallbackPreview = (
             }}`;
   }
   preview += `>`;
-  
-  if (hasOverlay) {
-    preview += `
-            <div className="block-overlay" style={{ opacity: overlayOpacity || 0.6 }}></div>`;
-  }
   
   preview += `
             <div className="block-content">

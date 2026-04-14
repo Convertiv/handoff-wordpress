@@ -46,9 +46,12 @@ export const parseStyleToObject = (styleStr: string, context: TranspilerContext)
       }
     }
     
-    // Handle opacity with handlebars
+    // Handle opacity with handlebars — preserve the expression as-is
     if (styleStr.includes('opacity')) {
-      return `{{ opacity: overlayOpacity || 0.6 }}`;
+      const opacityMatch = styleStr.match(/opacity:\s*\{\{\s*(.+?)\s*\}\}/);
+      if (opacityMatch) {
+        return `{{ opacity: ${opacityMatch[1]} }}`;
+      }
     }
   }
   
@@ -61,11 +64,6 @@ export const parseStyleToObject = (styleStr: string, context: TranspilerContext)
       const prop = s.substring(0, colonIndex).trim();
       const val = s.substring(colonIndex + 1).trim();
       const camelProp = cssToCamelCase(prop);
-      
-      // Special handling for opacity - make it dynamic
-      if (prop === 'opacity') {
-        return `${camelProp}: overlayOpacity || 0.6`;
-      }
       
       // Numeric values don't need quotes
       if (/^-?\d+(\.\d+)?$/.test(val)) {

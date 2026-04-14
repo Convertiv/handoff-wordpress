@@ -400,11 +400,6 @@ const generateBlockJson = (
     attributes[attrName] = { type: 'string', default: '' };
   }
   
-  // Add overlay opacity if we detect a hero/subheader component
-  if (component.code.includes('overlay') && !attributes.overlayOpacity) {
-    attributes.overlayOpacity = { type: 'number', default: 0.6 };
-  }
-  
   // Add align attribute with default of 'full' for full-width blocks
   attributes.align = { type: 'string', default: 'full' };
   

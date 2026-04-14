@@ -511,15 +511,9 @@ const generateIndexJs = (
     }
   }
 
-  // Check for overlay in template
-  const hasOverlay = component.code.includes('overlay');
-  if (hasOverlay && !attrNames.includes('overlayOpacity')) {
-    attrNames.push('overlayOpacity');
-  }
-
   // Determine which components we need to import
   const needsMediaUpload = hasPropertyType('image');
-  const needsRangeControl = hasPropertyType('number') || hasOverlay;
+  const needsRangeControl = hasPropertyType('number');
   const needsToggleControl = hasPropertyType('boolean') || hasPropertyType('button');
   const needsSelectControl = hasPropertyType('select');
   const hasArrayProps = Object.values(properties).some(p => p.type === 'array');
@@ -753,21 +747,6 @@ ${generatePropertyControl(key, property)}
 ${generatePropertyControl(key, property)}
           </PanelBody>`);
     }
-  }
-
-  // Add overlay opacity panel if detected
-  if (hasOverlay && !properties.overlayOpacity) {
-    panels.push(`          {/* Overlay Panel */}
-          <PanelBody title={__('Overlay', 'handoff')} initialOpen={false}>
-            <RangeControl
-              label={__('Overlay Opacity', 'handoff')}
-              value={overlayOpacity || 0.6}
-              onChange={(value) => setAttributes({ overlayOpacity: value })}
-              min={0}
-              max={1}
-              step={0.1}
-            />
-          </PanelBody>`);
   }
 
   // Add Handoff design system links panel
