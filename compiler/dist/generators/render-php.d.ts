@@ -18,7 +18,7 @@ declare const handlebarsToPhp: (template: string, properties: Record<string, Han
 /**
  * Generate attribute extraction code
  */
-declare const generateAttributeExtraction: (properties: Record<string, HandoffProperty>, hasOverlay: boolean, innerBlocksField?: string | null) => string;
+declare const generateAttributeExtraction: (properties: Record<string, HandoffProperty>, innerBlocksField?: string | null) => string;
 /**
  * Build PHP array_map expression to reshape standard helper items into the
  * template's expected item shape.  Returns null when no reshaping is needed.

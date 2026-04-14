@@ -3,7 +3,7 @@
  */
 
 export { generateBlockJson, toBlockName, generateCategoriesPhp, groupToCategory } from './block-json';
-export { generateIndexJs, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl } from './index-js';
+export { generateIndexJs, generateSvgIcon, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl } from './index-js';
 export type { FieldContext } from './index-js';
 export { generateRenderPhp, handlebarsToPhp, arrayToPhp, getPhpDefaultValue, generateAttributeExtraction, buildReshapeJs, buildReshapePhp } from './render-php';
 export { generateEditorScss, generateStyleScss } from './styles';

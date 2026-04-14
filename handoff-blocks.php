@@ -14,10 +14,12 @@ if (!defined('ABSPATH')) {
   exit; // Exit if accessed directly
 }
 
-define('HANDOFF_BLOCKS_VERSION', '0.0.2');
 define('HANDOFF_BLOCKS_PATH', plugin_dir_path(__FILE__));
 define('HANDOFF_BLOCKS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
+
+$handoff_composer = json_decode(file_get_contents(HANDOFF_BLOCKS_PATH . 'composer.json'), true);
+define('HANDOFF_BLOCKS_VERSION', $handoff_composer['version'] ?? '0.0.0');
 
 /**
  * Resolve the content directory where project-specific blocks live.
@@ -25,15 +27,21 @@ define('HANDOFF_BLOCKS_URL', plugin_dir_url(__FILE__));
  * Priority:
  *   1. Explicit constant in wp-config.php  (always wins)
  *   2. Plugin directory itself — if it contains actual compiled blocks (local dev / wp-env)
- *   3. WP_CONTENT_DIR . '/handoff'         (Composer installs)
+ *   3. wp-content/handoff nested inside the plugin dir — covers the case where
+ *      the full repo (including wp-content/handoff/) is mounted as a plugin
+ *      in wp-env before the separate wp-content mapping takes effect
+ *   4. WP_CONTENT_DIR . '/handoff'         (Composer installs / production)
  *
  * Override in wp-config.php if you want a different location:
  *
  *   define( 'HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff' );
  */
 if (!defined('HANDOFF_CONTENT_DIR')) {
+  $handoff_nested = rtrim(HANDOFF_BLOCKS_PATH, '/') . '/wp-content/handoff';
   if (handoff_has_local_blocks(HANDOFF_BLOCKS_PATH)) {
     define('HANDOFF_CONTENT_DIR', HANDOFF_BLOCKS_PATH);
+  } elseif (is_dir($handoff_nested) && handoff_has_local_blocks($handoff_nested)) {
+    define('HANDOFF_CONTENT_DIR', $handoff_nested);
   } else {
     define('HANDOFF_CONTENT_DIR', WP_CONTENT_DIR . '/handoff');
   }

@@ -29,7 +29,7 @@ import { mapPropertyType, groupToCategory, toBlockName } from './block-json';
 import { generateRenderPhp, handlebarsToPhp, arrayToPhp, getPhpDefaultValue, generateDynamicArrayExtraction, generateBreadcrumbsArrayExtraction, generateTaxonomyArrayExtraction, generatePaginationArrayExtraction, buildReshapeJs } from './render-php';
 import { generateEditorScss, generateStyleScss } from './styles';
 import { generateMigrationSchema, MigrationSchema, MigrationPropertySchema, extractMigrationProperty } from './schema-json';
-import { toTitleCase, generateFieldControl, generateArrayControl } from './index-js';
+import { toTitleCase, generateFieldControl, generateArrayControl, generateSvgIcon } from './index-js';
 import type { FieldContext } from './index-js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -223,6 +223,13 @@ const chooseVariantIcon = (component: HandoffComponent): string => {
   if (group.includes('footer') || id.includes('footer')) return 'table-row-after';
   if (group.includes('header') || id.includes('header')) return 'table-row-before';
   return 'admin-customizer';
+};
+
+/**
+ * Generate an SVG icon code block for the group block's index.js.
+ */
+const generateGroupSvgIconCode = (groupTitle: string, groupSlug: string): string => {
+  return generateSvgIcon(groupTitle, groupSlug);
 };
 
 // ─── Merged block.json ──────────────────────────────────────────────────────
@@ -1009,6 +1016,8 @@ ${code}
     ? '\n' + variantMediaReplaceBlocks.join('\n')
     : '';
 
+  const svgIconStr = generateGroupSvgIconCode(groupTitle, groupSlug);
+
   const indexJsTemplate = `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
@@ -1022,8 +1031,13 @@ ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${anyHasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
 ${variantImportLines.join('\n')}
+const blockIcon = (
+  ${svgIconStr}
+);
+
 registerBlockType(metadata.name, {
   ...metadata,
+  icon: blockIcon,
   edit: ({ attributes, setAttributes, isSelected }) => {
     const blockProps = useBlockProps();
 ${anyUsesInnerBlocks || anyPreviewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}

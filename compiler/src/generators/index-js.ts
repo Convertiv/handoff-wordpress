@@ -433,16 +433,56 @@ const generateArrayHelpers = (properties: Record<string, HandoffProperty>): stri
 
 
 /**
+ * Deterministic hash of a string to a number in [0, max).
+ */
+const hashString = (str: string, max: number): number => {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return ((h % max) + max) % max;
+};
+
+/**
+ * Generate an SVG icon element string for use in registerBlockType.
+ * Creates a colored rounded rectangle with 1-2 letter initials derived
+ * from the block title, with the background color keyed to the group.
+ */
+const generateSvgIcon = (title: string, group: string): string => {
+  const GROUP_COLORS = [
+    '#5B21B6', '#0E7490', '#B45309', '#047857',
+    '#BE123C', '#4338CA', '#0369A1', '#A16207',
+    '#15803D', '#9333EA', '#C2410C', '#1D4ED8',
+    '#059669', '#7C3AED', '#DC2626', '#2563EB',
+  ];
+
+  const words = title.split(/[\s_-]+/).filter(Boolean);
+  const initials = words.length >= 2
+    ? (words[0][0] + words[1][0]).toUpperCase()
+    : (words[0]?.substring(0, 2) || 'HO').toUpperCase();
+
+  const color = GROUP_COLORS[hashString(group || title, GROUP_COLORS.length)];
+
+  return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="2" width="20" height="20" rx="4" fill="${color}" />
+      <text x="12" y="16.5" textAnchor="middle" fill="white" fontSize="10" fontFamily="-apple-system,BlinkMacSystemFont,sans-serif" fontWeight="600">${initials}</text>
+    </svg>`;
+};
+
+/**
  * Generate complete index.js file
  * @param component - The Handoff component data
  * @param dynamicArrayConfigs - Optional dynamic array configurations keyed by field name
  * @param innerBlocksField - The richtext field that uses InnerBlocks, or null if none
+ * @param deprecationsCode - Optional deprecation migration code
+ * @param hasScreenshot - Whether a screenshot.png is available for inserter preview
  */
 const generateIndexJs = (
   component: HandoffComponent,
   dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>,
   innerBlocksField?: string | null,
-  deprecationsCode?: string
+  deprecationsCode?: string,
+  hasScreenshot?: boolean
 ): string => {
   const blockName = toBlockName(component.id);
   const properties = component.properties;
@@ -1071,6 +1111,27 @@ ${imageFields.map(field => `          <MediaReplaceFlow
   // Import shared HandoffLinkField when preview uses link/button inline editing
   const linkFieldImport = previewUsesLinkField ? `import { HandoffLinkField } from '../../shared/components/LinkField';\n` : '';
 
+  // Screenshot import for inserter preview
+  const screenshotImport = hasScreenshot ? `import screenshotUrl from './screenshot.png';\n` : '';
+
+  // SVG icon for the block (unique per block, colored by group)
+  const svgIconStr = generateSvgIcon(component.title, component.group);
+  const svgIconCode = `const blockIcon = (
+  ${svgIconStr}
+);`;
+
+  // Inserter preview: show screenshot image instead of live-rendering
+  const previewEarlyReturn = hasScreenshot
+    ? `    if (attributes.__preview) {
+      return (
+        <div {...blockProps}>
+          <img src={screenshotUrl} alt={metadata.title} style={{ width: '100%', height: 'auto' }} />
+        </div>
+      );
+    }
+`
+    : '';
+
   return `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
@@ -1083,11 +1144,15 @@ import { ${elementImports.join(', ')} } from '@wordpress/element';
 ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${hasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
-${linkFieldImport}${deprecationsCode ? `${deprecationsCode}\n\n` : ''}registerBlockType(metadata.name, {
-  ...metadata,${deprecationsCode ? '\n  deprecated,' : ''}
+${screenshotImport}${linkFieldImport}
+${svgIconCode}
+
+${deprecationsCode ? `${deprecationsCode}\n\n` : ''}registerBlockType(metadata.name, {
+  ...metadata,
+  icon: blockIcon,${deprecationsCode ? '\n  deprecated,' : ''}
   edit: ({ attributes, setAttributes, isSelected }) => {
     const blockProps = useBlockProps();
-${useInnerBlocks || previewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
+${previewEarlyReturn}${useInnerBlocks || previewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
     const { ${attrNames.join(', ')} } = attributes;
 ${dynamicArrayResolutionCode}
 ${arrayHelpers}
@@ -1112,5 +1177,5 @@ ${useInnerBlocks || previewUsesInnerBlocks ? '    // InnerBlocks content must be
 `;
 };
 
-export { generateIndexJs, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl };
+export { generateIndexJs, generateSvgIcon, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl };
 export type { FieldContext };

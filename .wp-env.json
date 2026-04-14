@@ -10,6 +10,7 @@
     "SCRIPT_DEBUG": true
   },
   "mappings": {
-    "wp-content/uploads": "./wp-content/uploads"
+    "wp-content/uploads": "./wp-content/uploads",
+    "wp-content/handoff": "./wp-content/handoff"
   }
 }

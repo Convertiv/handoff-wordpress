@@ -483,7 +483,7 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
 
   return {
     blockJson: generateBlockJson(component, hasScreenshot, apiUrl, componentDynamicArrays, innerBlocksField),
-    indexJs: generateIndexJs(component, componentDynamicArrays, innerBlocksField, deprecationsCode),
+    indexJs: generateIndexJs(component, componentDynamicArrays, innerBlocksField, deprecationsCode, hasScreenshot),
     renderPhp: generateRenderPhp(component, componentDynamicArrays, innerBlocksField),
     editorScss: generateEditorScss(component),
     styleScss: generateStyleScss(component),

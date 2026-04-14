@@ -402,6 +402,11 @@ const generateBlockJson = (
   
   // Add align attribute with default of 'full' for full-width blocks
   attributes.align = { type: 'string', default: 'full' };
+
+  // Hidden flag used by the inserter preview to show a static screenshot
+  if (hasScreenshot) {
+    attributes.__preview = { type: 'boolean', default: false };
+  }
   
   const blockJson: BlockJsonOutput = {
     $schema: 'https://schemas.wp.org/trunk/block.json',
@@ -425,22 +430,12 @@ const generateBlockJson = (
     }
   };
   
-  // Build example attributes from the full preview values
-  // This provides realistic sample data for the block preview
-  const exampleAttributes: Record<string, any> = {};
-  for (const [key, property] of Object.entries(component.properties)) {
-    const attrName = toCamelCase(key);
-    const previewValue = genericPreviewValues[key];
-    if (previewValue !== undefined) {
-      exampleAttributes[attrName] = previewValue;
-    }
-  }
-  
-  // Add example with preview image if screenshot is available, or with full preview data
-  if (hasScreenshot || Object.keys(exampleAttributes).length > 0) {
+  // When a screenshot from the Handoff API is available, the inserter preview
+  // renders a static image instead of trying to live-render the block.
+  if (hasScreenshot) {
     blockJson.example = {
       viewportWidth: 1200,
-      attributes: exampleAttributes
+      attributes: { __preview: true }
     };
   }
   

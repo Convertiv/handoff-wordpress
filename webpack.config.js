@@ -40,13 +40,12 @@ blockFolders.forEach(block => {
   }
 });
 
-// Admin dashboard entry — only include when building inside the plugin dir.
-// Composer users get the admin pre-built in the release ZIP.
-if (!isExternalContent) {
-  const adminEntry = path.resolve(__dirname, 'src/admin/index.js');
-  if (fs.existsSync(adminEntry)) {
-    entry['admin/index'] = adminEntry;
-  }
+// Admin dashboard entry — always included. When building with an external
+// content dir the output lands in contentDir/build/admin/ and is then copied
+// back to the plugin's own build/admin/ (where PHP expects it).
+const adminEntry = path.resolve(__dirname, 'src/admin/index.js');
+if (fs.existsSync(adminEntry)) {
+  entry['admin/index'] = adminEntry;
 }
 
 if (Object.keys(entry).length === 0) {
@@ -151,6 +150,22 @@ module.exports = {
         patterns: copyPatterns,
       }),
     ] : []),
+    // When output.path is the external content dir, the admin bundle lands
+    // there too. Copy it back to the plugin root where PHP loads it from.
+    // This runs after webpack emits all files so the admin assets exist on disk.
+    ...(isExternalContent ? [{
+      apply(compiler) {
+        compiler.hooks.afterEmit.tapAsync('CopyAdminToPluginRoot', (_compilation, callback) => {
+          const src = path.resolve(contentDir, 'build/admin');
+          const dest = path.resolve(__dirname, 'build/admin');
+          if (fs.existsSync(src)) {
+            fs.mkdirSync(dest, { recursive: true });
+            fs.cpSync(src, dest, { recursive: true });
+          }
+          callback();
+        });
+      },
+    }] : []),
   ],
 };
 

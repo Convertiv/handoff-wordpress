@@ -88,8 +88,9 @@ Open **http://localhost:8888** — admin: **admin** / **password**
 | Mount | Path |
 |--------|------|
 | Plugin | `.` (this directory) |
-| Theme | `./theme` |
-| Uploads | `./uploads` |
+| Theme | `./wp-content/theme` |
+| Uploads | `./wp-content/uploads` |
+| Content | `./wp-content/handoff` (blocks, build, assets) |
 
 ### 6. Activate theme and plugin
 

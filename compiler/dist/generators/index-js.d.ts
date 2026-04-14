@@ -32,11 +32,19 @@ declare const generateArrayControl: (key: string, property: HandoffProperty, att
  */
 declare const generatePropertyControl: (key: string, property: HandoffProperty, indent?: string) => string;
 /**
+ * Generate an SVG icon element string for use in registerBlockType.
+ * Creates a colored rounded rectangle with 1-2 letter initials derived
+ * from the block title, with the background color keyed to the group.
+ */
+declare const generateSvgIcon: (title: string, group: string) => string;
+/**
  * Generate complete index.js file
  * @param component - The Handoff component data
  * @param dynamicArrayConfigs - Optional dynamic array configurations keyed by field name
  * @param innerBlocksField - The richtext field that uses InnerBlocks, or null if none
+ * @param deprecationsCode - Optional deprecation migration code
+ * @param hasScreenshot - Whether a screenshot.png is available for inserter preview
  */
-declare const generateIndexJs: (component: HandoffComponent, dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>, innerBlocksField?: string | null, deprecationsCode?: string) => string;
-export { generateIndexJs, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl };
+declare const generateIndexJs: (component: HandoffComponent, dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>, innerBlocksField?: string | null, deprecationsCode?: string, hasScreenshot?: boolean) => string;
+export { generateIndexJs, generateSvgIcon, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl };
 export type { FieldContext };
