@@ -83,6 +83,62 @@ class Handoff_CLI {
   }
 
   /**
+   * Log where the configuration was resolved from.
+   */
+  private function log_config_source(): void {
+    $content_dir = $this->content_dir();
+    $json_path   = $content_dir . '/handoff-wp.config.json';
+    $has_json    = file_exists($json_path);
+    $has_db      = get_option('handoff_config', false) !== false;
+
+    $checked_paths = [
+      HANDOFF_BLOCKS_PATH . 'handoff-wp.config.json',
+      $json_path,
+    ];
+    // Deduplicate in case content dir IS the plugin dir
+    $checked_paths = array_unique(array_map(function ($p) {
+      return rtrim(wp_normalize_path($p), '/');
+    }, $checked_paths));
+
+    WP_CLI::log('');
+    WP_CLI::log(WP_CLI::colorize('%B⚙  Configuration%n'));
+
+    if ($has_json) {
+      WP_CLI::log(WP_CLI::colorize('   Source: %gjson file%n'));
+      WP_CLI::log('   File:   ' . $json_path);
+      if ($has_db) {
+        WP_CLI::log('   Note:   Database config exists but JSON file takes precedence');
+      }
+    } elseif ($has_db) {
+      WP_CLI::log(WP_CLI::colorize('   Source: %ydatabase%n (wp_options → handoff_config)'));
+      WP_CLI::log('   Checked for JSON config at:');
+      foreach ($checked_paths as $p) {
+        WP_CLI::log('     ✗ ' . $p);
+      }
+    } else {
+      WP_CLI::log(WP_CLI::colorize('   Source: %rdefaults only%n — no config file or database entry found'));
+      WP_CLI::log('   Checked for JSON config at:');
+      foreach ($checked_paths as $p) {
+        WP_CLI::log('     ✗ ' . $p);
+      }
+    }
+
+    $constants = [];
+    if (defined('HANDOFF_API_URL'))      $constants[] = 'HANDOFF_API_URL';
+    if (defined('HANDOFF_API_USERNAME')) $constants[] = 'HANDOFF_API_USERNAME';
+    if (defined('HANDOFF_API_PASSWORD')) $constants[] = 'HANDOFF_API_PASSWORD';
+    if (defined('HANDOFF_CONTENT_DIR') && HANDOFF_CONTENT_DIR !== $content_dir) {
+      $constants[] = 'HANDOFF_CONTENT_DIR';
+    }
+    if (!empty($constants)) {
+      WP_CLI::log('   Overrides: ' . implode(', ', $constants) . ' (wp-config.php)');
+    }
+
+    WP_CLI::log('   Content:  ' . $content_dir);
+    WP_CLI::log('');
+  }
+
+  /**
    * Build the base compiler command, injecting config from the DB.
    *
    * CLI --flags passed by the user override DB values.
@@ -148,6 +204,8 @@ class Handoff_CLI {
    * @subcommand compile
    */
   public function compile($args, $assoc_args) {
+    $this->log_config_source();
+
     $cmd = $this->base_cmd($assoc_args);
 
     if (!empty($assoc_args['all'])) {
@@ -216,6 +274,8 @@ class Handoff_CLI {
    * @subcommand build
    */
   public function build($args, $assoc_args) {
+    $this->log_config_source();
+
     $content = $this->content_dir();
     $webpack_config = HANDOFF_BLOCKS_PATH . 'webpack.config.js';
 
@@ -301,6 +361,8 @@ class Handoff_CLI {
    * @subcommand validate
    */
   public function validate($args, $assoc_args) {
+    $this->log_config_source();
+
     $cmd = $this->base_cmd($assoc_args);
 
     if (!empty($assoc_args['all'])) {
@@ -431,13 +493,33 @@ class Handoff_CLI {
     // --- Source ---
     WP_CLI::log('');
     WP_CLI::log(WP_CLI::colorize('%B--- Source ---%n'));
-    $db_config = get_option('handoff_config', false);
-    $sources = [];
-    if ($db_config !== false) $sources[] = 'wp_options';
-    if (defined('HANDOFF_API_URL'))      $sources[] = 'HANDOFF_API_URL (wp-config.php)';
-    if (defined('HANDOFF_API_USERNAME')) $sources[] = 'HANDOFF_API_USERNAME (wp-config.php)';
-    if (defined('HANDOFF_API_PASSWORD')) $sources[] = 'HANDOFF_API_PASSWORD (wp-config.php)';
-    $this->config_line('Config from', implode(', ', $sources) ?: '(defaults only)');
+    $content_dir = $this->content_dir();
+    $json_path   = $content_dir . '/handoff-wp.config.json';
+    $has_json    = file_exists($json_path);
+    $has_db      = get_option('handoff_config', false) !== false;
+
+    if ($has_json) {
+      $this->config_line('Config from', 'json file (takes precedence)');
+      $this->config_line('JSON path', $json_path);
+    } elseif ($has_db) {
+      $this->config_line('Config from', 'database (wp_options → handoff_config)');
+    } else {
+      $this->config_line('Config from', '(defaults only)');
+    }
+
+    if (!$has_json) {
+      $checked = [HANDOFF_BLOCKS_PATH . 'handoff-wp.config.json', $json_path];
+      $checked = array_unique(array_map('wp_normalize_path', $checked));
+      $this->config_line('JSON checked', implode(', ', $checked));
+    }
+
+    $constants = [];
+    if (defined('HANDOFF_API_URL'))      $constants[] = 'HANDOFF_API_URL';
+    if (defined('HANDOFF_API_USERNAME')) $constants[] = 'HANDOFF_API_USERNAME';
+    if (defined('HANDOFF_API_PASSWORD')) $constants[] = 'HANDOFF_API_PASSWORD';
+    if (!empty($constants)) {
+      $this->config_line('Overrides', implode(', ', $constants) . ' (wp-config.php)');
+    }
 
     WP_CLI::log('');
   }

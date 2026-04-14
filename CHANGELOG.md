@@ -2,6 +2,12 @@
 
 All notable changes to Handoff Blocks are documented here.
 
+## [0.0.17]
+
+### Improvement
+
+- **Config Source Logging** All commands now report where the config is being pulled from and let developers reason about the config path
+
 ## [0.0.16]
 
 ### Fixed
