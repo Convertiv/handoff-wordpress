@@ -825,6 +825,13 @@ ${linkButtons.join('\n')}
   if (needsRangeControl) componentImports.push('RangeControl');
   if (needsToggleControl) componentImports.push('ToggleControl');
   if (anyHasDynamicArrays) componentImports.push('Spinner');
+  const anyHasRichtextInArray = variants.some((v) =>
+    Object.values(v.component.properties).some(p =>
+      p.type === 'array' && p.items?.properties &&
+      Object.values(p.items.properties).some(ip => ip.type === 'richtext')
+    )
+  );
+  if (anyHasRichtextInArray) componentImports.push('TextareaControl');
   componentImports.push('Flex');
   if (needsLinkControl || anyPreviewUsesLinkField) componentImports.push('Popover');
 
@@ -1288,6 +1295,7 @@ import { ${elementImportNames.join(', ')} } from '@wordpress/element';
 import {
   PanelBody,
   TextControl,
+  TextareaControl,
   Button,
   SelectControl,
   RangeControl,

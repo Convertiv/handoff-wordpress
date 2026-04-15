@@ -50,7 +50,16 @@ ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}/>`;
 
     case 'richtext':
-      // richtext uses InnerBlocks on the canvas – no sidebar control needed
+      // Inside an array item, InnerBlocks can't be used — provide a textarea
+      if (valueAccessor.startsWith('item.')) {
+        return `${indent}<TextareaControl
+${indent}  label={__('${label}', 'handoff')}
+${indent}  value={${valueAccessor} || ''}
+${indent}  onChange={(value) => ${onChangeHandler('value')}}
+${indent}  rows={4}
+${indent}/>`;
+      }
+      // Top-level richtext uses InnerBlocks on the canvas – no sidebar control needed
       return '';
 
     case 'number': {
@@ -598,6 +607,12 @@ const generateIndexJs = (
   if (needsSelectControl || hasDynamicArrays) componentImports.push('SelectControl');
   // Spinner for dynamic array loading state in editor preview
   if (hasDynamicArrays) componentImports.push('Spinner');
+  // TextareaControl: needed when richtext fields appear inside array items
+  const hasRichtextInArray = Object.values(properties).some(p =>
+    p.type === 'array' && p.items?.properties &&
+    Object.values(p.items.properties).some(ip => ip.type === 'richtext')
+  );
+  if (hasRichtextInArray) componentImports.push('TextareaControl');
 
   componentImports.push('Flex');
 

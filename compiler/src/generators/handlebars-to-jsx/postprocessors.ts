@@ -4,10 +4,105 @@
 
 import { parse as parseHTML } from 'node-html-parser';
 import { TranspilerContext, FieldInfo } from './types';
+import { HandoffProperty } from '../../types';
 import { toCamelCase } from './utils';
 import { transpileExpression } from './expression-parser';
 import { cleanTemplate, preprocessBlocks } from './preprocessors';
+import { lookupFieldType } from './field-lookup';
 import { nodeToJsx } from './node-converter';
+
+const AUTOWRAP_TYPES = new Set(['text', 'richtext']);
+
+/**
+ * Auto-wrap bare {{this.fieldName}} expressions inside loop content with
+ * editable-field-marker elements when the corresponding array item property
+ * is text or richtext. This makes array item fields inline-editable even
+ * when the Handoff API template omits explicit {{#field}} markers.
+ *
+ * Only wraps expressions that appear as direct text content between HTML tags
+ * (not inside attribute values).
+ */
+const autoWrapArrayFields = (
+  innerContent: string,
+  arrayPropPath: string,
+  properties: Record<string, HandoffProperty>,
+): string => {
+  const arrayProp = lookupArrayProperty(arrayPropPath, properties);
+  if (!arrayProp?.items?.properties) return innerContent;
+  const itemProps = arrayProp.items.properties;
+
+  let result = innerContent;
+
+  // Find {{this.fieldName}} or {{{this.fieldName}}} expressions that are NOT already
+  // inside {{#field}} markers and NOT inside HTML attribute values.
+  const thisFieldRegex = /\{\{\{?\s*this\.(\w+)\s*\}\}\}?/g;
+  let match;
+  const replacements: Array<{ start: number; end: number; fieldName: string; fieldType: string }> = [];
+
+  while ((match = thisFieldRegex.exec(result)) !== null) {
+    const fieldName = match[1];
+    const itemProp = itemProps[fieldName];
+    if (!itemProp || !AUTOWRAP_TYPES.has(itemProp.type)) continue;
+
+    // Skip if already wrapped in {{#field}}
+    const before = result.substring(Math.max(0, match.index - 200), match.index);
+    if (before.includes('{{#field') && !before.includes('{{/field}}')) continue;
+
+    // Skip if inside an attribute value (check for odd number of quotes before match)
+    const lastTagStart = result.lastIndexOf('<', match.index);
+    if (lastTagStart !== -1) {
+      const segment = result.substring(lastTagStart, match.index);
+      const segmentNoHbs = segment.replace(/\{\{[\s\S]*?\}\}/g, '');
+      const quoteCount = (segmentNoHbs.match(/"/g) || []).length;
+      if (quoteCount % 2 === 1) continue;
+    }
+
+    replacements.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      fieldName,
+      fieldType: itemProp.type,
+    });
+  }
+
+  // Apply replacements in reverse order to preserve positions
+  for (let i = replacements.length - 1; i >= 0; i--) {
+    const r = replacements[i];
+    const fieldPath = `${arrayPropPath}.${r.fieldName}`;
+    const fieldInfo = Buffer.from(JSON.stringify({
+      path: fieldPath,
+      type: r.fieldType,
+      content: `{{this.${r.fieldName}}}`,
+    })).toString('base64');
+    const marker = `<editable-field-marker data-field="${fieldInfo}"></editable-field-marker>`;
+    result = result.substring(0, r.start) + marker + result.substring(r.end);
+  }
+
+  return result;
+};
+
+/** Resolve an array property from a dot-path like "items" or "jumpNav.links" */
+const lookupArrayProperty = (
+  propPath: string,
+  properties: Record<string, HandoffProperty>,
+): HandoffProperty | null => {
+  const parts = propPath.split('.');
+  let current: Record<string, HandoffProperty> = properties;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const prop = current[part] || current[toCamelCase(part)];
+    if (!prop) return null;
+    if (i === parts.length - 1) return prop.type === 'array' ? prop : null;
+    if (prop.type === 'array' && prop.items?.properties) {
+      current = prop.items.properties;
+    } else if (prop.type === 'object' && prop.properties) {
+      current = prop.properties;
+    } else {
+      return null;
+    }
+  }
+  return null;
+};
 
 /**
  * Post-process to convert template literal markers back to actual template literals
@@ -59,6 +154,9 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       // Also handle {{#each alias.field}} without alias (less common but possible)
       const aliasEachNoAliasRegex = new RegExp(`\\{\\{#each\\s+${aliasName}\\.(\\w+(?:\\.\\w+)*)\\s*\\}\\}`, 'g');
       innerContent = innerContent.replace(aliasEachNoAliasRegex, '{{#each this.$1}}');
+
+      // Auto-wrap bare {{this.xxx}} text/richtext fields with editable markers
+      innerContent = autoWrapArrayFields(innerContent, propPath, context.properties);
       
       // Use the alias name from the Handlebars template as the loop variable
       const loopVarName = aliasName || 'item';
@@ -92,7 +190,11 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
   result = result.replace(
     /<loop-marker\s+(?:data-prop|dataProp)="([\w.]+)"\s+(?:data-type|dataType)="properties"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/loop-marker>)/gi,
     (_, propPath, encodedContent) => {
-      const innerContent = Buffer.from(encodedContent, 'base64').toString();
+      let innerContent = Buffer.from(encodedContent, 'base64').toString();
+
+      // Auto-wrap bare {{this.xxx}} text/richtext fields with editable markers
+      innerContent = autoWrapArrayFields(innerContent, propPath, context.properties);
+
       const loopContext: TranspilerContext = {
         ...context,
         loopVariable: 'item',
