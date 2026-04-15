@@ -811,11 +811,30 @@ const compileGroup = async (
 ): Promise<void> => {
   console.log(`\n🔀 Generating merged group block: ${groupSlug} (${groupComponents.length} variants)`);
   const variantInfos: VariantInfo[] = groupComponents.map((c) => buildVariantInfo(c, config));
-  const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos, apiUrl);
+
+  // Build variant screenshot map (which variants have images to download)
+  const variantScreenshots: Record<string, boolean> = {};
+  for (const comp of groupComponents) {
+    variantScreenshots[comp.id] = !!comp.image;
+  }
+
+  const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos, apiUrl, variantScreenshots);
   const groupBlockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const groupDir = path.join(outputDir, groupBlockName);
   if (!fs.existsSync(groupDir)) {
     fs.mkdirSync(groupDir, { recursive: true });
+  }
+
+  // Download variant screenshots
+  if (mergedBlock.variantScreenshotUrls) {
+    for (const [variantId, url] of Object.entries(mergedBlock.variantScreenshotUrls)) {
+      const screenshotPath = path.join(groupDir, `screenshot-${variantId}.png`);
+      console.log(`   📷 Downloading screenshot for variant ${variantId}...`);
+      const ok = await downloadFile(url, screenshotPath, auth);
+      if (!ok) {
+        variantScreenshots[variantId] = false;
+      }
+    }
   }
 
   const formattedBlockJson = await formatCode(mergedBlock.blockJson, 'json');

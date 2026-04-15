@@ -239,7 +239,10 @@ const generateMergedBlockJson = (
   groupTitle: string,
   variants: VariantInfo[],
   supersetAttrs: Record<string, GutenbergAttribute>,
+  variantScreenshots: Record<string, boolean>,
 ): string => {
+  const anyHasScreenshot = Object.values(variantScreenshots).some(Boolean);
+
   // Add handoffVariant discriminator
   const allAttributes: Record<string, GutenbergAttribute> = {
     handoffVariant: {
@@ -249,22 +252,33 @@ const generateMergedBlockJson = (
     ...supersetAttrs,
   };
 
+  if (anyHasScreenshot) {
+    allAttributes.__preview = { type: 'boolean', default: false };
+  }
+
   const blockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
   const variations = variants.map((v) => {
     const comp = v.component;
-    // Build initial attribute defaults for this variant
     const variantDefaults: Record<string, any> = { handoffVariant: comp.id };
-    return {
+    const variation: any = {
       name: comp.id,
       title: comp.title,
       description: (comp.description || '').replace(/\n\s+/g, ' ').trim(),
       attributes: variantDefaults,
       isActive: ['handoffVariant'],
-      // Only show in inserter; variation switching is done via the sidebar control only (no Transform to variation)
       scope: ['inserter'],
       icon: chooseVariantIcon(comp),
     };
+
+    if (variantScreenshots[comp.id]) {
+      variation.example = {
+        viewportWidth: 1200,
+        attributes: { handoffVariant: comp.id, __preview: true },
+      };
+    }
+
+    return variation;
   });
 
   const blockJson: any = {
@@ -289,6 +303,13 @@ const generateMergedBlockJson = (
     },
     variations,
   };
+
+  if (anyHasScreenshot) {
+    blockJson.example = {
+      viewportWidth: 1200,
+      attributes: { handoffVariant: variants[0].component.id, __preview: true },
+    };
+  }
 
   return JSON.stringify(blockJson, null, 2);
 };
@@ -356,6 +377,7 @@ const generateMergedIndexJs = (
   supersetAttrs: Record<string, GutenbergAttribute>,
   fieldMaps: Record<string, FieldMap>,
   apiUrl?: string,
+  variantScreenshots?: Record<string, boolean>,
 ): MergedIndexResult => {
   const blockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -1018,6 +1040,40 @@ ${code}
 
   const svgIconStr = generateGroupSvgIconCode(groupTitle, groupSlug);
 
+  // Build screenshot imports and lookup map for variant previews
+  const screenshotImportLines: string[] = [];
+  const screenshotMapEntries: string[] = [];
+  const anyVariantHasScreenshot = variantScreenshots && Object.values(variantScreenshots).some(Boolean);
+
+  if (anyVariantHasScreenshot && variantScreenshots) {
+    for (const v of variants) {
+      if (variantScreenshots[v.component.id]) {
+        const safeVar = 'screenshot_' + variantIdToCamel(v.component.id);
+        screenshotImportLines.push(`import ${safeVar} from './screenshot-${v.component.id}.png';`);
+        screenshotMapEntries.push(`  '${v.component.id}': ${safeVar}`);
+      }
+    }
+  }
+  const screenshotImports = screenshotImportLines.length > 0
+    ? screenshotImportLines.join('\n') + '\n'
+    : '';
+  const screenshotMapCode = screenshotMapEntries.length > 0
+    ? `const variantScreenshots = {\n${screenshotMapEntries.join(',\n')}\n};\n`
+    : '';
+  const previewGuard = anyVariantHasScreenshot
+    ? `    if (attributes.__preview) {
+      const screenshotSrc = variantScreenshots[handoffVariant];
+      if (screenshotSrc) {
+        return (
+          <div {...blockProps}>
+            <img src={screenshotSrc} alt={metadata.title} style={{ width: '100%', height: 'auto' }} />
+          </div>
+        );
+      }
+    }
+`
+    : '';
+
   const indexJsTemplate = `import { registerBlockType } from '@wordpress/blocks';
 import { 
   ${blockEditorImports.join(',\n  ')} 
@@ -1030,8 +1086,8 @@ import { ${elementImports.join(', ')} } from '@wordpress/element';
 ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${anyHasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
-${variantImportLines.join('\n')}
-const blockIcon = (
+${screenshotImports}${variantImportLines.join('\n')}
+${screenshotMapCode}const blockIcon = (
   ${svgIconStr}
 );
 
@@ -1042,6 +1098,7 @@ registerBlockType(metadata.name, {
     const blockProps = useBlockProps();
 ${anyUsesInnerBlocks || anyPreviewUsesInnerBlocks ? "    const CONTENT_BLOCKS = ['core/paragraph','core/heading','core/list','core/list-item','core/quote','core/image','core/separator','core/html','core/buttons','core/button'];" : ''}
     const { ${attrNamesList.join(', ')} } = attributes;
+${previewGuard}
 ${combinedDynamicCode}
 ${helpersObjectLine}
     return (
@@ -1448,8 +1505,10 @@ export const generateMergedBlock = (
   components: HandoffComponent[],
   variantInfos: VariantInfo[],
   apiUrl?: string,
+  variantScreenshots?: Record<string, boolean>,
 ): GeneratedBlock => {
   const groupTitle = toTitleCase(groupSlug);
+  const screenshots = variantScreenshots || {};
 
   const supersetResult = buildSupersetAttributes(variantInfos, groupSlug);
   const { attributes: supersetAttrs, fieldMaps } = supersetResult;
@@ -1461,6 +1520,7 @@ export const generateMergedBlock = (
     supersetAttrs,
     fieldMaps,
     apiUrl,
+    screenshots,
   );
 
   const variationPhp: Record<string, string> = {};
@@ -1468,14 +1528,26 @@ export const generateMergedBlock = (
     variationPhp[variant.component.id] = generateVariantPhpFragment(variant, fieldMaps);
   }
 
+  // Build variant screenshot URLs for the caller to download
+  const variantScreenshotUrls: Record<string, string> = {};
+  for (const comp of components) {
+    if (!comp.image) continue;
+    if (comp.image.startsWith('http://') || comp.image.startsWith('https://')) {
+      variantScreenshotUrls[comp.id] = comp.image;
+    } else if (apiUrl) {
+      variantScreenshotUrls[comp.id] = `${apiUrl}${comp.image.startsWith('/') ? '' : '/'}${comp.image}`;
+    }
+  }
+
   return {
-    blockJson: generateMergedBlockJson(groupSlug, groupTitle, variantInfos, supersetAttrs),
+    blockJson: generateMergedBlockJson(groupSlug, groupTitle, variantInfos, supersetAttrs, screenshots),
     indexJs,
     renderPhp: generateMergedRenderPhp(groupSlug, variantInfos, fieldMaps),
     editorScss: generateMergedEditorScss(variantInfos),
     styleScss: generateMergedStyleScss(variantInfos),
     readme: generateMergedReadme(groupSlug, groupTitle, variantInfos),
     migrationSchema: generateMergedMigrationSchema(groupSlug, groupTitle, variantInfos),
+    variantScreenshotUrls,
     variationFiles: {
       js: variationJs,
       php: variationPhp,

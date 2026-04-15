@@ -99,6 +99,8 @@ export interface GeneratedBlock {
   migrationSchema: string;
   schemaChangelog?: string;
   screenshotUrl?: string;
+  /** Per-variant screenshot URLs for merged group blocks (key = variant id) */
+  variantScreenshotUrls?: Record<string, string>;
   /** Per-variant include files for merged group blocks (key = variant id, e.g. 'hero-article') */
   variationFiles?: {
     js: Record<string, string>;

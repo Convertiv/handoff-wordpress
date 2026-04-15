@@ -84,12 +84,13 @@ const copyPatterns = blockFolders.flatMap(block => {
     });
   }
 
-  if (fs.existsSync(path.join(blockPath, 'screenshot.png'))) {
+  const screenshotFiles = fs.readdirSync(blockPath).filter(f => f.startsWith('screenshot') && f.endsWith('.png'));
+  screenshotFiles.forEach(file => {
     patterns.push({
-      from: path.join(blockPath, 'screenshot.png'),
-      to: path.join(block, 'screenshot.png'),
+      from: path.join(blockPath, file),
+      to: path.join(block, file),
     });
-  }
+  });
 
   const variationsDir = path.join(blockPath, 'variations');
   if (fs.existsSync(variationsDir)) {

@@ -34,5 +34,5 @@ export declare const buildSupersetAttributes: (variants: VariantInfo[], groupSlu
  * Generate a merged block for a group of components.
  * Variation markup is split into include files: variations/<variant-id>.js and variations/<variant-id>.php.
  */
-export declare const generateMergedBlock: (groupSlug: string, components: HandoffComponent[], variantInfos: VariantInfo[], apiUrl?: string) => GeneratedBlock;
+export declare const generateMergedBlock: (groupSlug: string, components: HandoffComponent[], variantInfos: VariantInfo[], apiUrl?: string, variantScreenshots?: Record<string, boolean>) => GeneratedBlock;
 export type { VariantInfo };
