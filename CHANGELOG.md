@@ -3,6 +3,17 @@
 All notable changes to Handoff Blocks are documented here.
 
 
+## [0.0.19]
+
+### Added
+
+- **Screenshot previews for grouped blocks** — Merged group blocks (e.g. Hero with multiple variations) now download per-variant screenshots and display them in the Gutenberg inserter. Each variation gets its own `example` with `__preview`, and the edit function renders the correct variant's screenshot. Webpack updated to copy all `screenshot-*.png` files.
+
+### Fixed
+
+- **Class attributes losing static text** — When a class attribute mixed static CSS classes with a Handlebars loop variable (e.g. `class="button button--md button--{{button.variant}}"`), the transpiler dropped the static parts and only emitted the dynamic expression. Now correctly generates a template literal preserving all classes (e.g. `` className={`button button--md button--${String(button.variant ?? '')}`} ``).
+- **Multiple `url()` in background-image** — The style parser only captured the first `url()` reference in `background-image` values, silently dropping subsequent ones. Now uses `matchAll` to handle any number of `url()` references, building an array that filters out empty sources and joins them correctly.
+
 ## [0.0.18]
 
 ### Fixed

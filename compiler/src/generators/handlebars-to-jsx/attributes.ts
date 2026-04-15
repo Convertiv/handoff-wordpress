@@ -196,6 +196,22 @@ export const convertAttributeValue = (
       return '${' + jsxProp + '}';
     });
   }
+
+  // Convert remaining {{this.xxx}} (loop item references via this)
+  if (result.includes('{{')) {
+    result = result.replace(/\{\{\s*this\.([^}]+)\s*\}\}/g, (_: string, prop: string) => {
+      isExpression = true;
+      return '${' + loopVar + '.' + prop.trim() + '}';
+    });
+  }
+
+  // Convert remaining general expressions (e.g. {{button.variant}}, {{item.label}})
+  if (result.includes('{{')) {
+    result = result.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)\s*\}\}/g, (_: string, prop: string) => {
+      isExpression = true;
+      return '${' + propToExpr(prop) + '}';
+    });
+  }
   
   return { jsxValue: result, isExpression };
 };

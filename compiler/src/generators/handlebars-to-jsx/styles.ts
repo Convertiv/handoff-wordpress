@@ -58,16 +58,14 @@ export const parseStyleToObject = (styleStr: string, context: TranspilerContext)
       const val = s.substring(colonIndex + 1).trim();
       const camelProp = cssToCamelCase(prop);
 
-      // background-image with a Handlebars image property reference
+      // background-image with Handlebars image property references (supports multiple url() values)
       if (prop === 'background-image') {
-        const bgMatch = val.match(/url\(['"]?\{\{\s*(.+?)\s*\}\}['"]?\)/);
-        if (bgMatch) {
-          const ref = resolvePropertyRef(bgMatch[1]);
-          // Two-part refs like background.src → conditional with template literal
-          if (ref.includes('?.')) {
-            return `backgroundImage: ${ref} ? \`url('\${${ref}}')\` : undefined`;
-          }
-          return `backgroundImage: ${ref} ? \`url('\${${ref}}')\` : undefined`;
+        const urlRegex = /url\(['"]?\{\{\s*(.+?)\s*\}\}['"]?\)/g;
+        const matches = [...val.matchAll(urlRegex)];
+        if (matches.length > 0) {
+          const refs = matches.map(m => resolvePropertyRef(m[1]));
+          const parts = refs.map(ref => `${ref} ? \`url('\${${ref}}')\` : null`);
+          return `backgroundImage: [${parts.join(', ')}].filter(Boolean).join(', ') || undefined`;
         }
       }
 
