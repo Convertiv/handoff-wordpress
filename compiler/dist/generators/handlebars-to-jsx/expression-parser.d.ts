@@ -9,6 +9,8 @@ import { TranspilerContext } from './types';
  * Replace every occurrence of ../properties.xxx (parent context) in an expression
  * with the JSX form (camelCase). Used for compound expressions like
  * {{../properties.columnCount === "three" ? 'a' : 'b'}} inside loops.
+ * Also handles @root.properties.xxx which is semantically equivalent to the
+ * root-context properties.xxx (standard Handlebars data variable).
  * Exported for use in attribute conversion.
  */
 export declare const resolveParentPropertiesInExpression: (expr: string) => string;

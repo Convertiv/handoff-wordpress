@@ -25,6 +25,8 @@ export const convertAttributeValue = (
   
   // Helper to parse Handlebars helper expressions like (eq properties.layout "layout-1")
   const parseHelper = (expr: string): string => {
+    // Normalize @root.properties.xxx to properties.xxx so the existing regex matches
+    expr = expr.replace(/@root\.properties\./g, 'properties.');
     // Match (eq left right) or (eq left "string")
     const eqMatch = expr.match(/^\(\s*eq\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
     if (eqMatch) {
@@ -54,8 +56,12 @@ export const convertAttributeValue = (
   
   // Helper to convert property reference or helper expression to JSX expression
   const propToExpr = (prop: string): string => {
-    // Resolve ../properties.xxx (parent context in loops) to top-level camelCase
+    // Resolve ../properties.xxx (parent context in loops) and @root.properties.xxx (root context) to top-level camelCase
     prop = resolveParentPropertiesInExpression(prop);
+    // Strip bare @root. prefix (e.g. @root.xxx, which resolves like xxx at root context)
+    if (prop.startsWith('@root.')) {
+      prop = prop.substring(6);
+    }
     // Check if it's a helper expression like (eq ...)
     if (prop.startsWith('(')) {
       const parsed = parseHelper(prop);
@@ -101,6 +107,12 @@ export const convertAttributeValue = (
     if (val.includes('{{')) {
       // Convert to template literal
       let expr = val;
+      // Handle @root.properties.xxx the same way as properties.xxx (root context access)
+      expr = expr.replace(/\{\{\s*@root\.properties\.([^}]+)\s*\}\}/g, (_: string, prop: string) => {
+        const parts = prop.trim().split('.');
+        const jsxProp = parts.map((p: string, i: number) => i === 0 ? toCamelCase(p) : p).join('?.');
+        return '${' + jsxProp + '}';
+      });
       expr = expr.replace(/\{\{\s*properties\.([^}]+)\s*\}\}/g, (_: string, prop: string) => {
         const parts = prop.trim().split('.');
         const jsxProp = parts.map((p: string, i: number) => i === 0 ? toCamelCase(p) : p).join('?.');
@@ -187,6 +199,16 @@ export const convertAttributeValue = (
     }
   );
   
+  // Also convert remaining {{@root.properties.xxx}} (root context access)
+  if (result.includes('{{')) {
+    result = result.replace(/\{\{\s*@root\.properties\.([^}]+)\s*\}\}/g, (_: string, prop: string) => {
+      isExpression = true;
+      const parts = prop.trim().split('.');
+      const jsxProp = parts.map((p: string, i: number) => i === 0 ? toCamelCase(p) : p).join('?.');
+      return '${' + jsxProp + '}';
+    });
+  }
+
   // Also convert remaining {{properties.xxx}}
   if (result.includes('{{')) {
     result = result.replace(/\{\{\s*properties\.([^}]+)\s*\}\}/g, (_: string, prop: string) => {
@@ -231,12 +253,17 @@ export const preprocessConditionalAttributes = (template: string): string => {
   
   let match;
   while ((match = condAttrRegex.exec(result)) !== null) {
-    const condition = match[1].trim();
+    let condition = match[1].trim();
     const attrName = match[2];
     const attrValue = match[3];
     const fullMatch = match[0];
     const startPos = match.index;
     
+    // Normalize @root.properties.xxx to properties.xxx (root context access)
+    if (condition.startsWith('@root.properties.')) {
+      condition = condition.replace(/^@root\./, '');
+    }
+
     // Convert condition to JSX expression
     let condExpr = condition;
     if (condition.startsWith('properties.')) {
@@ -249,8 +276,8 @@ export const preprocessConditionalAttributes = (template: string): string => {
     // Convert attribute value to JSX expression
     let valueExpr: string;
     if (attrValue.includes('{{')) {
-      // Value contains handlebars expression
-      const propMatch = attrValue.match(/\{\{\s*properties\.([^}]+)\s*\}\}/);
+      // Value contains handlebars expression (also handles @root.properties.xxx)
+      const propMatch = attrValue.match(/\{\{\s*(?:@root\.)?properties\.([^}]+)\s*\}\}/);
       if (propMatch) {
         const parts = propMatch[1].trim().split('.');
         valueExpr = parts.map((p: string, i: number) => i === 0 ? toCamelCase(p) : p).join('?.');
@@ -305,8 +332,13 @@ export const preprocessConditionalAttributes = (template: string): string => {
       }
     }
     
-    const condition = match[1].trim();
+    let condition = match[1].trim();
     const attrName = match[2];
+    
+    // Normalize @root.properties.xxx to properties.xxx (root context access)
+    if (condition.startsWith('@root.properties.')) {
+      condition = condition.replace(/^@root\./, '');
+    }
     
     let condExpr = condition;
     if (condition.startsWith('properties.')) {

@@ -106,6 +106,12 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
   php = php.replace(/\{\{\s*#field\s+[^\}]+\}\}/gi, '');
   php = php.replace(/\{\{\s*\/field\s*\}\}/gi, '');
   
+  // Normalize @root. references inside Handlebars expressions to root-level access.
+  // In standard Handlebars, @root refers to the top-level data context regardless of
+  // nesting depth, so @root.properties.xxx is equivalent to properties.xxx at the root.
+  // We only replace inside {{...}} to avoid touching unrelated text content.
+  php = php.replace(/\{\{[\s\S]*?\}\}/g, (match) => match.replace(/@root\./g, ''));
+  
   // VERY EARLY: Convert {{#if (eq/ne xxx "value")}}...{{else}}...{{/if}} helper expressions
   // This MUST run before any other processing to ensure the complete block is captured
   // Helper to convert variable path to PHP for early helper processing

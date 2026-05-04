@@ -107,6 +107,12 @@ export const cleanTemplate = (template: string, currentLoopArray?: string): stri
   cleaned = cleaned.replace(/\{\{!--[\s\S]*?--\}\}/g, '');
   cleaned = cleaned.replace(/\{\{![\s\S]*?\}\}/g, '');
   
+  // Normalize @root. references inside Handlebars expressions to root-level access.
+  // In standard Handlebars, @root refers to the top-level data context regardless of
+  // nesting depth, so @root.properties.xxx is equivalent to properties.xxx at the root.
+  // We only replace inside {{...}} to avoid touching unrelated text content.
+  cleaned = cleaned.replace(/\{\{[\s\S]*?\}\}/g, (match) => match.replace(/@root\./g, ''));
+  
   // Run attribute conditionals BEFORE preprocessBlocks so {{#if}} etc. inside attribute values (e.g. className="x {{#if prop}}y{{/if}}") get converted to template literals instead of becoming raw <if-marker> tags inside the attribute.
   cleaned = preprocessAttributeConditionals(cleaned, currentLoopArray);
   // When processing the full template (no currentLoopArray), run preprocessBlocks so {{#each}} become markers and block-level {{#if}} become if-markers. Attributes have already been converted so they won't contain markers.

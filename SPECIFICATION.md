@@ -87,6 +87,9 @@ The compiler supports the following Handlebars constructs:
 | `{{#unless @first}}...{{/unless}}` | Unless first item in loop |
 | `{{@index}}` | Current loop index |
 | `{{this.fieldName}}` | Access field on current loop item |
+| `{{@root.properties.fieldName}}` | Access a root-level property from inside any nested scope (e.g. inside `{{#each}}`) |
+| `{{#if @root.properties.fieldName}}...{{/if}}` | Root-level conditional from inside a loop or nested scope |
+| `{{#if (eq @root.properties.fieldName "value")}}...{{/if}}` | Root-level helper expression from inside a loop or nested scope |
 | `{{#field "path"}}...{{/field}}` | Mark content as inline-editable in the editor |
 
 ---

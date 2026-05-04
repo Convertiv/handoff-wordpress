@@ -12,17 +12,25 @@ import { toCamelCase } from './utils';
  * Replace every occurrence of ../properties.xxx (parent context) in an expression
  * with the JSX form (camelCase). Used for compound expressions like
  * {{../properties.columnCount === "three" ? 'a' : 'b'}} inside loops.
+ * Also handles @root.properties.xxx which is semantically equivalent to the
+ * root-context properties.xxx (standard Handlebars data variable).
  * Exported for use in attribute conversion.
  */
 export const resolveParentPropertiesInExpression = (expr: string): string => {
-  return expr.replace(
+  const resolve = (_match: string, path: string) => {
+    const parts = path.split('.');
+    const first = toCamelCase(parts[0]);
+    return parts.length > 1 ? `${first}?.${parts.slice(1).join('?.')}` : first;
+  };
+  let result = expr.replace(
     /\.\.\/+properties\.([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g,
-    (_match, path: string) => {
-      const parts = path.split('.');
-      const first = toCamelCase(parts[0]);
-      return parts.length > 1 ? `${first}?.${parts.slice(1).join('?.')}` : first;
-    }
+    resolve
   );
+  result = result.replace(
+    /@root\.properties\.([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g,
+    resolve
+  );
+  return result;
 };
 
 export const transpileExpression = (expr: string, context: TranspilerContext, loopVar: string = 'item'): string => {
@@ -31,7 +39,7 @@ export const transpileExpression = (expr: string, context: TranspilerContext, lo
   // Handle triple braces (unescaped) - strip the extra brace
   expr = expr.replace(/^\{+|\}+$/g, '');
   
-  // Resolve ALL ../properties.xxx in the expression (for compound expressions like ternaries)
+  // Resolve ALL ../properties.xxx and @root.properties.xxx in the expression (for compound expressions like ternaries)
   expr = resolveParentPropertiesInExpression(expr);
   
   // Handle ../ parent context references - strip the ../ prefix(es) and process as top-level
@@ -39,6 +47,12 @@ export const transpileExpression = (expr: string, context: TranspilerContext, lo
   // Multiple levels like ../../properties.xxx are also handled
   while (expr.startsWith('../')) {
     expr = expr.substring(3);
+  }
+  
+  // Handle @root. prefix - resolves from the top-level context regardless of nesting depth
+  // e.g. @root.properties.xxx -> properties.xxx
+  if (expr.startsWith('@root.')) {
+    expr = expr.substring(6);
   }
   
   // Handle simple {{this}} - refers to current item in scalar array
@@ -87,7 +101,7 @@ export const transpileExpression = (expr: string, context: TranspilerContext, lo
  * and convert to JavaScript comparison expressions
  */
 export const parseHelperExpression = (expr: string): string => {
-  // Normalize ../properties.xxx in the expression first
+  // Normalize ../properties.xxx and @root.properties.xxx in the expression first
   expr = resolveParentPropertiesInExpression(expr);
   // Match (eq left right) or (eq left "string")
   const eqMatch = expr.match(/^\(\s*eq\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);

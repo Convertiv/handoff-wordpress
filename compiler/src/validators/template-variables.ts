@@ -39,8 +39,11 @@ interface ScopeContext {
 const extractVariableFromExpression = (expr: string): string | null => {
   const trimmed = expr.trim();
   
-  // Skip Handlebars built-ins, special variables, and global compiler variables
-  if (trimmed.startsWith('@') || trimmed === 'this' || trimmed === 'else' || 
+  // Skip Handlebars built-ins, special variables, and global compiler variables.
+  // @root.xxx IS validated (it references the root context), but other @-prefixed
+  // data variables (e.g. @index, @first, @last, @key) are built-ins and skipped.
+  if ((trimmed.startsWith('@') && !trimmed.startsWith('@root.')) ||
+      trimmed === 'this' || trimmed === 'else' ||
       trimmed === 'style' || trimmed === 'script' ||
       trimmed.startsWith('style.') || trimmed.startsWith('script.')) {
     return null;
@@ -94,6 +97,9 @@ const parseVariablePath = (varPath: string): string[] => {
   // In Handlebars, ../ goes up to parent context - for validation purposes,
   // we evaluate from root properties
   let path = unquoted.replace(/^(\.\.\/)+/, '');
+  // Handle "@root." prefix - @root refers to the root data context in Handlebars,
+  // so @root.properties.xxx is equivalent to properties.xxx at the root.
+  path = path.replace(/^@root\./, '');
   // Handle "this.property" by removing "this."
   path = path.replace(/^this\./, '');
   // Handle "properties.xxx" by removing "properties." prefix
@@ -655,8 +661,10 @@ export const validateTemplateVariables = (
         } else if (blockType === 'if' || blockType === 'unless') {
           // Validate the condition variable exists (unless it's a complex expression)
           const condVar = blockArg.split(/\s+/)[0]; // Get first word
-          // Skip validation for @-prefixed variables and global compiler variables (style, script)
-          if (condVar && !condVar.includes('(') && !condVar.startsWith('@') && 
+          // Skip validation for @-prefixed built-ins (except @root.xxx, which IS validated)
+          // and global compiler variables (style, script).
+          const isAtBuiltin = condVar.startsWith('@') && !condVar.startsWith('@root.');
+          if (condVar && !condVar.includes('(') && !isAtBuiltin &&
               condVar !== 'style' && condVar !== 'script' &&
               !condVar.startsWith('style.') && !condVar.startsWith('script.')) {
             const condPath = parseVariablePath(condVar);
