@@ -42,12 +42,120 @@ const generateFieldControl = (
   const label = property.name || toTitleCase(fieldKey);
 
   switch (property.type) {
-    case 'text':
+    case 'text': {
+      const isWistiaTextField = /\bwistia\b/i.test(`${fieldKey} ${label} ${property.description ?? ''}`);
+
+      if (isWistiaTextField) {
+        return `${indent}<Flex direction="column" gap={3}>
+${indent}  <TextControl
+${indent}    label={__('${label}', 'handoff')}
+${indent}    value={${valueAccessor} || ''}
+${indent}    onChange={(value) => ${onChangeHandler('value')}}
+${indent}  />
+${indent}  {(() => {
+${indent}    const normalized = String(${valueAccessor} || '').trim();
+${indent}    const mediaMatch = normalized.match(/(?:medias|iframe)\\/([A-Za-z0-9]+)/i);
+${indent}    const fallbackMatch = normalized.match(/^([A-Za-z0-9]+?)(?:\\.jsonp)?$/);
+${indent}    const wistiaId = mediaMatch?.[1] || fallbackMatch?.[1] || '';
+${indent}
+${indent}    if (!wistiaId) {
+${indent}      return (
+${indent}        <div
+${indent}          style={{
+${indent}            padding: '16px',
+${indent}            border: '1px dashed #cbd5e1',
+${indent}            borderRadius: '12px',
+${indent}            color: '#475569',
+${indent}            background: '#f8fafc',
+${indent}          }}
+${indent}        >
+${indent}          {__('Add a Wistia video ID to preview this video.', 'handoff')}
+${indent}        </div>
+${indent}      );
+${indent}    }
+${indent}
+${indent}    return (
+${indent}      <div
+${indent}        style={{
+${indent}          position: 'relative',
+${indent}          overflow: 'hidden',
+${indent}          borderRadius: '12px',
+${indent}          background: '#0f172a',
+${indent}          aspectRatio: '16 / 9',
+${indent}        }}
+${indent}      >
+${indent}        <img
+${indent}          src={\`https://fast.wistia.com/embed/medias/\${wistiaId}/swatch\`}
+${indent}          alt={__('Wistia video preview', 'handoff')}
+${indent}          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+${indent}        />
+${indent}        <div
+${indent}          style={{
+${indent}            position: 'absolute',
+${indent}            inset: 0,
+${indent}            display: 'flex',
+${indent}            alignItems: 'flex-end',
+${indent}            justifyContent: 'space-between',
+${indent}            gap: '12px',
+${indent}            padding: '12px',
+${indent}            background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.12) 0%, rgba(15, 23, 42, 0.7) 100%)',
+${indent}            color: '#fff',
+${indent}          }}
+${indent}        >
+${indent}          <span
+${indent}            aria-hidden="true"
+${indent}            style={{
+${indent}              width: '48px',
+${indent}              height: '48px',
+${indent}              borderRadius: '999px',
+${indent}              display: 'inline-flex',
+${indent}              alignItems: 'center',
+${indent}              justifyContent: 'center',
+${indent}              background: 'rgba(255, 255, 255, 0.18)',
+${indent}              border: '1px solid rgba(255, 255, 255, 0.24)',
+${indent}              backdropFilter: 'blur(10px)',
+${indent}            }}
+${indent}          >
+${indent}            <span
+${indent}              style={{
+${indent}                width: 0,
+${indent}                height: 0,
+${indent}                marginLeft: '4px',
+${indent}                borderTop: '8px solid transparent',
+${indent}                borderBottom: '8px solid transparent',
+${indent}                borderLeft: '14px solid #fff',
+${indent}              }}
+${indent}            />
+${indent}          </span>
+${indent}          <span
+${indent}            style={{
+${indent}              display: 'inline-flex',
+${indent}              alignItems: 'center',
+${indent}              maxWidth: '100%',
+${indent}              minHeight: '32px',
+${indent}              padding: '6px 12px',
+${indent}              borderRadius: '999px',
+${indent}              background: 'rgba(15, 23, 42, 0.58)',
+${indent}              fontSize: '12px',
+${indent}              fontWeight: 600,
+${indent}              letterSpacing: '0.02em',
+${indent}            }}
+${indent}          >
+${indent}            {wistiaId}
+${indent}          </span>
+${indent}        </div>
+${indent}      </div>
+${indent}    );
+${indent}  })()}
+${indent}</Flex>`;
+      }
+
       return `${indent}<TextControl
 ${indent}  label={__('${label}', 'handoff')}
 ${indent}  value={${valueAccessor} || ''}
 ${indent}  onChange={(value) => ${onChangeHandler('value')}}
 ${indent}/>`;
+    }
 
     case 'richtext':
       // Inside an array item, InnerBlocks can't be used — provide a textarea
@@ -119,6 +227,120 @@ ${indent}      </Flex>
 ${indent}    )}
 ${indent}  />
 ${indent}</MediaUploadCheck>`;
+
+    case 'video':
+      return `${indent}<Flex direction="column" gap={3}>
+${indent}  <TextControl
+${indent}    label={__('${label}', 'handoff')}
+${indent}    value={typeof ${valueAccessor} === 'string' ? ${valueAccessor} : (${valueAccessor}?.id || ${valueAccessor}?.src || '')}
+${indent}    onChange={(value) => {
+${indent}      const normalized = String(value || '').trim();
+${indent}      const mediaMatch = normalized.match(/(?:medias|iframe)\\/([A-Za-z0-9]+)/i);
+${indent}      const fallbackMatch = normalized.match(/^([A-Za-z0-9]+?)(?:\\.jsonp)?$/);
+${indent}      const wistiaId = mediaMatch?.[1] || fallbackMatch?.[1] || '';
+${indent}      ${onChangeHandler(`{ ...(${valueAccessor} && typeof ${valueAccessor} === 'object' ? ${valueAccessor} : {}), id: wistiaId, src: wistiaId ? \`https://fast.wistia.com/embed/medias/\${wistiaId}.jsonp\` : normalized }`)}
+${indent}    }}
+${indent}  />
+${indent}  {(() => {
+${indent}    const rawValue =
+${indent}      typeof ${valueAccessor} === 'string'
+${indent}        ? ${valueAccessor}
+${indent}        : (${valueAccessor}?.id || ${valueAccessor}?.src || '');
+${indent}    const normalized = String(rawValue || '').trim();
+${indent}    const mediaMatch = normalized.match(/(?:medias|iframe)\\/([A-Za-z0-9]+)/i);
+${indent}    const fallbackMatch = normalized.match(/^([A-Za-z0-9]+?)(?:\\.jsonp)?$/);
+${indent}    const wistiaId = mediaMatch?.[1] || fallbackMatch?.[1] || '';
+${indent}
+${indent}    if (!wistiaId) {
+${indent}      return (
+${indent}        <div
+${indent}          style={{
+${indent}            padding: '16px',
+${indent}            border: '1px dashed #cbd5e1',
+${indent}            borderRadius: '12px',
+${indent}            color: '#475569',
+${indent}            background: '#f8fafc',
+${indent}          }}
+${indent}        >
+${indent}          {__('Add a Wistia video ID to preview this video.', 'handoff')}
+${indent}        </div>
+${indent}      );
+${indent}    }
+${indent}
+${indent}    return (
+${indent}      <div
+${indent}        style={{
+${indent}          position: 'relative',
+${indent}          overflow: 'hidden',
+${indent}          borderRadius: '12px',
+${indent}          background: '#0f172a',
+${indent}          aspectRatio: '16 / 9',
+${indent}        }}
+${indent}      >
+${indent}        <img
+${indent}          src={\`https://fast.wistia.com/embed/medias/\${wistiaId}/swatch\`}
+${indent}          alt={__('Wistia video preview', 'handoff')}
+${indent}          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+${indent}        />
+${indent}        <div
+${indent}          style={{
+${indent}            position: 'absolute',
+${indent}            inset: 0,
+${indent}            display: 'flex',
+${indent}            alignItems: 'flex-end',
+${indent}            justifyContent: 'space-between',
+${indent}            gap: '12px',
+${indent}            padding: '12px',
+${indent}            background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.12) 0%, rgba(15, 23, 42, 0.7) 100%)',
+${indent}            color: '#fff',
+${indent}          }}
+${indent}        >
+${indent}          <span
+${indent}            aria-hidden="true"
+${indent}            style={{
+${indent}              width: '48px',
+${indent}              height: '48px',
+${indent}              borderRadius: '999px',
+${indent}              display: 'inline-flex',
+${indent}              alignItems: 'center',
+${indent}              justifyContent: 'center',
+${indent}              background: 'rgba(255, 255, 255, 0.18)',
+${indent}              border: '1px solid rgba(255, 255, 255, 0.24)',
+${indent}              backdropFilter: 'blur(10px)',
+${indent}            }}
+${indent}          >
+${indent}            <span
+${indent}              style={{
+${indent}                width: 0,
+${indent}                height: 0,
+${indent}                marginLeft: '4px',
+${indent}                borderTop: '8px solid transparent',
+${indent}                borderBottom: '8px solid transparent',
+${indent}                borderLeft: '14px solid #fff',
+${indent}              }}
+${indent}            />
+${indent}          </span>
+${indent}          <span
+${indent}            style={{
+${indent}              display: 'inline-flex',
+${indent}              alignItems: 'center',
+${indent}              maxWidth: '100%',
+${indent}              minHeight: '32px',
+${indent}              padding: '6px 12px',
+${indent}              borderRadius: '999px',
+${indent}              background: 'rgba(15, 23, 42, 0.58)',
+${indent}              fontSize: '12px',
+${indent}              fontWeight: 600,
+${indent}              letterSpacing: '0.02em',
+${indent}            }}
+${indent}          >
+${indent}            {wistiaId}
+${indent}          </span>
+${indent}        </div>
+${indent}      </div>
+${indent}    );
+${indent}  })()}
+${indent}</Flex>`;
 
     case 'link':
       // For links, use LinkControl which provides internal page search and URL validation
@@ -416,6 +638,8 @@ const getDefaultValue = (fieldProp: HandoffProperty): any => {
       return { label: '', href: '#', target: '', rel: '', disabled: false };
     case 'image':
       return { src: '', alt: '' };
+    case 'video':
+      return { src: '', id: '', poster: '', type: '', width: 0, height: 0, mime: '', mimeType: '' };
     case 'object':
       if (fieldProp.properties) {
         const nested: Record<string, any> = {};

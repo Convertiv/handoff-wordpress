@@ -14,6 +14,8 @@
  *   --theme            Compile header/footer to theme templates
  *   --validate         Validate a component for breaking changes
  *   --validate-all     Validate all components for breaking changes
+ *   --source <dir>     Read Handoff API JSON from disk (e.g. ./src/handoff/public/api)
+ *   --watch            Watch --source for changes (requires --source)
  *
  * Configuration:
  *   Create a handoff-wp.config.json file in your project root to set defaults:
@@ -53,9 +55,9 @@ interface ResolvedConfig {
 }
 import type { SchemaHistory } from './validators';
 /**
- * Fetch component data from Handoff API
+ * Fetch component data from Handoff API (HTTP only)
  */
-declare const fetchComponent: (apiUrl: string, componentName: string, auth?: AuthCredentials) => Promise<HandoffComponent>;
+declare const httpFetchComponent: (apiUrl: string, componentName: string, auth?: AuthCredentials) => Promise<HandoffComponent>;
 /**
  * Generate all block files from a component
  * @param component - The Handoff component data
@@ -67,4 +69,13 @@ declare const generateBlock: (component: HandoffComponent, apiUrl: string, resol
  * Main compilation function
  */
 declare const compile: (options: CompilerOptions) => Promise<void>;
-export { compile, generateBlock, fetchComponent };
+/**
+ * Data access context: HTTP Handoff API or local `public/api` folder (--source).
+ */
+export interface HandoffDataContext {
+    apiUrl: string;
+    auth?: AuthCredentials;
+    /** Absolute path to Handoff `public/api` (contains `components.json` + `component/`) */
+    localApiRoot?: string;
+}
+export { compile, generateBlock, httpFetchComponent as fetchComponent };

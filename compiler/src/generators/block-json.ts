@@ -111,6 +111,8 @@ const getDefaultForType = (type: string): any => {
       return false;
     case 'image':
       return { src: '', alt: '' };
+    case 'video':
+      return { src: '', id: '', poster: '', type: '', width: 0, height: 0, mime: '', mimeType: '' };
     case 'link':
       return { label: '', url: '', opensInNewTab: false };
     case 'button':
@@ -160,6 +162,49 @@ const mapPropertyType = (property: HandoffProperty, previewValue?: any): Gutenbe
         type: 'object', 
         default: getDefault({ src: '', alt: '' })
       };
+
+    case 'video': {
+      const videoSource = property.default !== undefined ? property.default : previewValue;
+      const normalizedVideoDefault =
+        videoSource && typeof videoSource === 'object' && !Array.isArray(videoSource)
+          ? {
+              src: '',
+              id: '',
+              poster: '',
+              type: '',
+              width: 0,
+              height: 0,
+              mime: '',
+              mimeType: '',
+              ...videoSource,
+            }
+          : typeof videoSource === 'string' && videoSource
+            ? {
+                src: videoSource,
+                id: '',
+                poster: '',
+                type: '',
+                width: 0,
+                height: 0,
+                mime: '',
+                mimeType: '',
+              }
+            : {
+                src: '',
+                id: '',
+                poster: '',
+                type: '',
+                width: 0,
+                height: 0,
+                mime: '',
+                mimeType: '',
+              };
+
+      return {
+        type: 'object',
+        default: normalizedVideoDefault,
+      };
+    }
     
     case 'link':
       return { 

@@ -14,6 +14,8 @@
  *   --theme            Compile header/footer to theme templates
  *   --validate         Validate a component for breaking changes
  *   --validate-all     Validate all components for breaking changes
+ *   --source <dir>     Read Handoff API JSON from disk (e.g. ./src/handoff/public/api)
+ *   --watch            Watch --source for changes (requires --source)
  * 
  * Configuration:
  *   Create a handoff-wp.config.json file in your project root to set defaults:
@@ -29,6 +31,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
+import chokidar from 'chokidar';
 import * as prettier from 'prettier';
 import { execSync } from 'child_process';
 
@@ -320,9 +323,9 @@ const ensureContentDependencies = (contentRoot: string): void => {
 };
 
 /**
- * Download a file from a URL and save it to disk
+ * Download a file from a URL and save it to disk (HTTP only)
  */
-const downloadFile = async (url: string, destPath: string, auth?: AuthCredentials): Promise<boolean> => {
+const httpDownloadFile = async (url: string, destPath: string, auth?: AuthCredentials): Promise<boolean> => {
   return new Promise((resolve) => {
     const protocol = url.startsWith('https') ? https : http;
     const options = buildRequestOptions(url, auth);
@@ -332,7 +335,7 @@ const downloadFile = async (url: string, destPath: string, auth?: AuthCredential
       if (res.statusCode === 301 || res.statusCode === 302) {
         const redirectUrl = res.headers.location;
         if (redirectUrl) {
-          downloadFile(redirectUrl, destPath, auth).then(resolve);
+          httpDownloadFile(redirectUrl, destPath, auth).then(resolve);
           return;
         }
       }
@@ -364,9 +367,9 @@ const downloadFile = async (url: string, destPath: string, auth?: AuthCredential
 };
 
 /**
- * Fetch component data from Handoff API
+ * Fetch component data from Handoff API (HTTP only)
  */
-const fetchComponent = async (apiUrl: string, componentName: string, auth?: AuthCredentials): Promise<HandoffComponent> => {
+const httpFetchComponent = async (apiUrl: string, componentName: string, auth?: AuthCredentials): Promise<HandoffComponent> => {
   const url = `${apiUrl}/api/component/${componentName}.json`;
   
   return new Promise((resolve, reject) => {
@@ -497,7 +500,12 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
 /**
  * Write block files to output directory
  */
-const writeBlockFiles = async (outputDir: string, componentId: string, block: GeneratedBlock, auth?: AuthCredentials): Promise<void> => {
+const writeBlockFiles = async (
+  outputDir: string,
+  componentId: string,
+  block: GeneratedBlock,
+  ctx: HandoffDataContext,
+): Promise<void> => {
   const blockName = toBlockName(componentId);
   const blockDir = path.join(outputDir, blockName);
   
@@ -530,7 +538,7 @@ const writeBlockFiles = async (outputDir: string, componentId: string, block: Ge
   if (block.screenshotUrl) {
     const screenshotPath = path.join(blockDir, 'screenshot.png');
     console.log(`   📷 Downloading screenshot...`);
-    screenshotDownloaded = await downloadFile(block.screenshotUrl, screenshotPath, auth);
+    screenshotDownloaded = await ctxDownloadFile(ctx, block.screenshotUrl, screenshotPath);
   }
   
   console.log(`✅ Generated block: ${blockName}`);
@@ -551,8 +559,17 @@ const writeBlockFiles = async (outputDir: string, componentId: string, block: Ge
  * Main compilation function
  */
 const compile = async (options: CompilerOptions): Promise<void> => {
+  const dataCtx: HandoffDataContext = {
+    apiUrl: options.apiUrl,
+    auth: options.auth,
+    localApiRoot: options.localApiRoot,
+  };
+
   console.log(`\n🔧 Gutenberg Compiler`);
   console.log(`   API: ${options.apiUrl}`);
+  if (dataCtx.localApiRoot) {
+    console.log(`   Source: ${dataCtx.localApiRoot} (local)`);
+  }
   console.log(`   Component: ${options.componentName}`);
   console.log(`   Output: ${options.outputDir}`);
   if (options.auth?.username) {
@@ -563,7 +580,7 @@ const compile = async (options: CompilerOptions): Promise<void> => {
   try {
     // Fetch component from API
     console.log(`📡 Fetching component data...`);
-    const component = await fetchComponent(options.apiUrl, options.componentName, options.auth);
+    const component = await ctxFetchComponent(dataCtx, options.componentName);
     console.log(`   Found: ${component.title} (${component.id})\n`);
     
     // Validate template variables before generating
@@ -583,8 +600,11 @@ const compile = async (options: CompilerOptions): Promise<void> => {
     const block = generateBlock(component, options.apiUrl, config, schemaHistory);
     
     // Write files (with Prettier formatting)
-    await writeBlockFiles(options.outputDir, component.id, block, options.auth);
-    
+    await writeBlockFiles(options.outputDir, component.id, block, dataCtx);
+
+    const contentRoot = path.resolve(options.outputDir, '..');
+    await syncBundleAssets(dataCtx, contentRoot);
+
     console.log(`\n✨ Done! Don't forget to run 'npm run build' in your blocks plugin.\n`);
     
   } catch (error) {
@@ -670,9 +690,9 @@ const extractFieldPreferences = (
 };
 
 /**
- * Fetch list of all components from API, filtered by import config
+ * Fetch list of all components from API, filtered by import config (HTTP only)
  */
-const fetchComponentList = async (apiUrl: string, importConfig: ImportConfig, auth?: AuthCredentials): Promise<string[]> => {
+const httpFetchComponentList = async (apiUrl: string, importConfig: ImportConfig, auth?: AuthCredentials): Promise<string[]> => {
   const url = `${apiUrl}/api/components.json`;
   
   return new Promise((resolve, reject) => {
@@ -707,9 +727,9 @@ const fetchComponentList = async (apiUrl: string, importConfig: ImportConfig, au
 };
 
 /**
- * Fetch full list of all components from API (no import filter). Used to resolve group names.
+ * Fetch full list of all components from API (no import filter). Used to resolve group names (HTTP only).
  */
-const fetchAllComponentsList = async (apiUrl: string, auth?: AuthCredentials): Promise<HandoffComponent[]> => {
+const httpFetchAllComponentsList = async (apiUrl: string, auth?: AuthCredentials): Promise<HandoffComponent[]> => {
   const url = `${apiUrl}/api/components.json`;
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith('https') ? https : http;
@@ -735,6 +755,114 @@ const fetchAllComponentsList = async (apiUrl: string, auth?: AuthCredentials): P
       });
     }).on('error', (e) => reject(new Error(`Failed to fetch components: ${e.message}`)));
   });
+};
+
+/**
+ * Data access context: HTTP Handoff API or local `public/api` folder (--source).
+ */
+export interface HandoffDataContext {
+  apiUrl: string;
+  auth?: AuthCredentials;
+  /** Absolute path to Handoff `public/api` (contains `components.json` + `component/`) */
+  localApiRoot?: string;
+}
+
+const readLocalComponentsJson = (localApiRoot: string): HandoffComponent[] => {
+  const p = path.join(localApiRoot, 'components.json');
+  if (!fs.existsSync(p)) {
+    throw new Error(`Local Handoff API missing components list: ${p}`);
+  }
+  return JSON.parse(fs.readFileSync(p, 'utf-8')) as HandoffComponent[];
+};
+
+const resolveUrlToLocalPath = (localApiRoot: string, url: string): string | null => {
+  let pathname = '';
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    const q = url.indexOf('?');
+    pathname = q >= 0 ? url.slice(0, q) : url;
+    if (!pathname.startsWith('/')) pathname = '/' + pathname;
+  }
+  let normalized = pathname.replace(/^\/+/, '');
+  const apiPrefix = 'api/component/';
+  if (normalized.startsWith(apiPrefix)) {
+    const rel = normalized.slice(apiPrefix.length);
+    const p = path.join(localApiRoot, 'component', rel);
+    return fs.existsSync(p) ? p : null;
+  }
+  if (normalized.startsWith('images/')) {
+    const p = path.join(localApiRoot, '..', normalized);
+    return fs.existsSync(p) ? p : null;
+  }
+  const base = path.basename(pathname);
+  const fallback = path.join(localApiRoot, 'component', base);
+  return fs.existsSync(fallback) ? fallback : null;
+};
+
+const ctxFetchComponent = async (ctx: HandoffDataContext, componentName: string): Promise<HandoffComponent> => {
+  if (ctx.localApiRoot) {
+    const file = path.join(ctx.localApiRoot, 'component', `${componentName}.json`);
+    if (!fs.existsSync(file)) {
+      throw new Error(`Local component JSON not found: ${file}`);
+    }
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as HandoffComponent;
+  }
+  return httpFetchComponent(ctx.apiUrl, componentName, ctx.auth);
+};
+
+const ctxFetchComponentList = async (ctx: HandoffDataContext, importConfig: ImportConfig): Promise<string[]> => {
+  if (ctx.localApiRoot) {
+    const components = readLocalComponentsJson(ctx.localApiRoot);
+    return components.filter((c) => shouldImportComponent(c.id, c.type, importConfig)).map((c) => c.id);
+  }
+  return httpFetchComponentList(ctx.apiUrl, importConfig, ctx.auth);
+};
+
+const ctxFetchAllComponentsList = async (ctx: HandoffDataContext): Promise<HandoffComponent[]> => {
+  if (ctx.localApiRoot) {
+    return readLocalComponentsJson(ctx.localApiRoot);
+  }
+  return httpFetchAllComponentsList(ctx.apiUrl, ctx.auth);
+};
+
+const ctxDownloadFile = async (ctx: HandoffDataContext, url: string, destPath: string): Promise<boolean> => {
+  if (ctx.localApiRoot) {
+    const srcPath = resolveUrlToLocalPath(ctx.localApiRoot, url);
+    if (!srcPath) {
+      console.warn(`   ⚠️  Local asset not found for URL: ${url}`);
+      return false;
+    }
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    fs.copyFileSync(srcPath, destPath);
+    return true;
+  }
+  return httpDownloadFile(url, destPath, ctx.auth);
+};
+
+/**
+ * Copy Handoff bundle main.js / main.css from local public/api into wp-content/handoff/assets.
+ */
+const syncBundleAssets = async (ctx: HandoffDataContext, contentRoot: string): Promise<void> => {
+  if (!ctx.localApiRoot) return;
+  const assetsCssDir = path.join(contentRoot, 'assets', 'css');
+  const assetsJsDir = path.join(contentRoot, 'assets', 'js');
+  fs.mkdirSync(assetsCssDir, { recursive: true });
+  fs.mkdirSync(assetsJsDir, { recursive: true });
+  const mainCss = path.join(ctx.localApiRoot, 'component', 'main.css');
+  const mainJs = path.join(ctx.localApiRoot, 'component', 'main.js');
+  if (fs.existsSync(mainCss)) {
+    fs.copyFileSync(mainCss, path.join(assetsCssDir, 'main.css'));
+    console.log(`   ✅ assets/css/main.css (from --source)`);
+  } else {
+    console.warn(`   ⚠️  Missing ${mainCss}`);
+  }
+  if (fs.existsSync(mainJs)) {
+    fs.copyFileSync(mainJs, path.join(assetsJsDir, 'main.js'));
+    console.log(`   ✅ assets/js/main.js (from --source)`);
+  } else {
+    console.warn(`   ⚠️  Missing ${mainJs}`);
+  }
 };
 
 /**
@@ -803,11 +931,10 @@ const buildVariantInfo = (component: HandoffComponent, resolvedConfig: ResolvedC
  * Compile a single merged group (e.g. Hero with multiple variants). Used by single-name CLI when name matches a group.
  */
 const compileGroup = async (
-  apiUrl: string,
+  ctx: HandoffDataContext,
   outputDir: string,
   groupSlug: string,
   groupComponents: HandoffComponent[],
-  auth?: AuthCredentials,
 ): Promise<void> => {
   console.log(`\n🔀 Generating merged group block: ${groupSlug} (${groupComponents.length} variants)`);
   const variantInfos: VariantInfo[] = groupComponents.map((c) => buildVariantInfo(c, config));
@@ -818,7 +945,7 @@ const compileGroup = async (
     variantScreenshots[comp.id] = !!comp.image;
   }
 
-  const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos, apiUrl, variantScreenshots);
+  const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos, ctx.apiUrl, variantScreenshots);
   const groupBlockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const groupDir = path.join(outputDir, groupBlockName);
   if (!fs.existsSync(groupDir)) {
@@ -830,7 +957,7 @@ const compileGroup = async (
     for (const [variantId, url] of Object.entries(mergedBlock.variantScreenshotUrls)) {
       const screenshotPath = path.join(groupDir, `screenshot-${variantId}.png`);
       console.log(`   📷 Downloading screenshot for variant ${variantId}...`);
-      const ok = await downloadFile(url, screenshotPath, auth);
+      const ok = await ctxDownloadFile(ctx, url, screenshotPath);
       if (!ok) {
         variantScreenshots[variantId] = false;
       }
@@ -881,18 +1008,21 @@ const compileGroup = async (
   console.log(`   📄 ${categoriesPath}`);
 };
 
-const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredentials): Promise<void> => {
+const compileAll = async (ctx: HandoffDataContext, outputDir: string): Promise<void> => {
   console.log(`\n🔧 Gutenberg Compiler - Batch Mode`);
-  console.log(`   API: ${apiUrl}`);
+  console.log(`   API: ${ctx.apiUrl}`);
+  if (ctx.localApiRoot) {
+    console.log(`   Source: ${ctx.localApiRoot} (local)`);
+  }
   console.log(`   Output: ${outputDir}`);
-  if (auth?.username) {
-    console.log(`   Auth: ${auth.username}`);
+  if (ctx.auth?.username) {
+    console.log(`   Auth: ${ctx.auth.username}`);
   }
   console.log('');
   
   try {
     console.log(`📡 Fetching component list...`);
-    const componentIds = await fetchComponentList(apiUrl, config.import, auth);
+    const componentIds = await ctxFetchComponentList(ctx, config.import);
 
     console.log(`   Found ${componentIds.length} components\n`);
     
@@ -905,7 +1035,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     const allComponents: HandoffComponent[] = [];
     for (const componentId of componentIds) {
       try {
-        const component = await fetchComponent(apiUrl, componentId, auth);
+        const component = await ctxFetchComponent(ctx, componentId);
 
         const templateValidation = validateTemplateVariables(component);
         if (!templateValidation.isValid) {
@@ -949,8 +1079,8 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     // Compile individual components (existing behavior)
     for (const component of individualComponents) {
       try {
-        const block = generateBlock(component, apiUrl, config, schemaHistory);
-        await writeBlockFiles(outputDir, component.id, block, auth);
+        const block = generateBlock(component, ctx.apiUrl, config, schemaHistory);
+        await writeBlockFiles(outputDir, component.id, block, ctx);
         compiledComponents.push(component);
         success++;
       } catch (error) {
@@ -962,7 +1092,7 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     // Compile merged groups
     for (const [groupSlug, groupComponents] of Object.entries(groupBuckets)) {
       try {
-        await compileGroup(apiUrl, outputDir, groupSlug, groupComponents, auth);
+        await compileGroup(ctx, outputDir, groupSlug, groupComponents);
         compiledComponents.push(...groupComponents);
         success += groupComponents.length;
       } catch (error) {
@@ -1005,8 +1135,8 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
     // shared components can resolve @wordpress/* and @10up/* imports.
     ensureContentDependencies(contentRoot);
     
-    // Download main.css and main.js design system assets
-    console.log(`\n📡 Downloading design system assets...`);
+    // Download or copy main.css and main.js design system assets
+    console.log(`\n📡 Syncing design system assets...`);
     const assetsDir = path.join(outputDir, '..', 'assets');
     const assetsCssDir = path.join(assetsDir, 'css');
     const assetsJsDir = path.join(assetsDir, 'js');
@@ -1018,22 +1148,26 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
       fs.mkdirSync(assetsJsDir, { recursive: true });
     }
 
-    const cssUrl = `${apiUrl}/api/component/main.css`;
-    const cssPath = path.join(assetsCssDir, 'main.css');
-    const cssDownloaded = await downloadFile(cssUrl, cssPath, auth);
-    if (cssDownloaded) {
-      console.log(`   ✅ assets/css/main.css`);
+    if (ctx.localApiRoot) {
+      await syncBundleAssets(ctx, path.resolve(outputDir, '..'));
     } else {
-      console.warn(`   ⚠️  Could not download main.css from ${cssUrl}`);
-    }
+      const cssUrl = `${ctx.apiUrl}/api/component/main.css`;
+      const cssPath = path.join(assetsCssDir, 'main.css');
+      const cssDownloaded = await ctxDownloadFile(ctx, cssUrl, cssPath);
+      if (cssDownloaded) {
+        console.log(`   ✅ assets/css/main.css`);
+      } else {
+        console.warn(`   ⚠️  Could not download main.css from ${cssUrl}`);
+      }
 
-    const jsUrl = `${apiUrl}/api/component/main.js`;
-    const jsPath = path.join(assetsJsDir, 'main.js');
-    const jsDownloaded = await downloadFile(jsUrl, jsPath, auth);
-    if (jsDownloaded) {
-      console.log(`   ✅ assets/js/main.js`);
-    } else {
-      console.warn(`   ⚠️  Could not download main.js from ${jsUrl}`);
+      const jsUrl = `${ctx.apiUrl}/api/component/main.js`;
+      const jsPath = path.join(assetsJsDir, 'main.js');
+      const jsDownloaded = await ctxDownloadFile(ctx, jsUrl, jsPath);
+      if (jsDownloaded) {
+        console.log(`   ✅ assets/js/main.js`);
+      } else {
+        console.warn(`   ⚠️  Could not download main.js from ${jsUrl}`);
+      }
     }
 
     console.log(`\n✨ Compilation complete!`);
@@ -1055,12 +1189,15 @@ const compileAll = async (apiUrl: string, outputDir: string, auth?: AuthCredenti
 /**
  * Compile theme templates (header, footer)
  */
-const compileTheme = async (apiUrl: string, outputDir: string, auth?: AuthCredentials): Promise<void> => {
+const compileTheme = async (ctx: HandoffDataContext, outputDir: string): Promise<void> => {
   console.log(`\n🎨 Theme Template Compiler`);
-  console.log(`   API: ${apiUrl}`);
+  console.log(`   API: ${ctx.apiUrl}`);
+  if (ctx.localApiRoot) {
+    console.log(`   Source: ${ctx.localApiRoot} (local)`);
+  }
   console.log(`   Output: ${outputDir}`);
-  if (auth?.username) {
-    console.log(`   Auth: ${auth.username}`);
+  if (ctx.auth?.username) {
+    console.log(`   Auth: ${ctx.auth.username}`);
   }
   console.log('');
   
@@ -1068,7 +1205,7 @@ const compileTheme = async (apiUrl: string, outputDir: string, auth?: AuthCreden
     // Compile header
     console.log(`📡 Fetching header component...`);
     try {
-      const header = await fetchComponent(apiUrl, 'header', auth);
+      const header = await ctxFetchComponent(ctx, 'header');
       console.log(`   Found: ${header.title}\n`);
       
       console.log(`⚙️  Generating header.php...`);
@@ -1085,7 +1222,7 @@ const compileTheme = async (apiUrl: string, outputDir: string, auth?: AuthCreden
     // Compile footer
     console.log(`📡 Fetching footer component...`);
     try {
-      const footer = await fetchComponent(apiUrl, 'footer', auth);
+      const footer = await ctxFetchComponent(ctx, 'footer');
       console.log(`   Found: ${footer.title}\n`);
       
       console.log(`⚙️  Generating footer.php...`);
@@ -1110,7 +1247,7 @@ const compileTheme = async (apiUrl: string, outputDir: string, auth?: AuthCreden
     
     for (const variant of ['header-compact', 'header-lander', 'footer-compact']) {
       try {
-        const component = await fetchComponent(apiUrl, variant, auth);
+        const component = await ctxFetchComponent(ctx, variant);
         console.log(`📡 Found: ${component.title}`);
         
         const templateType = variant.replace(/-/g, '_');
@@ -1142,7 +1279,7 @@ const compileTheme = async (apiUrl: string, outputDir: string, auth?: AuthCreden
 
 These templates were transpiled from the Handoff design system.
 
-- **API URL:** ${apiUrl}
+- **API URL:** ${ctx.apiUrl}
 - **Generated:** ${new Date().toISOString()}
 
 ## Files
@@ -1169,7 +1306,7 @@ npx handoff-wp --theme
 Or with a specific API URL:
 
 \`\`\`bash
-npx handoff-wp --theme --api-url ${apiUrl}
+npx handoff-wp --theme --api-url ${ctx.apiUrl}
 \`\`\`
 `;
       const readmePath = path.join(handoffTemplatesDir, 'README.md');
@@ -1177,7 +1314,7 @@ npx handoff-wp --theme --api-url ${apiUrl}
       console.log(`📝 Generated: ${readmePath}\n`);
     }
     
-    // Download main.css and main.js assets
+    // Download or copy main.css and main.js assets
     console.log(`📡 Fetching theme assets...`);
     
     // Ensure assets directories exist
@@ -1191,26 +1328,30 @@ npx handoff-wp --theme --api-url ${apiUrl}
       fs.mkdirSync(jsDir, { recursive: true });
     }
     
-    // Download main.css
-    const cssUrl = `${apiUrl}/api/component/main.css`;
-    const cssPath = path.join(cssDir, 'main.css');
-    console.log(`   Downloading main.css...`);
-    const cssDownloaded = await downloadFile(cssUrl, cssPath, auth);
-    if (cssDownloaded) {
-      console.log(`✅ Downloaded: ${cssPath}`);
+    if (ctx.localApiRoot) {
+      await syncBundleAssets(ctx, outputDir);
     } else {
-      console.warn(`⚠️  Could not download main.css from ${cssUrl}`);
-    }
-    
-    // Download main.js
-    const jsUrl = `${apiUrl}/api/component/main.js`;
-    const jsPath = path.join(jsDir, 'main.js');
-    console.log(`   Downloading main.js...`);
-    const jsDownloaded = await downloadFile(jsUrl, jsPath, auth);
-    if (jsDownloaded) {
-      console.log(`✅ Downloaded: ${jsPath}`);
-    } else {
-      console.warn(`⚠️  Could not download main.js from ${jsUrl}`);
+      // Download main.css
+      const cssUrl = `${ctx.apiUrl}/api/component/main.css`;
+      const cssPath = path.join(cssDir, 'main.css');
+      console.log(`   Downloading main.css...`);
+      const cssDownloaded = await ctxDownloadFile(ctx, cssUrl, cssPath);
+      if (cssDownloaded) {
+        console.log(`✅ Downloaded: ${cssPath}`);
+      } else {
+        console.warn(`⚠️  Could not download main.css from ${cssUrl}`);
+      }
+      
+      // Download main.js
+      const jsUrl = `${ctx.apiUrl}/api/component/main.js`;
+      const jsPath = path.join(jsDir, 'main.js');
+      console.log(`   Downloading main.js...`);
+      const jsDownloaded = await ctxDownloadFile(ctx, jsUrl, jsPath);
+      if (jsDownloaded) {
+        console.log(`✅ Downloaded: ${jsPath}`);
+      } else {
+        console.warn(`⚠️  Could not download main.js from ${jsUrl}`);
+      }
     }
     
     console.log(`\n✨ Theme templates generated!\n`);
@@ -1224,13 +1365,16 @@ npx handoff-wp --theme --api-url ${apiUrl}
 /**
  * Validate a single component for breaking property changes
  */
-const validate = async (apiUrl: string, outputDir: string, componentName: string, auth?: AuthCredentials): Promise<ValidationResult> => {
+const validate = async (ctx: HandoffDataContext, outputDir: string, componentName: string): Promise<ValidationResult> => {
   console.log(`\n🔍 Validating Component: ${componentName}`);
-  console.log(`   API: ${apiUrl}`);
+  console.log(`   API: ${ctx.apiUrl}`);
+  if (ctx.localApiRoot) {
+    console.log(`   Source: ${ctx.localApiRoot} (local)`);
+  }
   console.log(`   Manifest: ${outputDir}\n`);
   
   // Fetch component
-  const component = await fetchComponent(apiUrl, componentName, auth);
+  const component = await ctxFetchComponent(ctx, componentName);
   
   // Load manifest
   const manifest = loadManifest(outputDir);
@@ -1247,15 +1391,18 @@ const validate = async (apiUrl: string, outputDir: string, componentName: string
 /**
  * Validate all components for breaking property changes
  */
-const validateAll = async (apiUrl: string, outputDir: string, importConfig: ImportConfig, auth?: AuthCredentials): Promise<void> => {
+const validateAll = async (ctx: HandoffDataContext, outputDir: string, importConfig: ImportConfig): Promise<void> => {
   console.log(`\n🔍 Validating All Components`);
-  console.log(`   API: ${apiUrl}`);
+  console.log(`   API: ${ctx.apiUrl}`);
+  if (ctx.localApiRoot) {
+    console.log(`   Source: ${ctx.localApiRoot} (local)`);
+  }
   console.log(`   Manifest: ${outputDir}\n`);
   
   try {
     // Fetch component list
     console.log(`📡 Fetching component list...`);
-    const componentIds = await fetchComponentList(apiUrl, importConfig, auth);
+    const componentIds = await ctxFetchComponentList(ctx, importConfig);
     console.log(`   Found ${componentIds.length} components\n`);
     
     // Load manifest
@@ -1268,7 +1415,7 @@ const validateAll = async (apiUrl: string, outputDir: string, importConfig: Impo
     
     for (const componentId of componentIds) {
       try {
-        const component = await fetchComponent(apiUrl, componentId, auth);
+        const component = await ctxFetchComponent(ctx, componentId);
         const result = validateComponent(component, manifest);
         
         console.log(formatValidationResult(result));
@@ -1320,6 +1467,128 @@ const updateManifestForComponent = (outputDir: string, component: HandoffCompone
   const manifest = loadManifest(outputDir);
   const updatedManifest = updateManifest(component, manifest);
   saveManifest(outputDir, updatedManifest);
+};
+
+/**
+ * Watch local Handoff `public/api` output and recompile blocks / sync bundles.
+ */
+const runWatchMode = async (
+  ctx: HandoffDataContext,
+  outputDir: string,
+  onlyComponentId: string | undefined,
+  runOpts: { force?: boolean },
+): Promise<void> => {
+  const root = ctx.localApiRoot!;
+  const contentRoot = path.resolve(outputDir, '..');
+  console.log(`\n👀 Watch mode`);
+  console.log(`   Source: ${root}`);
+  console.log(`   Blocks: ${outputDir}\n`);
+
+  let debTimer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = (fn: () => Promise<void>) => {
+    if (debTimer) clearTimeout(debTimer);
+    debTimer = setTimeout(() => {
+      void fn().catch((err) => console.error('[watch]', err));
+    }, 150);
+  };
+
+  const compileOne = async (stem: string) => {
+    if (stem === 'components') return;
+    console.log(`\n[watch] Recompiling ${stem}...`);
+    try {
+      const component = await ctxFetchComponent(ctx, stem);
+      const mergedGroupConfigKeyByLower = new Map<string, string>();
+      for (const [key, mode] of Object.entries(config.groups)) {
+        if (mode === 'merged') mergedGroupConfigKeyByLower.set(key.toLowerCase(), key);
+      }
+      if (component.group) {
+        const groupKey = mergedGroupConfigKeyByLower.get(component.group.toLowerCase());
+        if (groupKey) {
+          const allComponents = await ctxFetchAllComponentsList(ctx);
+          const groupMatches = allComponents.filter(
+            (c) => c.group && c.group.toLowerCase() === groupKey.toLowerCase(),
+          );
+          const fullGroupComponents: HandoffComponent[] = [];
+          for (const c of groupMatches) {
+            try {
+              const full = await ctxFetchComponent(ctx, c.id);
+              const templateValidation = validateTemplateVariables(full);
+              if (!templateValidation.isValid) {
+                console.warn(`   ⚠️  Skipping ${c.id} (template validation failed)`);
+                continue;
+              }
+              fullGroupComponents.push(full);
+            } catch {
+              // skip
+            }
+          }
+          if (fullGroupComponents.length > 0) {
+            await compileGroup(ctx, outputDir, groupKey, fullGroupComponents);
+            await syncBundleAssets(ctx, contentRoot);
+          }
+          return;
+        }
+      }
+
+      if (!runOpts.force) {
+        const result = await validate(ctx, outputDir, stem);
+        if (!result.isValid) {
+          console.warn(`[watch] Skipping ${stem}: breaking changes (re-run with --force to compile anyway)`);
+          return;
+        }
+      }
+      await compile({
+        apiUrl: ctx.apiUrl,
+        outputDir,
+        componentName: stem,
+        auth: ctx.auth,
+        localApiRoot: root,
+      });
+      const comp = await ctxFetchComponent(ctx, stem);
+      updateManifestForComponent(outputDir, comp);
+    } catch (e) {
+      console.error(`[watch] Failed ${stem}:`, e instanceof Error ? e.message : e);
+    }
+  };
+
+  const patterns: string[] = [];
+  if (onlyComponentId) {
+    patterns.push(path.join(root, 'component', `${onlyComponentId}.json`));
+  } else {
+    patterns.push(path.join(root, 'component', '*.json'));
+  }
+  patterns.push(path.join(root, 'component', 'main.js'), path.join(root, 'component', 'main.css'));
+
+  const watcher = chokidar.watch(patterns, {
+    awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
+    ignoreInitial: true,
+  });
+
+  watcher.on('all', (event, filePath) => {
+    if (!filePath) return;
+    if (!['add', 'change', 'unlink'].includes(event)) return;
+    const base = path.basename(filePath);
+    if (base === 'main.js' || base === 'main.css') {
+      schedule(async () => {
+        await syncBundleAssets(ctx, contentRoot);
+        console.log('[watch] Bundle assets synced');
+      });
+      return;
+    }
+    if (filePath.endsWith('.json')) {
+      const stem = path.basename(filePath, '.json');
+      if (onlyComponentId && stem !== onlyComponentId) return;
+      schedule(() => compileOne(stem));
+    }
+  });
+
+  watcher.on('ready', () => {
+    console.log('Watching for changes. Press Ctrl+C to stop.\n');
+  });
+
+  await new Promise<void>(() => {
+    /* keep process alive */
+  });
 };
 
 // CLI setup
@@ -1513,19 +1782,22 @@ const suggestFieldMappings = (itemProperties: Record<string, HandoffProperty>): 
  * Interactive wizard for configuring dynamic arrays
  */
 const configureDynamicArrays = async (
-  apiUrl: string,
+  ctx: HandoffDataContext,
   componentName: string,
-  auth?: AuthCredentials
 ): Promise<void> => {
   console.log(`\n🧙 Dynamic Array Configuration Wizard`);
   console.log(`   Component: ${componentName}`);
-  console.log(`   API: ${apiUrl}\n`);
+  console.log(`   API: ${ctx.apiUrl}`);
+  if (ctx.localApiRoot) {
+    console.log(`   Source: ${ctx.localApiRoot} (local)`);
+  }
+  console.log('');
   
   // Fetch component
   console.log(`📡 Fetching component structure...`);
   let component: HandoffComponent;
   try {
-    component = await fetchComponent(apiUrl, componentName, auth);
+    component = await ctxFetchComponent(ctx, componentName);
     console.log(`   Found: ${component.title} (${component.id})\n`);
   } catch (error) {
     console.error(`\n❌ Error: ${error instanceof Error ? error.message : error}\n`);
@@ -1810,24 +2082,28 @@ program
   .option('-u, --username <username>', 'Basic auth username')
   .option('-p, --password <password>', 'Basic auth password')
   .option('-l, --list', 'List available components with array fields')
+  .option('-s, --source <dir>', 'Read Handoff public/api from disk instead of HTTP')
   .action(async (componentName: string | undefined, opts: {
     apiUrl?: string;
     username?: string;
     password?: string;
     list?: boolean;
+    source?: string;
   }) => {
     const apiUrl = opts.apiUrl ?? config.apiUrl;
     const auth: AuthCredentials = {
       username: opts.username ?? config.username,
       password: opts.password ?? config.password,
     };
+    const localApiRoot = opts.source ? path.resolve(process.cwd(), opts.source) : undefined;
+    const dataCtx: HandoffDataContext = { apiUrl, auth, localApiRoot };
     
     // If listing components, show components with array fields
     if (opts.list || !componentName) {
       console.log(`\n🔍 Fetching component list from ${apiUrl}...\n`);
       
       try {
-        const componentIds = await fetchComponentList(apiUrl, config.import, auth);
+        const componentIds = await ctxFetchComponentList(dataCtx, config.import);
         
         // Fetch each component to find ones with array fields
         console.log(`📋 Found ${componentIds.length} components. Checking for array fields...\n`);
@@ -1836,7 +2112,7 @@ program
         
         for (const id of componentIds) {
           try {
-            const component = await fetchComponent(apiUrl, id, auth);
+            const component = await ctxFetchComponent(dataCtx, id);
             const arrays = findArrayProperties(component.properties);
             if (arrays.length > 0) {
               componentsWithArrays.push({
@@ -1878,7 +2154,7 @@ program
       }
     }
     
-    await configureDynamicArrays(apiUrl, componentName, auth);
+    await configureDynamicArrays(dataCtx, componentName!);
   });
 
 // Init command
@@ -1910,6 +2186,8 @@ program
   .option('--validate', 'Validate a component for breaking property changes')
   .option('--validate-all', 'Validate all components for breaking property changes')
   .option('--force', 'Force compilation even with breaking changes')
+  .option('-s, --source <dir>', 'Read Handoff public/api from disk instead of HTTP')
+  .option('--watch', 'Watch --source for changes (requires --source)')
   .action(async (componentName: string | undefined, opts: { 
     apiUrl?: string; 
     output?: string; 
@@ -1921,6 +2199,8 @@ program
     validate?: boolean;
     validateAll?: boolean;
     force?: boolean;
+    source?: string;
+    watch?: boolean;
   }) => {
     // Merge CLI options with config (CLI takes precedence)
     const apiUrl = opts.apiUrl ?? config.apiUrl;
@@ -1930,15 +2210,30 @@ program
       username: opts.username ?? config.username,
       password: opts.password ?? config.password,
     };
+    const localApiRoot = opts.source ? path.resolve(process.cwd(), opts.source) : undefined;
+    const dataCtx: HandoffDataContext = { apiUrl, auth, localApiRoot };
+
+    if (opts.watch) {
+      if (!localApiRoot) {
+        console.error('Error: --watch requires --source <dir> (path to Handoff public/api)');
+        process.exit(1);
+      }
+      if (opts.validateAll || opts.validate || opts.all || opts.theme) {
+        console.error('Error: --watch cannot be combined with --all, --theme, --validate, or --validate-all');
+        process.exit(1);
+      }
+      await runWatchMode(dataCtx, output, componentName, { force: opts.force });
+      return;
+    }
     
     // Validation commands
     if (opts.validateAll) {
-      await validateAll(apiUrl, output, config.import, auth);
+      await validateAll(dataCtx, output, config.import);
       return;
     }
     
     if (opts.validate && componentName) {
-      const result = await validate(apiUrl, output, componentName, auth);
+      const result = await validate(dataCtx, output, componentName);
       if (!result.isValid && !opts.force) {
         console.log(`\n⚠️  Component has breaking changes. Use --force to compile anyway.\n`);
         process.exit(1);
@@ -1948,26 +2243,26 @@ program
     
     // Compilation commands
     if (opts.theme) {
-      await compileTheme(apiUrl, themeDir, auth);
+      await compileTheme(dataCtx, themeDir);
     } else if (opts.all) {
       // Validate all first unless forced
       if (!opts.force) {
         console.log(`\n🔍 Pre-compilation validation...\n`);
         try {
-          await validateAll(apiUrl, output, config.import, auth);
+          await validateAll(dataCtx, output, config.import);
         } catch {
           // validateAll exits with code 1 on breaking changes
           return;
         }
       }
-      await compileAll(apiUrl, output, auth);
+      await compileAll(dataCtx, output);
       
       // Update manifest after successful compilation
       console.log(`\n📝 Updating property manifest...`);
-      const componentIds = await fetchComponentList(apiUrl, config.import, auth);
+      const componentIds = await ctxFetchComponentList(dataCtx, config.import);
       for (const componentId of componentIds) {
         try {
-          const component = await fetchComponent(apiUrl, componentId, auth);
+          const component = await ctxFetchComponent(dataCtx, componentId);
           updateManifestForComponent(output, component);
         } catch {
           // Skip failed components
@@ -1983,7 +2278,7 @@ program
 
       // Helper: compile an entire merged group by its config key
       const compileGroupByKey = async (groupKey: string) => {
-        const allComponents = await fetchAllComponentsList(apiUrl, auth);
+        const allComponents = await ctxFetchAllComponentsList(dataCtx);
         const groupMatches = allComponents.filter(
           (c) => c.group && c.group.toLowerCase() === groupKey.toLowerCase(),
         );
@@ -1994,7 +2289,7 @@ program
         const fullGroupComponents: HandoffComponent[] = [];
         for (const c of groupMatches) {
           try {
-            const full = await fetchComponent(apiUrl, c.id, auth);
+            const full = await ctxFetchComponent(dataCtx, c.id);
             const templateValidation = validateTemplateVariables(full);
             if (!templateValidation.isValid) {
               console.warn(`   ⚠️  Skipping ${c.id} (template validation failed)`);
@@ -2009,13 +2304,16 @@ program
           console.error(`Error: Could not fetch any components for group "${groupKey}".`);
           process.exit(1);
         }
-        await compileGroup(apiUrl, output, groupKey, fullGroupComponents, auth);
+        await compileGroup(dataCtx, output, groupKey, fullGroupComponents);
+        if (dataCtx.localApiRoot) {
+          await syncBundleAssets(dataCtx, path.resolve(output, '..'));
+        }
         console.log(`   ✅ Group "${groupKey}" compiled (${fullGroupComponents.length} variants).\n`);
       };
 
       // Try component first, then fall back to group (e.g. "hero" -> Hero merged block)
       try {
-        const component = await fetchComponent(apiUrl, componentName, auth);
+        const component = await ctxFetchComponent(dataCtx, componentName);
 
         // If this component belongs to a merged group, compile the whole group instead
         if (component.group) {
@@ -2028,7 +2326,7 @@ program
         }
 
         if (!opts.force) {
-          const result = await validate(apiUrl, output, componentName, auth);
+          const result = await validate(dataCtx, output, componentName);
           if (!result.isValid) {
             console.log(`\n⚠️  Component has breaking changes. Use --force to compile anyway.\n`);
             process.exit(1);
@@ -2039,13 +2337,14 @@ program
           outputDir: output,
           componentName,
           auth,
+          localApiRoot,
         });
         updateManifestForComponent(output, component);
         console.log(`   📝 Manifest updated\n`);
       } catch (componentError) {
         // No component with this name – try as group
         console.log(`   No component "${componentName}" found, checking groups...\n`);
-        const allComponents = await fetchAllComponentsList(apiUrl, auth);
+        const allComponents = await ctxFetchAllComponentsList(dataCtx);
         const nameLower = componentName.toLowerCase();
         const groupMatches = allComponents.filter(
           (c) => c.group && c.group.toLowerCase() === nameLower,
@@ -2076,4 +2375,4 @@ program
 
 program.parse();
 
-export { compile, generateBlock, fetchComponent };
+export { compile, generateBlock, httpFetchComponent as fetchComponent };

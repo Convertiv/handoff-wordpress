@@ -55,6 +55,34 @@ const getPhpDefaultValue = (property: HandoffProperty): string => {
     
     case 'image':
       return "['src' => '', 'alt' => '']";
+
+    case 'video':
+      if (property.default && typeof property.default === 'object' && !Array.isArray(property.default)) {
+        return arrayToPhp({
+          src: '',
+          id: '',
+          poster: '',
+          type: '',
+          width: 0,
+          height: 0,
+          mime: '',
+          mimeType: '',
+          ...property.default,
+        });
+      }
+      if (typeof property.default === 'string' && property.default) {
+        return arrayToPhp({
+          src: property.default,
+          id: '',
+          poster: '',
+          type: '',
+          width: 0,
+          height: 0,
+          mime: '',
+          mimeType: '',
+        });
+      }
+      return "['src' => '', 'id' => '', 'poster' => '', 'type' => '', 'width' => 0, 'height' => 0, 'mime' => '', 'mimeType' => '']";
     
     case 'link':
       return "['label' => '', 'url' => '', 'opensInNewTab' => false]";
@@ -78,6 +106,143 @@ const getPhpDefaultValue = (property: HandoffProperty): string => {
       return "''";
   }
 };
+
+const toPhpSingleQuotedString = (value: string): string =>
+  `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+
+const handlebarsValueToPhpExpression = (templateValue: string): string => {
+  const tokenRegex = /\{\{\{?\s*([^}]+?)\s*\}\}\}?/g;
+  const parts: string[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  const pushLiteral = (literal: string) => {
+    if (literal) {
+      parts.push(toPhpSingleQuotedString(literal));
+    }
+  };
+
+  while ((match = tokenRegex.exec(templateValue)) !== null) {
+    pushLiteral(templateValue.slice(cursor, match.index));
+
+    const expression = match[1].trim().replace(/^@root\./, '');
+    if (expression.startsWith('properties.')) {
+      const path = expression.replace('properties.', '').split('.');
+      const camelProp = toCamelCase(path[0]);
+      if (path.length === 1) {
+        parts.push(`($${camelProp} ?? '')`);
+      } else {
+        const nestedAccess = path
+          .slice(1)
+          .map((segment) => `['${segment}']`)
+          .join('');
+        parts.push(`($${camelProp}${nestedAccess} ?? '')`);
+      }
+    } else {
+      parts.push(`''`);
+    }
+
+    cursor = match.index + match[0].length;
+  }
+
+  pushLiteral(templateValue.slice(cursor));
+
+  return parts.length > 0 ? parts.join(' . ') : "''";
+};
+
+type WistiaAsset = {
+  emptyCheckExpression: string;
+  urlExpression: string;
+};
+
+const buildWistiaAsset = (mediaSource: string): WistiaAsset => {
+  const wistiaPrefix = 'https://fast.wistia.com/embed/medias/';
+  const wistiaSuffix = '.jsonp';
+
+  if (mediaSource.startsWith(wistiaPrefix) && mediaSource.endsWith(wistiaSuffix)) {
+    const mediaIdTemplate = mediaSource.slice(wistiaPrefix.length, -wistiaSuffix.length);
+    const mediaIdExpression = handlebarsValueToPhpExpression(mediaIdTemplate);
+
+    return {
+      emptyCheckExpression: mediaIdExpression,
+      urlExpression: `'${wistiaPrefix}' . ${mediaIdExpression} . '${wistiaSuffix}'`,
+    };
+  }
+
+  const urlExpression = handlebarsValueToPhpExpression(mediaSource);
+  return {
+    emptyCheckExpression: urlExpression,
+    urlExpression,
+  };
+};
+
+const generateWistiaEnqueueCode = (template: string): string => {
+  const assets = new Map<string, WistiaAsset>();
+  let hasWistiaEmbed = false;
+
+  const addAsset = (asset: WistiaAsset) => {
+    const key = `${asset.emptyCheckExpression}::${asset.urlExpression}`;
+    if (!assets.has(key)) {
+      assets.set(key, asset);
+    }
+  };
+
+  const scriptRegex = /<script[^>]+src=["']([^"']+)["'][^>]*>\s*<\/script>/gi;
+  let scriptMatch: RegExpExecArray | null;
+
+  while ((scriptMatch = scriptRegex.exec(template)) !== null) {
+    const src = scriptMatch[1].trim();
+
+    if (/fast\.wistia\.com\/assets\/external\/E-v1\.js/i.test(src)) {
+      hasWistiaEmbed = true;
+      continue;
+    }
+
+    if (/fast\.wistia\.com\/embed\/medias\//i.test(src)) {
+      hasWistiaEmbed = true;
+      addAsset(buildWistiaAsset(src));
+    }
+  }
+
+  const asyncClassRegex = /wistia_async_([^\s"'<>]+)/g;
+  let asyncClassMatch: RegExpExecArray | null;
+
+  while ((asyncClassMatch = asyncClassRegex.exec(template)) !== null) {
+    hasWistiaEmbed = true;
+
+    const mediaIdExpression = handlebarsValueToPhpExpression(asyncClassMatch[1]);
+    addAsset({
+      emptyCheckExpression: mediaIdExpression,
+      urlExpression: `'https://fast.wistia.com/embed/medias/' . ${mediaIdExpression} . '.jsonp'`,
+    });
+  }
+
+  if (!hasWistiaEmbed) {
+    return '';
+  }
+
+  const lines = [
+    "// Wistia embed assets",
+    "wp_enqueue_script('wistia-ev1', 'https://fast.wistia.com/assets/external/E-v1.js', [], null, ['strategy' => 'async']);",
+  ];
+
+  Array.from(assets.values()).forEach((asset, index) => {
+    const mediaVar = `$handoffWistiaMedia${index}`;
+    lines.push(`${mediaVar} = ${asset.urlExpression};`);
+    lines.push(`if (!empty(${asset.emptyCheckExpression})) {`);
+    lines.push(
+      `  wp_enqueue_script(sanitize_key('handoff-wistia-media-' . md5((string) ${mediaVar})), ${mediaVar}, [], null, ['strategy' => 'async']);`
+    );
+    lines.push('}');
+  });
+
+  return `${lines.join('\n')}\n`;
+};
+
+const stripWistiaScriptTags = (template: string): string =>
+  template
+    .replace(/\s*<script[^>]+src=["'][^"']*fast\.wistia\.com\/embed\/medias\/[^"']+["'][^>]*>\s*<\/script>\s*/gi, '\n')
+    .replace(/\s*<script[^>]+src=["']https:\/\/fast\.wistia\.com\/assets\/external\/E-v1\.js["'][^>]*>\s*<\/script>\s*/gi, '\n');
 
 /**
  * Convert handlebars template to PHP
@@ -1141,6 +1306,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
  */
 const generateAttributeExtraction = (properties: Record<string, HandoffProperty>, innerBlocksField?: string | null): string => {
   const extractions: string[] = [];
+  const videoNormalizations: string[] = [];
   
   for (const [key, property] of Object.entries(properties)) {
     // Only the innerBlocksField richtext uses $content — skip attribute extraction for it
@@ -1152,9 +1318,20 @@ const generateAttributeExtraction = (properties: Record<string, HandoffProperty>
     const defaultValue = getPhpDefaultValue(property);
     
     extractions.push(`$${camelKey} = isset($attributes['${camelKey}']) ? $attributes['${camelKey}'] : ${defaultValue};`);
+
+    if (property.type === 'video') {
+      videoNormalizations.push(`if (is_array($${camelKey})) {
+  if (empty($${camelKey}['id']) && !empty($${camelKey}['src']) && preg_match('#(?:medias/|iframe/)([A-Za-z0-9]+)#', (string) $${camelKey}['src'], $matches)) {
+    $${camelKey}['id'] = $matches[1];
+  }
+  if (empty($${camelKey}['src']) && !empty($${camelKey}['id'])) {
+    $${camelKey}['src'] = 'https://fast.wistia.com/embed/medias/' . rawurlencode((string) $${camelKey}['id']) . '.jsonp';
+  }
+}`);
+    }
   }
   
-  return extractions.join('\n');
+  return [...extractions, ...videoNormalizations].join('\n');
 };
 
 /**
@@ -1657,7 +1834,8 @@ const generateRenderPhp = (
   }
 
   const attributeExtraction = generateAttributeExtraction(component.properties, innerBlocksField);
-  const templatePhp = handlebarsToPhp(component.code, component.properties, richtextProps);
+  const wistiaEnqueueCode = generateWistiaEnqueueCode(component.code);
+  const templatePhp = handlebarsToPhp(stripWistiaScriptTags(component.code), component.properties, richtextProps);
   
   // Generate dynamic array extraction code
   const dynamicArrayExtractions: string[] = [];
@@ -1703,6 +1881,7 @@ if (!isset($attributes)) {
 // Extract attributes with defaults
 ${attributeExtraction}
 ${dynamicArrayCode}
+${wistiaEnqueueCode}
 ?>
 ${wrappedTemplate}
 `;

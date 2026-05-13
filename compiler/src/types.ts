@@ -116,6 +116,11 @@ export interface CompilerOptions {
     username?: string;
     password?: string;
   };
+  /**
+   * Absolute path to Handoff `public/api` — when set, component JSON and assets are read from disk.
+   * Set by the CLI when using `--source`.
+   */
+  localApiRoot?: string;
 }
 
 /**

@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@prettier/plugin-php": "^0.22.2",
+    "chokidar": "^4.0.3",
     "commander": "^11.0.0",
     "handlebars": "^4.7.8",
     "node-html-parser": "^6.1.13",
