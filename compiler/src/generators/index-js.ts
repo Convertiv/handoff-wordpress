@@ -30,6 +30,71 @@ interface FieldContext {
   indent: string;
 }
 
+interface NumberControlSpec {
+  useRange: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+const fieldLabelHaystack = (fieldKey: string, property: HandoffProperty): string =>
+  `${fieldKey} ${property.name ?? ''} ${property.description ?? ''}`.toLowerCase();
+
+/** Opacity / overlay alpha fields use a 0–1 range slider. */
+const isOpacityRangeField = (fieldKey: string, property: HandoffProperty): boolean => {
+  const hay = fieldLabelHaystack(fieldKey, property);
+  return /opacity|overlay\s*opacity|\balpha\b/i.test(hay);
+};
+
+/** Resolve editor control type and bounds for a number property. */
+const getNumberControlSpec = (fieldKey: string, property: HandoffProperty): NumberControlSpec => {
+  if (isOpacityRangeField(fieldKey, property)) {
+    return { useRange: true, min: 0, max: 1, step: 0.01 };
+  }
+
+  const hay = fieldLabelHaystack(fieldKey, property);
+  const keyHay = `${fieldKey} ${property.name ?? ''}`.toLowerCase();
+
+  if (/\blat(itude)?\b/i.test(keyHay) || /\blat(itude)?\b/i.test(hay)) {
+    return { useRange: false, min: -90, max: 90, step: 0.000001 };
+  }
+  if (/\blng\b|\blon(gitude)?\b/i.test(keyHay) || /\blng\b|\blon(gitude)?\b/i.test(hay)) {
+    return { useRange: false, min: -180, max: 180, step: 0.000001 };
+  }
+  if (/\bzoom\b/i.test(keyHay) || /\bzoom\b/i.test(hay)) {
+    return { useRange: false, min: 1, max: 21, step: 1 };
+  }
+
+  const defaultIsInteger =
+    typeof property.default === 'number' && Number.isInteger(property.default);
+  return { useRange: false, step: defaultIsInteger ? 1 : undefined };
+};
+
+const walkNumberFields = (
+  properties: Record<string, HandoffProperty>,
+  predicate: (fieldKey: string, property: HandoffProperty) => boolean
+): boolean => {
+  const check = (prop: HandoffProperty, fieldKey: string): boolean => {
+    if (prop.type === 'number' && predicate(fieldKey, prop)) {
+      return true;
+    }
+    if (prop.type === 'object' && prop.properties) {
+      return Object.entries(prop.properties).some(([k, p]) => check(p, k));
+    }
+    if (prop.type === 'array' && prop.items?.properties) {
+      return Object.entries(prop.items.properties).some(([k, p]) => check(p, k));
+    }
+    return false;
+  };
+  return Object.entries(properties).some(([k, p]) => check(p, k));
+};
+
+const hasOpacityRangeField = (properties: Record<string, HandoffProperty>): boolean =>
+  walkNumberFields(properties, isOpacityRangeField);
+
+const hasNonOpacityNumberField = (properties: Record<string, HandoffProperty>): boolean =>
+  walkNumberFields(properties, (fieldKey, property) => !isOpacityRangeField(fieldKey, property));
+
 /**
  * Generate a field control for any property type - unified function for both top-level and nested fields
  */
@@ -171,18 +236,35 @@ ${indent}/>`;
       return '';
 
     case 'number': {
-      const isDecimal = /opacity|alpha|ratio/i.test(fieldKey) ||
-        (typeof property.default === 'number' && property.default > 0 && property.default <= 1);
-      const rangeMin = isDecimal ? 0 : 0;
-      const rangeMax = isDecimal ? 1 : 100;
-      const rangeStep = isDecimal ? 0.01 : 1;
-      return `${indent}<RangeControl
+      const spec = getNumberControlSpec(fieldKey, property);
+      if (spec.useRange) {
+        return `${indent}<RangeControl
 ${indent}  label={__('${label}', 'handoff')}
-${indent}  value={${valueAccessor} || 0}
+${indent}  value={${valueAccessor} ?? 0}
 ${indent}  onChange={(value) => ${onChangeHandler('value')}}
-${indent}  min={${rangeMin}}
-${indent}  max={${rangeMax}}
-${indent}  step={${rangeStep}}
+${indent}  min={${spec.min ?? 0}}
+${indent}  max={${spec.max ?? 1}}
+${indent}  step={${spec.step ?? 0.01}}
+${indent}/>`;
+      }
+
+      const boundLines: string[] = [];
+      if (spec.min !== undefined) {
+        boundLines.push(`${indent}  min={${spec.min}}`);
+      }
+      if (spec.max !== undefined) {
+        boundLines.push(`${indent}  max={${spec.max}}`);
+      }
+      if (spec.step !== undefined) {
+        boundLines.push(`${indent}  step={${spec.step}}`);
+      }
+      const bounds = boundLines.length ? `\n${boundLines.join('\n')}` : '';
+
+      return `${indent}<NumberControl
+${indent}  label={__('${label}', 'handoff')}
+${indent}  value={typeof ${valueAccessor} === 'number' ? ${valueAccessor} : undefined}
+${indent}  onChange={(value) => ${onChangeHandler('typeof value === \'number\' ? value : 0')}}
+${bounds}
 ${indent}/>`;
     }
 
@@ -795,7 +877,8 @@ const generateIndexJs = (
 
   // Determine which components we need to import
   const needsMediaUpload = hasPropertyType('image');
-  const needsRangeControl = hasPropertyType('number');
+  const needsRangeControl = hasOpacityRangeField(properties);
+  const needsNumberControl = hasNonOpacityNumberField(properties);
   const needsToggleControl = hasPropertyType('boolean') || hasPropertyType('button');
   const needsSelectControl = hasPropertyType('select');
   const hasArrayProps = Object.values(properties).some(p => p.type === 'array');
@@ -825,6 +908,7 @@ const generateIndexJs = (
 
   const componentImports = ['PanelBody', 'TextControl', 'Button'];
   if (needsRangeControl) componentImports.push('RangeControl');
+  if (needsNumberControl) componentImports.push('NumberControl');
   // ToggleControl: only for boolean/button property fields — special array types use shared components
   if (needsToggleControl) componentImports.push('ToggleControl');
   // SelectControl: only for select property fields or DynamicPostSelector (posts) — taxonomy handled by TaxonomySelector
@@ -1425,5 +1509,16 @@ ${useInnerBlocks || previewUsesInnerBlocks ? '    // InnerBlocks content must be
 `;
 };
 
-export { generateIndexJs, generateSvgIcon, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl };
-export type { FieldContext };
+export {
+  generateIndexJs,
+  generateSvgIcon,
+  toTitleCase,
+  generateFieldControl,
+  generateArrayControl,
+  generatePropertyControl,
+  isOpacityRangeField,
+  getNumberControlSpec,
+  hasOpacityRangeField,
+  hasNonOpacityNumberField,
+};
+export type { FieldContext, NumberControlSpec };

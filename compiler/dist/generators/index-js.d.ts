@@ -17,6 +17,18 @@ interface FieldContext {
     /** Base indentation */
     indent: string;
 }
+interface NumberControlSpec {
+    useRange: boolean;
+    min?: number;
+    max?: number;
+    step?: number;
+}
+/** Opacity / overlay alpha fields use a 0–1 range slider. */
+declare const isOpacityRangeField: (fieldKey: string, property: HandoffProperty) => boolean;
+/** Resolve editor control type and bounds for a number property. */
+declare const getNumberControlSpec: (fieldKey: string, property: HandoffProperty) => NumberControlSpec;
+declare const hasOpacityRangeField: (properties: Record<string, HandoffProperty>) => boolean;
+declare const hasNonOpacityNumberField: (properties: Record<string, HandoffProperty>) => boolean;
 /**
  * Generate a field control for any property type - unified function for both top-level and nested fields
  */
@@ -46,5 +58,5 @@ declare const generateSvgIcon: (title: string, group: string) => string;
  * @param hasScreenshot - Whether a screenshot.png is available for inserter preview
  */
 declare const generateIndexJs: (component: HandoffComponent, dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>, innerBlocksField?: string | null, deprecationsCode?: string, hasScreenshot?: boolean) => string;
-export { generateIndexJs, generateSvgIcon, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl };
-export type { FieldContext };
+export { generateIndexJs, generateSvgIcon, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl, isOpacityRangeField, getNumberControlSpec, hasOpacityRangeField, hasNonOpacityNumberField, };
+export type { FieldContext, NumberControlSpec };
