@@ -14,6 +14,8 @@ import { TranspilerContext } from './types';
  * Exported for use in attribute conversion.
  */
 export declare const resolveParentPropertiesInExpression: (expr: string) => string;
+/** Turn `root` + dotted path into optional-chained access (e.g. cta + image.alt → cta.image?.alt). */
+export declare const toOptionalChainedAccess: (root: string, path: string) => string;
 export declare const transpileExpression: (expr: string, context: TranspilerContext, loopVar?: string) => string;
 /**
  * Parse Handlebars helper expressions like (eq properties.layout "layout-1")

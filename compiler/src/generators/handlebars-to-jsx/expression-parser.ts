@@ -33,6 +33,14 @@ export const resolveParentPropertiesInExpression = (expr: string): string => {
   return result;
 };
 
+/** Turn `root` + dotted path into optional-chained access (e.g. cta + image.alt → cta.image?.alt). */
+export const toOptionalChainedAccess = (root: string, path: string): string => {
+  if (!path.includes('.')) {
+    return `${root}.${path}`;
+  }
+  return `${root}.${path.split('.').join('?.')}`;
+};
+
 export const transpileExpression = (expr: string, context: TranspilerContext, loopVar: string = 'item'): string => {
   expr = expr.trim();
   
@@ -84,12 +92,14 @@ export const transpileExpression = (expr: string, context: TranspilerContext, lo
   
   // Handle this.xxx (inside loops)
   if (expr.startsWith('this.')) {
-    const path = expr.replace('this.', '');
-    if (path.includes('.')) {
-      const parts = path.split('.');
-      return `${loopVar}.${parts.join('?.')}`;
-    }
-    return `${loopVar}.${path}`;
+    return toOptionalChainedAccess(loopVar, expr.replace('this.', ''));
+  }
+
+  // Handle alias/object dotted paths (e.g. cta.image.alt in attribute values)
+  if (/^[a-zA-Z_][\w]*(\.[a-zA-Z_][\w]*)+$/.test(expr)) {
+    const parts = expr.split('.');
+    const [root, ...rest] = parts;
+    return rest.length ? `${root}.${rest.join('?.')}` : root;
   }
   
   // Handle @index, @first, @last

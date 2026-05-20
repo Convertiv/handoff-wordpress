@@ -205,8 +205,8 @@ ${indent}      <Flex direction="column" gap={3}>
 ${indent}        <span className="components-base-control__label">{__('${label}', 'handoff')}</span>
 ${indent}        {${valueAccessor}?.src && (
 ${indent}          <img 
-${indent}            src={${valueAccessor}.src} 
-${indent}            alt={${valueAccessor}.alt}
+${indent}            src={${valueAccessor}?.src} 
+${indent}            alt={${valueAccessor}?.alt || ''}
 ${indent}            style={{ maxWidth: '100%', height: 'auto' }}
 ${indent}          />
 ${indent}        )}

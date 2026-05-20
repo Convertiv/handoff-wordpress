@@ -5,7 +5,7 @@
 import { HTMLElement } from 'node-html-parser';
 import { TranspilerContext, ConvertedAttributeValue } from './types';
 import { toCamelCase, toJsxAttrName, normalizeWhitespace, collapseWhitespace } from './utils';
-import { transpileExpression, resolveParentPropertiesInExpression } from './expression-parser';
+import { transpileExpression, resolveParentPropertiesInExpression, toOptionalChainedAccess } from './expression-parser';
 import { parseStyleToObject, cssStringToReactObject } from './styles';
 
 /**
@@ -83,12 +83,12 @@ export const convertAttributeValue = (
       const parts = prop.replace('properties.', '').split('.');
       return parts.map((p: string, i: number) => i === 0 ? toCamelCase(p) : p).join('?.');
     } else if (prop.startsWith('this.')) {
-      return `${loopVar}.${prop.replace('this.', '')}`;
+      return toOptionalChainedAccess(loopVar, prop.replace('this.', ''));
     } else {
       const parts = prop.split('.');
       if (parts.length > 1) {
-        // It's likely an alias.prop reference
-        return prop;
+        const [root, ...rest] = parts;
+        return rest.length ? `${root}.${rest.join('?.')}` : root;
       }
       return `${loopVar}.${prop}`;
     }
@@ -512,12 +512,12 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
       }
     }
     
-    // Handle src with handlebars
-    if (name === 'src' && value.includes('{{')) {
+    // Handle src/alt with handlebars (nested image objects need optional chaining)
+    if ((name === 'src' || name === 'alt') && value.includes('{{')) {
       const match = value.match(/\{\{+\s*([^}]+?)\s*\}+\}/);
       if (match) {
         const expr = transpileExpression(match[1], context, loopVar);
-        attrs.push(`src={${expr}}`);
+        attrs.push(`${jsxName}={${ensureClassNameExpr(jsxName, expr)}}`);
         continue;
       }
     }
