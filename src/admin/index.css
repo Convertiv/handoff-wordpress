@@ -661,6 +661,23 @@
   background: #fffbe6;
 }
 
+.handoff-block-card--deprecated {
+  opacity: 0.85;
+  border-color: #dba617;
+  background: #fffdf5;
+}
+
+.handoff-block-card .card-deprecated-badge {
+  background: #fffbe6;
+  border: 1px solid #dba617;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #9a6700;
+  line-height: 1.6;
+}
+
 /* Schema Health Section */
 
 .handoff-schema-section {

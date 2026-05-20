@@ -113,7 +113,25 @@ Registers the block with WordPress. Contains:
 - `name`: `handoff/{component-id}` (kebab-case)
 - `attributes`: Gutenberg attribute definitions mapped from Handoff properties
 - `editorScript`, `editorStyle`, `style`, `render`: file references
-- `__handoff`: metadata with Handoff and Figma URLs
+- `__handoff`: metadata with Handoff and Figma URLs, plus optional removed-from-compile flags (see below)
+- `supports.inserter`: set to `false` when a block is deprecated (removed from compile output)
+
+#### Deprecation types
+
+Two separate mechanisms apply:
+
+| Mechanism | Trigger | Storage | Editor behavior |
+|-----------|---------|---------|-----------------|
+| **Schema deprecation** | Handoff property schema changes between compiles | `deprecated` array in `index.js` + `schema-changelog.json` | Migrates old attribute shapes when a post is opened |
+| **Removed from compile output** | Local block exists but was not in the latest `compile --all` run (removed from Handoff, `import: false`, or superseded by a merged group) | `__handoff.removedFromHandoff` in `block.json` | Hidden from inserter; warning `Notice` in block editor via `build/editor/block-deprecation.js` |
+
+Removed-from-compile fields on `__handoff`:
+
+- `removedFromHandoff`: `true`
+- `removedFromHandoffAt`: ISO timestamp when marked
+- `removedFromHandoffReason`: `not-in-compile-output`
+
+After `npm run compile:all`, the compiler reconciles every directory under `blocks/` against the slugs compiled in that run. Orphan directories are patched in place (not deleted) so existing post content keeps rendering via `render.php`.
 
 ### index.js
 
@@ -698,6 +716,7 @@ The full compilation pipeline, in order:
 13. **Generate categories PHP** — Block category registration (once per compilation run)
 14. **Format output** — Run Prettier on generated JS/SCSS files
 15. **Write files** — Output to the configured directory structure
+16. **Reconcile local blocks** — Mark any `blocks/{slug}/` not in this run’s compile output as deprecated (`__handoff.removedFromHandoff`, `supports.inserter: false`, title prefixed with `(Deprecated)`)
 
 ### Directory Structure
 

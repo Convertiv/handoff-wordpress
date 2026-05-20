@@ -70,6 +70,9 @@ export default function BlocksTab() {
         <StatCard value={stats.totalBlocks} label="Blocks" />
         <StatCard value={stats.totalCategories} label="Categories" />
         <StatCard value={stats.totalVariations} label="Variations" />
+        {(stats.deprecatedBlocks ?? 0) > 0 && (
+          <StatCard value={stats.deprecatedBlocks} label="Deprecated" />
+        )}
         <div className="handoff-stat-card handoff-stat-usage">
           <div className="stat-value">{Object.keys(usageMap).length}</div>
           <div className="stat-label">In Use</div>
@@ -124,7 +127,9 @@ function BlockCard({ block, usage, isExpanded, onToggleUsage }) {
   const pageCount = usage?.count || 0;
 
   return (
-    <div className="handoff-block-card">
+    <div
+      className={`handoff-block-card${block.removedFromHandoff ? ' handoff-block-card--deprecated' : ''}`}
+    >
       {block.hasScreenshot && (
         <div className="card-screenshot">
           <img src={block.screenshotUrl} alt={block.title} />
@@ -148,6 +153,11 @@ function BlockCard({ block, usage, isExpanded, onToggleUsage }) {
         >
           {pageCount > 0 ? `${pageCount} page${pageCount !== 1 ? 's' : ''}` : 'Unused'}
         </button>
+        {block.removedFromHandoff && (
+          <span className="card-deprecated-badge" title="No longer in Handoff compile output">
+            Deprecated
+          </span>
+        )}
         {block.schemaChanges && (
           <span
             className={`card-schema-badge ${block.schemaChanges.needsReview > 0 ? 'needs-review' : 'up-to-date'}`}

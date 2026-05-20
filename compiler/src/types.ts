@@ -66,6 +66,10 @@ export interface GutenbergAttribute {
 export interface HandoffMetadata {
   handoffUrl?: string;
   figmaUrl?: string;
+  /** Set when this block is no longer in the Handoff compile output (see compile --all reconcile). */
+  removedFromHandoff?: boolean;
+  removedFromHandoffAt?: string;
+  removedFromHandoffReason?: 'not-in-compile-output';
 }
 
 export interface BlockJsonOutput {

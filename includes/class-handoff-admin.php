@@ -288,45 +288,63 @@ class Handoff_Admin {
         }
       }
 
+      $removed_from_handoff = !empty($meta['__handoff']['removedFromHandoff']);
       $blocks[] = [
-        'slug'           => $item,
-        'name'           => $meta['name'] ?? '',
-        'title'          => $meta['title'] ?? $item,
-        'description'    => $meta['description'] ?? '',
-        'category'       => $meta['category'] ?? '',
-        'keywords'       => $meta['keywords'] ?? [],
-        'attributeCount' => isset($meta['attributes']) ? count($meta['attributes']) : 0,
-        'variationCount' => $variation_count,
-        'handoffUrl'     => $meta['__handoff']['handoffUrl'] ?? '',
-        'figmaUrl'       => $meta['__handoff']['figmaUrl'] ?? '',
-        'hasScreenshot'  => $has_screenshot,
-        'screenshotUrl'  => $has_screenshot ? $build_url . $item . '/screenshot.png' : '',
-        'lastModified'   => $last_modified,
-        'schemaChanges'  => $schema_changes,
+        'slug'                 => $item,
+        'name'                 => $meta['name'] ?? '',
+        'title'                => $meta['title'] ?? $item,
+        'description'          => $meta['description'] ?? '',
+        'category'             => $meta['category'] ?? '',
+        'keywords'             => $meta['keywords'] ?? [],
+        'attributeCount'       => isset($meta['attributes']) ? count($meta['attributes']) : 0,
+        'variationCount'       => $variation_count,
+        'handoffUrl'           => $meta['__handoff']['handoffUrl'] ?? '',
+        'figmaUrl'             => $meta['__handoff']['figmaUrl'] ?? '',
+        'hasScreenshot'        => $has_screenshot,
+        'screenshotUrl'        => $has_screenshot ? $build_url . $item . '/screenshot.png' : '',
+        'lastModified'         => $last_modified,
+        'schemaChanges'        => $schema_changes,
+        'removedFromHandoff'   => $removed_from_handoff,
+        'removedFromHandoffAt' => $removed_from_handoff ? ($meta['__handoff']['removedFromHandoffAt'] ?? null) : null,
       ];
     }
 
-    usort($blocks, fn($a, $b) => strcmp($a['category'], $b['category']) ?: strcmp($a['title'], $b['title']));
+    usort($blocks, function ($a, $b) {
+      if ($a['removedFromHandoff'] !== $b['removedFromHandoff']) {
+        return $a['removedFromHandoff'] ? 1 : -1;
+      }
+      return strcmp($a['category'], $b['category']) ?: strcmp($a['title'], $b['title']);
+    });
 
     $categories = array_values(array_unique(array_column($blocks, 'category')));
     $total_variations = array_sum(array_column($blocks, 'variationCount'));
+    $deprecated_slugs = [];
+    foreach ($blocks as $block) {
+      if (!empty($block['removedFromHandoff'])) {
+        $deprecated_slugs[] = $block['slug'];
+      }
+    }
 
     return new \WP_REST_Response([
       'blocks' => $blocks,
       'stats'  => [
-        'totalBlocks'     => count($blocks),
-        'totalCategories' => count($categories),
-        'totalVariations' => $total_variations,
-        'categories'      => $categories,
+        'totalBlocks'       => count($blocks),
+        'totalCategories'   => count($categories),
+        'totalVariations'   => $total_variations,
+        'categories'        => $categories,
+        'deprecatedBlocks'  => count($deprecated_slugs),
+        'deprecatedSlugs'   => $deprecated_slugs,
       ],
     ]);
   }
 
   private function empty_stats(): array {
     return [
-      'totalBlocks'     => 0,
-      'totalCategories' => 0,
-      'totalVariations' => 0,
+      'totalBlocks'       => 0,
+      'totalCategories'   => 0,
+      'totalVariations'   => 0,
+      'deprecatedBlocks'  => 0,
+      'deprecatedSlugs'   => [],
       'categories'      => [],
     ];
   }

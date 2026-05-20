@@ -48,6 +48,12 @@ if (fs.existsSync(adminEntry)) {
   entry['admin/index'] = adminEntry;
 }
 
+// Block editor: warn when a block was removed from Handoff compile output
+const blockDeprecationEntry = path.resolve(__dirname, 'src/block-editor/block-deprecation.js');
+if (fs.existsSync(blockDeprecationEntry)) {
+  entry['editor/block-deprecation'] = blockDeprecationEntry;
+}
+
 if (Object.keys(entry).length === 0) {
   module.exports = { entry: {}, plugins: [] };
 } else {
@@ -156,12 +162,14 @@ module.exports = {
     // This runs after webpack emits all files so the admin assets exist on disk.
     ...(isExternalContent ? [{
       apply(compiler) {
-        compiler.hooks.afterEmit.tapAsync('CopyAdminToPluginRoot', (_compilation, callback) => {
-          const src = path.resolve(contentDir, 'build/admin');
-          const dest = path.resolve(__dirname, 'build/admin');
-          if (fs.existsSync(src)) {
-            fs.mkdirSync(dest, { recursive: true });
-            fs.cpSync(src, dest, { recursive: true });
+        compiler.hooks.afterEmit.tapAsync('CopyPluginBundlesToPluginRoot', (_compilation, callback) => {
+          for (const sub of ['admin', 'editor']) {
+            const src = path.resolve(contentDir, 'build', sub);
+            const dest = path.resolve(__dirname, 'build', sub);
+            if (fs.existsSync(src)) {
+              fs.mkdirSync(dest, { recursive: true });
+              fs.cpSync(src, dest, { recursive: true });
+            }
           }
           callback();
         });

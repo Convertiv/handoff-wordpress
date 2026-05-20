@@ -259,11 +259,16 @@ ${indent}/>`;
         boundLines.push(`${indent}  step={${spec.step}}`);
       }
       const bounds = boundLines.length ? `\n${boundLines.join('\n')}` : '';
+      const parseExpr =
+        spec.step !== undefined && spec.step >= 1 && Number.isInteger(spec.step)
+          ? "value === '' ? 0 : parseInt(value, 10) || 0"
+          : "value === '' ? 0 : parseFloat(value) || 0";
 
-      return `${indent}<NumberControl
+      return `${indent}<TextControl
 ${indent}  label={__('${label}', 'handoff')}
-${indent}  value={typeof ${valueAccessor} === 'number' ? ${valueAccessor} : undefined}
-${indent}  onChange={(value) => ${onChangeHandler('typeof value === \'number\' ? value : 0')}}
+${indent}  type="number"
+${indent}  value={typeof ${valueAccessor} === 'number' ? String(${valueAccessor}) : ''}
+${indent}  onChange={(value) => ${onChangeHandler(parseExpr)}}
 ${bounds}
 ${indent}/>`;
     }
@@ -878,7 +883,6 @@ const generateIndexJs = (
   // Determine which components we need to import
   const needsMediaUpload = hasPropertyType('image');
   const needsRangeControl = hasOpacityRangeField(properties);
-  const needsNumberControl = hasNonOpacityNumberField(properties);
   const needsToggleControl = hasPropertyType('boolean') || hasPropertyType('button');
   const needsSelectControl = hasPropertyType('select');
   const hasArrayProps = Object.values(properties).some(p => p.type === 'array');
@@ -908,7 +912,6 @@ const generateIndexJs = (
 
   const componentImports = ['PanelBody', 'TextControl', 'Button'];
   if (needsRangeControl) componentImports.push('RangeControl');
-  if (needsNumberControl) componentImports.push('NumberControl');
   // ToggleControl: only for boolean/button property fields — special array types use shared components
   if (needsToggleControl) componentImports.push('ToggleControl');
   // SelectControl: only for select property fields or DynamicPostSelector (posts) — taxonomy handled by TaxonomySelector

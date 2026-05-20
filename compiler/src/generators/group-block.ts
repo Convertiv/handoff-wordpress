@@ -35,7 +35,6 @@ import {
   generateArrayControl,
   generateSvgIcon,
   hasOpacityRangeField,
-  hasNonOpacityNumberField,
 } from './index-js';
 import type { FieldContext } from './index-js';
 
@@ -318,6 +317,10 @@ const generateMergedBlockJson = (
     };
   }
 
+  blockJson.__handoff = {
+    removedFromHandoff: false,
+  };
+
   return JSON.stringify(blockJson, null, 2);
 };
 
@@ -391,7 +394,6 @@ const generateMergedIndexJs = (
   // Collect all unique features needed across variants
   let needsMediaUpload = false;
   let needsRangeControl = false;
-  let needsNumberControl = false;
   let needsToggleControl = false;
   let needsSelectControl = false;
   let needsLinkControl = false;
@@ -444,7 +446,6 @@ const generateMergedIndexJs = (
     // Detect feature needs
     if (hasPropertyType(properties, 'image')) needsMediaUpload = true;
     if (hasOpacityRangeField(properties)) needsRangeControl = true;
-    if (hasNonOpacityNumberField(properties)) needsNumberControl = true;
     if (hasPropertyType(properties, 'boolean') || hasPropertyType(properties, 'button')) needsToggleControl = true;
     if (hasPropertyType(properties, 'select')) needsSelectControl = true;
     if (hasPropertyType(properties, 'link') || hasPropertyType(properties, 'button')) needsLinkControl = true;
@@ -832,7 +833,6 @@ ${linkButtons.join('\n')}
 
   const componentImports = ['PanelBody', 'TextControl', 'Button', 'SelectControl', 'DropdownMenu'];
   if (needsRangeControl) componentImports.push('RangeControl');
-  if (needsNumberControl) componentImports.push('NumberControl');
   if (needsToggleControl) componentImports.push('ToggleControl');
   if (anyHasDynamicArrays) componentImports.push('Spinner');
   const anyHasRichtextInArray = variants.some((v) =>

@@ -506,11 +506,11 @@ const generateBlockJson = (
   if (component.figma) {
     handoffMetadata.figmaUrl = component.figma;
   }
-  
-  // Only add __handoff if we have at least one URL
-  if (handoffMetadata.handoffUrl || handoffMetadata.figmaUrl) {
-    blockJson.__handoff = handoffMetadata;
-  }
+
+  // Active compile: explicitly not removed from Handoff output
+  handoffMetadata.removedFromHandoff = false;
+
+  blockJson.__handoff = handoffMetadata;
   
   return JSON.stringify(blockJson, null, 2);
 };

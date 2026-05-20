@@ -685,6 +685,20 @@ class Handoff_CLI {
     if (is_dir($blocks_dir)) {
       $source_blocks = array_filter(scandir($blocks_dir), fn($f) => $f !== '.' && $f !== '..' && $f !== '.gitkeep' && is_dir($blocks_dir . $f));
       WP_CLI::log('Count: ' . count($source_blocks));
+      $deprecated_source = [];
+      foreach ($source_blocks as $slug) {
+        $block_json = $blocks_dir . $slug . '/block.json';
+        if (!file_exists($block_json)) {
+          continue;
+        }
+        $meta = json_decode(file_get_contents($block_json), true);
+        if (!empty($meta['__handoff']['removedFromHandoff'])) {
+          $deprecated_source[] = $slug;
+        }
+      }
+      if (count($deprecated_source) > 0) {
+        WP_CLI::warning('Deprecated (not in compile output): ' . implode(', ', $deprecated_source));
+      }
     } else {
       WP_CLI::log('Count: 0 (blocks/ directory not found)');
     }
@@ -703,16 +717,18 @@ class Handoff_CLI {
           $name  = $meta['name'] ?? '';
           $handoff_url = $meta['__handoff']['handoffUrl'] ?? '';
           $figma_url   = $meta['__handoff']['figmaUrl'] ?? '';
+          $deprecated = !empty($meta['__handoff']['removedFromHandoff']);
           $built[] = [
-            'Block'   => $name,
-            'Title'   => $title,
-            'Handoff' => $handoff_url ? 'Yes' : '',
-            'Figma'   => $figma_url ? 'Yes' : '',
+            'Block'      => $name,
+            'Title'      => $title,
+            'Deprecated' => $deprecated ? 'Yes' : '',
+            'Handoff'    => $handoff_url ? 'Yes' : '',
+            'Figma'      => $figma_url ? 'Yes' : '',
           ];
         }
       }
       if (count($built) > 0) {
-        WP_CLI\Utils\format_items('table', $built, ['Block', 'Title', 'Handoff', 'Figma']);
+        WP_CLI\Utils\format_items('table', $built, ['Block', 'Title', 'Deprecated', 'Handoff', 'Figma']);
       } else {
         WP_CLI::log('No built blocks found. Run `wp handoff build` after compiling.');
       }

@@ -199,6 +199,10 @@ import {
 } from './generators';
 import type { VariantInfo } from './generators';
 import {
+  getActiveBlockSlugs,
+  reconcileLocalBlocks,
+} from './block-lifecycle';
+import {
   loadManifest,
   saveManifest,
   validateComponent,
@@ -1099,6 +1103,19 @@ const compileAll = async (ctx: HandoffDataContext, outputDir: string): Promise<v
         console.error(`❌ Failed to compile merged group ${groupSlug}: ${error instanceof Error ? error.message : error}`);
         failed += groupComponents.length;
       }
+    }
+
+    // Reconcile local blocks: mark dirs not in this compile output as deprecated
+    console.log(`\n⚙️  Reconciling local blocks with compile output...`);
+    const activeSlugs = getActiveBlockSlugs(individualComponents, groupBuckets);
+    const reconcileResult = reconcileLocalBlocks(outputDir, activeSlugs);
+    const newlyDeprecated = reconcileResult.marked;
+    if (newlyDeprecated.length > 0) {
+      console.log(`   ⚠️  Marked ${newlyDeprecated.length} block(s) as deprecated: ${newlyDeprecated.join(', ')}`);
+    } else if (reconcileResult.alreadyDeprecated.length > 0) {
+      console.log(`   ℹ️  ${reconcileResult.alreadyDeprecated.length} block(s) remain deprecated (unchanged)`);
+    } else {
+      console.log(`   ✅ All local blocks match current compile output`);
     }
     
     // Generate categories PHP file based on all compiled components

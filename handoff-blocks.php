@@ -246,6 +246,53 @@ function handoff_enqueue_design_assets() {
 add_action('enqueue_block_assets', 'handoff_enqueue_design_assets');
 
 /**
+ * Warn in the block editor when a Handoff block is no longer in the compile output.
+ */
+function handoff_enqueue_block_deprecation_script() {
+  $candidates = array(
+    array(
+      'path' => HANDOFF_BLOCKS_PATH . 'build/editor/block-deprecation.js',
+      'url'  => HANDOFF_BLOCKS_URL . 'build/editor/block-deprecation.js',
+    ),
+    array(
+      'path' => rtrim(HANDOFF_CONTENT_DIR, '/') . '/build/editor/block-deprecation.js',
+      'url'  => rtrim(HANDOFF_CONTENT_URL, '/') . '/build/editor/block-deprecation.js',
+    ),
+  );
+
+  $script = null;
+  foreach ($candidates as $candidate) {
+    if (file_exists($candidate['path'])) {
+      $script = $candidate;
+      break;
+    }
+  }
+
+  if ($script === null) {
+    return;
+  }
+
+  $asset_file = dirname($script['path']) . '/block-deprecation.asset.php';
+  if (file_exists($asset_file)) {
+    $asset = require $asset_file;
+  } else {
+    $asset = array(
+      'dependencies' => array('wp-blocks', 'wp-element', 'wp-components', 'wp-hooks', 'wp-compose', 'wp-block-editor', 'wp-i18n'),
+      'version'      => HANDOFF_BLOCKS_VERSION,
+    );
+  }
+
+  wp_enqueue_script(
+    'handoff-block-deprecation',
+    $script['url'],
+    $asset['dependencies'],
+    $asset['version'],
+    true
+  );
+}
+add_action('enqueue_block_editor_assets', 'handoff_enqueue_block_deprecation_script');
+
+/**
  * Register block categories
  * Uses the auto-generated categories from handoff-categories.php if available
  */
