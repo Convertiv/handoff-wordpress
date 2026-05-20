@@ -4,7 +4,7 @@
 
 import { HandoffProperty } from '../../types';
 import { toCamelCase, findMatchingClose, isInsideAttribute } from './utils';
-import { parseHelperExpression } from './expression-parser';
+import { parseHelperExpression, transpileExpression } from './expression-parser';
 import { lookupFieldType } from './field-lookup';
 import { preprocessAttributeConditionals } from './attributes';
 
@@ -415,7 +415,10 @@ export const preprocessBlocks = (template: string, currentLoopArray?: string): s
 
     if (closePos !== -1) {
       const condition = unlessPropsMatch[1];
-      const negated = `!(${condition})`;
+      // Store a transpile-friendly negated condition (not raw properties.xxx inside parens)
+      const negated = condition.startsWith('properties.')
+        ? `!${transpileExpression(condition, { properties: {}, indent: '', inLoop: false })}`
+        : `!(${condition})`;
       const inner = result.substring(openTagEnd, closePos);
       const replacement = processIfBlock(negated, inner, startPos, unlessPropsMatch[0]);
 

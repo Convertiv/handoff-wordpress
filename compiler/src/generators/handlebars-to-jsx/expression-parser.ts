@@ -38,6 +38,17 @@ export const transpileExpression = (expr: string, context: TranspilerContext, lo
   
   // Handle triple braces (unescaped) - strip the extra brace
   expr = expr.replace(/^\{+|\}+$/g, '');
+
+  // Negated conditions from {{#unless properties.xxx}} blocks: !(properties.foo) or !properties.foo
+  const negWrappedMatch = expr.match(/^!\((.+)\)$/s);
+  if (negWrappedMatch) {
+    const inner = transpileExpression(negWrappedMatch[1].trim(), context, loopVar);
+    return `!(${inner})`;
+  }
+  if (expr.startsWith('!properties.')) {
+    const inner = transpileExpression(expr.slice(1), context, loopVar);
+    return `!(${inner})`;
+  }
   
   // Resolve ALL ../properties.xxx and @root.properties.xxx in the expression (for compound expressions like ternaries)
   expr = resolveParentPropertiesInExpression(expr);

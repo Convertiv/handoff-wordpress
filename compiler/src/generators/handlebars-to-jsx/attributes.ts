@@ -184,6 +184,19 @@ export const convertAttributeValue = (
       return "${index !== 0 ? " + unlessExpr + " : ''}";
     }
   );
+
+  // Handle {{#unless condition}}value{{else}}other{{/unless}} pattern (must run before unless without else)
+  result = result.replace(
+    /\{\{#unless\s+([^}]+)\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/unless\}\}/g,
+    (_: string, condition: string, unlessVal: string, elseVal: string) => {
+      isExpression = true;
+      const condExpr = propToExpr(normalizeWhitespace(condition));
+      const unlessExpr = convertInnerToExpr(collapseWhitespace(unlessVal));
+      const elseExpr = convertInnerToExpr(collapseWhitespace(elseVal));
+
+      return '${!' + condExpr + ' ? ' + unlessExpr + ' : ' + elseExpr + '}';
+    }
+  );
   
   // Handle {{#unless condition}}value{{/unless}} pattern (general)
   // Use [\s\S]*? to match across newlines
