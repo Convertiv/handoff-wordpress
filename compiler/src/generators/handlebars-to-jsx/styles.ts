@@ -4,6 +4,7 @@
 
 import { TranspilerContext } from './types';
 import { toCamelCase, cssToCamelCase } from './utils';
+import { toOptionalChainedAccess } from './expression-parser';
 
 /**
  * Convert a static CSS string (e.g. "display: block; color: red;") to a React inline style object
@@ -30,16 +31,30 @@ export const cssStringToReactObject = (cssStr: string): string => {
 };
 
 /**
- * Convert a Handlebars property reference (e.g. "properties.overlay-opacity")
- * to a camelCase JS variable, stripping the "properties." prefix.
+ * Convert a Handlebars property reference (e.g. "properties.overlay-opacity", "this.image.src",
+ * or "slide.image.src" inside {{#each properties.slides as |slide|}}) to a JSX expression.
  */
-const resolvePropertyRef = (raw: string): string => {
+const resolvePropertyRef = (raw: string, loopVar: string = 'item'): string => {
   let ref = raw.trim();
   while (ref.startsWith('../')) ref = ref.substring(3);
   if (ref.startsWith('properties.')) {
     const parts = ref.replace('properties.', '').split('.');
     const propName = toCamelCase(parts[0]);
-    return parts.length > 1 ? `${propName}?.${parts.slice(1).join('.')}` : propName;
+    return parts.length > 1 ? `${propName}?.${parts.slice(1).join('?.')}` : propName;
+  }
+  if (ref === 'this') {
+    return loopVar;
+  }
+  if (ref.startsWith('this.')) {
+    return toOptionalChainedAccess(loopVar, ref.replace('this.', ''));
+  }
+  const parts = ref.split('.');
+  if (parts.length > 1 && parts[0] === loopVar) {
+    return toOptionalChainedAccess(loopVar, parts.slice(1).join('.'));
+  }
+  if (/^[a-zA-Z_][\w]*(\.[a-zA-Z_][\w]*)+$/.test(ref)) {
+    const [root, ...rest] = parts;
+    return rest.length ? `${root}.${rest.join('?.')}` : root;
   }
   return toCamelCase(ref);
 };
@@ -49,6 +64,7 @@ const resolvePropertyRef = (raw: string): string => {
  * Handles mixed static and dynamic (Handlebars) values per-property.
  */
 export const parseStyleToObject = (styleStr: string, context: TranspilerContext): string => {
+  const loopVar = context.loopVariable || 'item';
   const styles = styleStr.split(';')
     .filter(s => s.trim())
     .map(s => {
@@ -63,7 +79,7 @@ export const parseStyleToObject = (styleStr: string, context: TranspilerContext)
         const urlRegex = /url\(['"]?\{\{\s*(.+?)\s*\}\}['"]?\)/g;
         const matches = [...val.matchAll(urlRegex)];
         if (matches.length > 0) {
-          const refs = matches.map(m => resolvePropertyRef(m[1]));
+          const refs = matches.map(m => resolvePropertyRef(m[1], loopVar));
           const parts = refs.map(ref => `${ref} ? \`url('\${${ref}}')\` : null`);
           return `backgroundImage: [${parts.join(', ')}].filter(Boolean).join(', ') || undefined`;
         }
@@ -72,7 +88,7 @@ export const parseStyleToObject = (styleStr: string, context: TranspilerContext)
       // Value is a simple Handlebars expression → resolve to JS variable
       const hbsMatch = val.match(/^\{\{\s*(.+?)\s*\}\}$/);
       if (hbsMatch) {
-        return `${camelProp}: ${resolvePropertyRef(hbsMatch[1])}`;
+        return `${camelProp}: ${resolvePropertyRef(hbsMatch[1], loopVar)}`;
       }
 
       // Numeric values don't need quotes
