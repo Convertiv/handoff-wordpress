@@ -33,10 +33,6 @@ declare const hasNonOpacityNumberField: (properties: Record<string, HandoffPrope
  * Generate a field control for any property type - unified function for both top-level and nested fields
  */
 declare const generateFieldControl: (fieldKey: string, property: HandoffProperty, context: FieldContext) => string;
-/**
- * Generate array (repeater) control using 10up Repeater component
- * Provides drag-and-drop reordering and built-in add/remove functionality
- */
 declare const generateArrayControl: (key: string, property: HandoffProperty, attrName: string, label: string, indent: string) => string;
 /**
  * Generate the inspector control for a top-level property

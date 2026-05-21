@@ -88,9 +88,12 @@ export const convertAttributeValue = (
       const parts = prop.split('.');
       if (parts.length > 1) {
         const [root, ...rest] = parts;
-        return rest.length ? `${root}.${rest.join('?.')}` : root;
+        if (root === loopVar) {
+          return toOptionalChainedAccess(loopVar, rest.join('.'));
+        }
+        return [root, ...rest].join('?.');
       }
-      return `${loopVar}.${prop}`;
+      return toOptionalChainedAccess(loopVar, prop);
     }
   };
   
@@ -119,7 +122,7 @@ export const convertAttributeValue = (
         return '${' + jsxProp + '}';
       });
       expr = expr.replace(/\{\{\s*this\.([^}]+)\s*\}\}/g, (_: string, prop: string) => {
-        return '${' + loopVar + '.' + prop.trim() + '}';
+        return '${' + toOptionalChainedAccess(loopVar, prop.trim()) + '}';
       });
       expr = expr.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\}\}/g, (_: string, prop: string) => {
         if (!prop.startsWith('properties.') && !prop.startsWith('this.')) {
@@ -236,7 +239,7 @@ export const convertAttributeValue = (
   if (result.includes('{{')) {
     result = result.replace(/\{\{\s*this\.([^}]+)\s*\}\}/g, (_: string, prop: string) => {
       isExpression = true;
-      return '${' + loopVar + '.' + prop.trim() + '}';
+      return '${' + toOptionalChainedAccess(loopVar, prop.trim()) + '}';
     });
   }
 

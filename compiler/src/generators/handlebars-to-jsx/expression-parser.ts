@@ -95,11 +95,13 @@ export const transpileExpression = (expr: string, context: TranspilerContext, lo
     return toOptionalChainedAccess(loopVar, expr.replace('this.', ''));
   }
 
-  // Handle alias/object dotted paths (e.g. cta.image.alt in attribute values)
+  // Handle alias/object dotted paths (e.g. column.cta.style in attribute values)
   if (/^[a-zA-Z_][\w]*(\.[a-zA-Z_][\w]*)+$/.test(expr)) {
     const parts = expr.split('.');
-    const [root, ...rest] = parts;
-    return rest.length ? `${root}.${rest.join('?.')}` : root;
+    if (parts[0] === loopVar) {
+      return toOptionalChainedAccess(loopVar, parts.slice(1).join('.'));
+    }
+    return parts.join('?.');
   }
   
   // Handle @index, @first, @last

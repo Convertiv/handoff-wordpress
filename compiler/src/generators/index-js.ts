@@ -619,8 +619,21 @@ ${indent}/>`;
  * Generate array (repeater) control using 10up Repeater component
  * Provides drag-and-drop reordering and built-in add/remove functionality
  */
+const buildArrayItemDefaultLiteral = (property: HandoffProperty): string => {
+  const itemProps = property.items?.properties;
+  if (!itemProps) {
+    return '{}';
+  }
+  const defaults: Record<string, unknown> = {};
+  for (const [fieldKey, fieldProp] of Object.entries(itemProps)) {
+    defaults[fieldKey] = getDefaultValue(fieldProp);
+  }
+  return JSON.stringify(defaults);
+};
+
 const generateArrayControl = (key: string, property: HandoffProperty, attrName: string, label: string, indent: string): string => {
   const itemProps = property.items?.properties || {};
+  const itemDefaultLiteral = buildArrayItemDefaultLiteral(property);
 
   // Generate field controls that use setItem from the Repeater render prop
   const itemFields = Object.entries(itemProps).map(([fieldKey, fieldProp]) => {
@@ -658,7 +671,7 @@ ${indent}  )`;
   return `${indent}<Repeater 
 ${indent}  attribute="${attrName}" 
 ${indent}  allowReordering={true} 
-${indent}  defaultValue={{}}
+${indent}  defaultValue={${itemDefaultLiteral}}
 ${indent}  addButton={${addButtonJsx}}
 ${indent}>
 ${indent}  {(item, index, setItem, removeItem) => (

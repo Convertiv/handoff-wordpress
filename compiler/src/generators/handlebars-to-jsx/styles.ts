@@ -53,8 +53,10 @@ const resolvePropertyRef = (raw: string, loopVar: string = 'item'): string => {
     return toOptionalChainedAccess(loopVar, parts.slice(1).join('.'));
   }
   if (/^[a-zA-Z_][\w]*(\.[a-zA-Z_][\w]*)+$/.test(ref)) {
-    const [root, ...rest] = parts;
-    return rest.length ? `${root}.${rest.join('?.')}` : root;
+    if (parts[0] === loopVar) {
+      return toOptionalChainedAccess(loopVar, parts.slice(1).join('.'));
+    }
+    return parts.join('?.');
   }
   return toCamelCase(ref);
 };
