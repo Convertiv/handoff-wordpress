@@ -147,6 +147,27 @@ function handoff_build_editor_stylesheets(): array {
     }
   }
 
+  if (!empty($editor['canvasShim'])) {
+    $grid_candidates = [
+      $content . '/shared/editor/editor-canvas-grid.css',
+      rtrim(HANDOFF_BLOCKS_PATH, '/') . '/shared/editor/editor-canvas-grid.css',
+    ];
+    foreach ($grid_candidates as $grid_path) {
+      if (file_exists($grid_path)) {
+        $grid_url = str_starts_with($grid_path, $content)
+          ? rtrim(HANDOFF_CONTENT_URL, '/') . substr($grid_path, strlen($content))
+          : HANDOFF_BLOCKS_URL . 'shared/editor/editor-canvas-grid.css';
+        $queue[] = [
+          'handle'  => 'handoff-editor-canvas-grid',
+          'url'     => $grid_url,
+          'path'    => $grid_path,
+          'version' => filemtime($grid_path),
+        ];
+        break;
+      }
+    }
+  }
+
   $extras = isset($editor['extraStylesheets']) && is_array($editor['extraStylesheets'])
     ? $editor['extraStylesheets']
     : [];

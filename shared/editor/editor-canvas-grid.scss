@@ -1,0 +1,26 @@
+// Editor-only grid layout — reset o-container/o-row spacing inside block preview canvas.
+// Frontend keeps design-system main.css; this file is enqueued only in the block editor.
+// Row negative margins and container padding assume the container is the outer gutter boundary;
+// WP editor chrome adds extra inset, so we use full canvas width here.
+
+.editor-styles-wrapper [class*='-editor-preview'],
+.editor-styles-wrapper .handoff-editor-canvas {
+	.o-container,
+	.o-container-fluid {
+		width: 100%;
+		max-width: none;
+		padding-left: 0;
+		padding-right: 0;
+	}
+
+	.o-row,
+	[class*='o-stack'] {
+		margin-left: 0;
+		margin-right: 0;
+	}
+
+	.o-row > [class*='o-col'],
+	[class*='o-stack'] > * {
+		box-sizing: border-box;
+	}
+}

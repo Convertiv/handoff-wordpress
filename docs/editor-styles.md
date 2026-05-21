@@ -9,8 +9,23 @@ Handoff blocks preview in the Gutenberg iframe using **per-project CSS**, not ha
 3. Plugin enqueues, in order:
    - `shared/editor/canvas-shim.css` — wp-admin collision resets (no design tokens)
    - Scoped (or raw) design-system CSS
+   - `shared/editor/editor-canvas-grid.css` — editor-only `o-container` / `o-row` layout (see below)
    - `editor.extraStylesheets` from `handoff-wp.config.json`
 4. Generated block previews wrap content in `handoff-editor-canvas` and use `<span class="handoff-canvas-button">` for editable CTAs.
+
+## Editor grid (`o-container` / `o-row` / `o-col-*`)
+
+On the frontend, `.o-container` padding and `.o-row` negative margins cancel each other. The block editor adds extra horizontal inset (`.editor-styles-wrapper`, block wrapper), so columns can look misaligned even when `o-col-7@md` widths are correct.
+
+`editor-canvas-grid.css` (enqueued when `canvasShim` is true, after scoped `main.css`) resets inside `*-editor-preview` / `.handoff-editor-canvas` only:
+
+- `.o-container` — `width: 100%`, no `max-width`, no horizontal padding
+- `.o-row` / `[class*='o-stack']` — no negative side margins
+- Column children — `box-sizing: border-box` so flex `%` widths include gutter padding
+
+Frontend layout is unchanged; this file is not loaded on the public site.
+
+Per-block `style.scss` no longer emits generic `o-container` / `o-row` fallbacks (design system `main.css` owns the grid).
 
 ### Example `handoff-wp.config.json`
 

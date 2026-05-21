@@ -373,37 +373,7 @@ const generateStyleScss = (component: HandoffComponent): string => {
 `;
   }
 
-  if (usedClasses.has('o-container')) {
-    scss += `
-  .o-container {
-    position: relative;
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 1rem;
-  }
-`;
-  }
-
-  if (usedClasses.has('o-row')) {
-    scss += `
-  .o-row {
-    display: flex;
-    flex-wrap: wrap;
-  }
-`;
-  }
-
-  if (usedClasses.has('o-col') || usedClasses.has('o-col-12')) {
-    scss += `
-  .o-col {
-    flex: 1;
-  }
-
-  .o-col-12 {
-    width: 100%;
-  }
-`;
-  }
+  // o-container / o-row / o-col: use design-system main.css only (not block style.scss fallbacks).
 
   if (usedClasses.has('c-breadcrumbs')) {
     scss += `

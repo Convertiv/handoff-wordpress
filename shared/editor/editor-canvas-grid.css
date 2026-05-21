@@ -1,0 +1,27 @@
+/**
+ * Compiled from editor-canvas-grid.scss — editor-only grid layout for block preview canvas.
+ */
+.editor-styles-wrapper [class*='-editor-preview'] .o-container,
+.editor-styles-wrapper [class*='-editor-preview'] .o-container-fluid,
+.editor-styles-wrapper .handoff-editor-canvas .o-container,
+.editor-styles-wrapper .handoff-editor-canvas .o-container-fluid {
+  width: 100%;
+  max-width: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.editor-styles-wrapper [class*='-editor-preview'] .o-row,
+.editor-styles-wrapper [class*='-editor-preview'] [class*='o-stack'],
+.editor-styles-wrapper .handoff-editor-canvas .o-row,
+.editor-styles-wrapper .handoff-editor-canvas [class*='o-stack'] {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.editor-styles-wrapper [class*='-editor-preview'] .o-row > [class*='o-col'],
+.editor-styles-wrapper [class*='-editor-preview'] [class*='o-stack'] > *,
+.editor-styles-wrapper .handoff-editor-canvas .o-row > [class*='o-col'],
+.editor-styles-wrapper .handoff-editor-canvas [class*='o-stack'] > * {
+  box-sizing: border-box;
+}
