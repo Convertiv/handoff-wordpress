@@ -1,6 +1,7 @@
 /**
  * Compiled from canvas-shim.scss — universal block editor canvas shim.
  */
+.editor-styles-wrapper [class*='-editor-preview'] .handoff-canvas-button,
 .editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button {
   background-image: none;
   box-shadow: none;
@@ -12,15 +13,24 @@
   text-decoration: none;
 }
 
+.editor-styles-wrapper [class*='-editor-preview'] .handoff-canvas-button .handoff-editable-field,
+.editor-styles-wrapper [class*='-editor-preview'] .handoff-canvas-button .block-editor-rich-text__editable,
 .editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button .handoff-editable-field,
 .editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button .block-editor-rich-text__editable {
   color: inherit;
   cursor: text;
 }
 
+.editor-styles-wrapper [class*='-editor-preview'] .handoff-canvas-button.button,
 .editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button.button {
   appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.editor-styles-wrapper [class*='-editor-preview'] .o-row,
+.editor-styles-wrapper .handoff-editor-canvas .o-row {
+  display: flex !important;
+  flex-wrap: wrap;
 }

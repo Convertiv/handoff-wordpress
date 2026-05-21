@@ -1489,9 +1489,18 @@ const generateMergedEditorScss = (
   );
 };
 
-const generateMergedStyleScss = (variants: VariantInfo[]): string => {
+const mergedGroupBlockSelector = (groupSlug: string): string => {
+  const slug = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `.wp-block-handoff-${slug}`;
+};
+
+const generateMergedStyleScss = (variants: VariantInfo[], groupSlug: string): string => {
+  const mergedSelector = mergedGroupBlockSelector(groupSlug);
   return variants
-    .map((v) => generateStyleScss(v.component))
+    .map((v) => {
+      const variantSelector = `.wp-block-handoff-${v.component.id.replace(/_/g, '-')}`;
+      return generateStyleScss(v.component).split(variantSelector).join(mergedSelector);
+    })
     .join('\n\n');
 };
 
@@ -1609,7 +1618,7 @@ export const generateMergedBlock = (
     indexJs,
     renderPhp: generateMergedRenderPhp(groupSlug, variantInfos, fieldMaps),
     editorScss: generateMergedEditorScss(variantInfos, editorConfig),
-    styleScss: generateMergedStyleScss(variantInfos),
+    styleScss: generateMergedStyleScss(variantInfos, groupSlug),
     readme: generateMergedReadme(groupSlug, groupTitle, variantInfos),
     migrationSchema: generateMergedMigrationSchema(groupSlug, groupTitle, variantInfos),
     variantScreenshotUrls,

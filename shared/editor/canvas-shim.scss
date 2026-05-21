@@ -28,3 +28,13 @@
 	align-items: center;
 	justify-content: center;
 }
+
+// Handoff object grid (o-row / o-col-*) — keep columns on one row in the editor canvas.
+// Breakpoint widths (o-col-8@md, etc.) come from scoped main.editor-scoped.css.
+.editor-styles-wrapper [class*='-editor-preview'],
+.editor-styles-wrapper .handoff-editor-canvas {
+	.o-row {
+		display: flex !important;
+		flex-wrap: wrap;
+	}
+}
