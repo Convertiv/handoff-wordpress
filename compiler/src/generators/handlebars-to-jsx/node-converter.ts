@@ -8,6 +8,61 @@ import { DANGEROUS_HTML_PLACEHOLDER } from './constants';
 import { isSelfClosing } from './utils';
 import { transpileExpression } from './expression-parser';
 import { convertAttributes } from './attributes';
+import { attrsMatchCanvasButtonPatterns } from '../canvas-shim';
+
+/**
+ * Design-system anchors use class "button" but must not be <a> in the editor (RichText + wp-core-ui).
+ */
+const isHandoffDesignSystemButton = (
+  tagName: string,
+  attrs: string,
+  context: TranspilerContext,
+): boolean =>
+  tagName === 'a' &&
+  (attrsMatchCanvasButtonPatterns(attrs, context.editorConfig) ||
+    /\bbutton\b/.test(attrs) ||
+    /\bbutton--/.test(attrs));
+
+const appendHandoffCanvasButtonClass = (attrs: string): string => {
+  if (attrs.includes('handoff-canvas-button')) {
+    return attrs;
+  }
+  if (/className="([^"]*)"/.test(attrs)) {
+    return attrs.replace(/className="([^"]*)"/, 'className="$1 handoff-canvas-button"');
+  }
+  // Static template literal: className={`button button--md`}
+  if (/className=\{`[^`]*`\}/.test(attrs)) {
+    return attrs.replace(/`\}/, ' handoff-canvas-button`}');
+  }
+  // Template literal with expressions: className={`button … ${variant}`}
+  if (/className=\{`[\s\S]*?`\}/.test(attrs)) {
+    return attrs.replace(/`\}/, ' handoff-canvas-button`}');
+  }
+  if (/className=\{String\(\s*/.test(attrs)) {
+    return attrs.replace(
+      /className=\{String\(\s*([^)]+)\s*\)\}/,
+      'className={`${String($1 ?? \'\')} handoff-canvas-button`}',
+    );
+  }
+  const trimmed = attrs.trim();
+  return trimmed ? `${trimmed} className="handoff-canvas-button"` : 'className="handoff-canvas-button"';
+};
+
+const convertDesignSystemAnchorForEditor = (
+  tagName: string,
+  attrs: string,
+  context: TranspilerContext,
+): { tagName: string; attrs: string } => {
+  if (!isHandoffDesignSystemButton(tagName, attrs, context)) {
+    return { tagName, attrs };
+  }
+  let nextAttrs = attrs
+    .replace(/\s*href=\{[^}]+\}/g, '')
+    .replace(/\s*href="[^"]*"/g, '')
+    .trim();
+  nextAttrs = appendHandoffCanvasButtonClass(nextAttrs);
+  return { tagName: 'span', attrs: nextAttrs };
+};
 
 /**
  * Process handlebars expressions in text
@@ -62,7 +117,7 @@ export const nodeToJsx = (node: Node, context: TranspilerContext, loopVar?: stri
   }
   
   if (node instanceof HTMLElement) {
-    const tagName = node.tagName?.toLowerCase();
+    let tagName = node.tagName?.toLowerCase();
     
     if (!tagName) {
       return node.childNodes.map(child => nodeToJsx(child, context, effectiveLoopVar)).join('\n');
@@ -74,14 +129,15 @@ export const nodeToJsx = (node: Node, context: TranspilerContext, loopVar?: stri
     }
     
     let attrs = convertAttributes(node, context);
-    
-    // For anchor tags, remove href to prevent navigation in the editor
-    // This allows clicks to work normally for editing content inside links
+
+    // Design-system .button links → <span.handoff-canvas-button> for editor RichText + styling.
+    ({ tagName, attrs } = convertDesignSystemAnchorForEditor(tagName, attrs, context));
+
+    // Other anchors: strip href so the editor does not navigate away while editing.
     if (tagName === 'a') {
-      // Remove href attribute - it will be a non-navigating anchor in the editor
       attrs = attrs.replace(/\s*href=\{[^}]+\}/g, '').replace(/\s*href="[^"]*"/g, '').trim();
     }
-    
+
     const attrStr = attrs ? ` ${attrs}` : '';
     
     // Handle self-closing tags

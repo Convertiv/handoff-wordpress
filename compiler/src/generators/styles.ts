@@ -3,6 +3,7 @@
  */
 
 import { HandoffComponent } from '../types';
+import { editorScssCanvasShimPrefix, type EditorScssOptions } from './canvas-shim';
 
 /**
  * Generate editor.scss with preview styles
@@ -20,11 +21,17 @@ import { HandoffComponent } from '../types';
  * }
  * ```
  */
-const generateEditorScss = (component: HandoffComponent): string => {
+const generateEditorScss = (
+  component: HandoffComponent,
+  options: EditorScssOptions = {},
+): string => {
   const className = component.id.replace(/_/g, '-');
   const hasBackgroundImage = component.properties.background_image?.type === 'image';
+  const canvasShimPrefix = options.skipCanvasShimImport
+    ? ''
+    : editorScssCanvasShimPrefix(component.code, options.editorConfig);
 
-  let scss = `// Editor-specific styles for ${component.title} block
+  let scss = `${canvasShimPrefix}// Editor-specific styles for ${component.title} block
 .${className}-editor-preview {
   position: relative;
   min-height: 200px;`;

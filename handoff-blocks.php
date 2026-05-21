@@ -135,6 +135,10 @@ if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-field-resolver.php')) {
   require_once HANDOFF_BLOCKS_PATH . 'includes/handoff-field-resolver.php';
 }
 
+if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-editor-styles.php')) {
+  require_once HANDOFF_BLOCKS_PATH . 'includes/handoff-editor-styles.php';
+}
+
 // Include the REST API endpoints
 if (file_exists(HANDOFF_BLOCKS_PATH . 'includes/handoff-rest-api.php')) {
   require_once HANDOFF_BLOCKS_PATH . 'includes/handoff-rest-api.php';
@@ -211,38 +215,9 @@ function handoff_blocks_register_blocks() {
 add_action('init', 'handoff_blocks_register_blocks');
 
 /**
- * Enqueue Handoff design system assets (main.css / main.js) for both the
- * frontend and the block editor so blocks render with the correct styles.
- *
- * Assets are downloaded by `wp handoff compile --all` into
- * HANDOFF_CONTENT_DIR/assets/.
+ * Enqueue Handoff design system (frontend) and per-project editor canvas CSS.
+ * See includes/handoff-editor-styles.php.
  */
-function handoff_enqueue_design_assets() {
-  $assets_dir = rtrim(HANDOFF_CONTENT_DIR, '/') . '/assets';
-  $assets_url = rtrim(HANDOFF_CONTENT_URL, '/') . '/assets';
-  $version    = HANDOFF_BLOCKS_VERSION;
-
-  $css_file = $assets_dir . '/css/main.css';
-  if (file_exists($css_file)) {
-    wp_enqueue_style(
-      'handoff-design-system',
-      $assets_url . '/css/main.css',
-      array(),
-      $version
-    );
-  }
-
-  $js_file = $assets_dir . '/js/main.js';
-  if (file_exists($js_file)) {
-    wp_enqueue_script(
-      'handoff-design-system',
-      $assets_url . '/js/main.js',
-      array(),
-      $version,
-      true
-    );
-  }
-}
 add_action('enqueue_block_assets', 'handoff_enqueue_design_assets');
 
 /**

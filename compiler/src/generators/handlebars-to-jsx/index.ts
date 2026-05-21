@@ -6,7 +6,7 @@
  */
 
 import { parse as parseHTML } from 'node-html-parser';
-import { HandoffProperty } from '../../types';
+import { HandoffEditorConfig, HandoffProperty } from '../../types';
 import { TranspilerContext, TranspileResult } from './types';
 import { toCamelCase } from './utils';
 import { preprocessFields, cleanTemplate } from './preprocessors';
@@ -24,12 +24,14 @@ export const transpileHandlebarsToJsx = (
   template: string, 
   properties: Record<string, HandoffProperty>,
   indent: string = '          ',
-  innerBlocksField?: string | null
+  innerBlocksField?: string | null,
+  editorConfig?: HandoffEditorConfig,
 ): TranspileResult => {
   const context: TranspilerContext = {
     properties,
     indent,
-    inLoop: false
+    inLoop: false,
+    editorConfig,
   };
   
   // Preprocess fields FIRST (before cleanTemplate strips them)
@@ -123,10 +125,17 @@ export const generateJsxPreview = (
   properties: Record<string, HandoffProperty>,
   componentId: string,
   componentTitle: string,
-  innerBlocksField?: string | null
+  innerBlocksField?: string | null,
+  editorConfig?: HandoffEditorConfig,
 ): JsxPreviewResult => {
   try {
-    const { jsx, inlineEditableFields } = transpileHandlebarsToJsx(template, properties, '          ', innerBlocksField);
+    const { jsx, inlineEditableFields } = transpileHandlebarsToJsx(
+      template,
+      properties,
+      '          ',
+      innerBlocksField,
+      editorConfig,
+    );
     
     // Validate the output has some content
     if (jsx.trim().length < 50) {
@@ -136,7 +145,7 @@ export const generateJsxPreview = (
     // Wrap in a container with the editor preview class
     const className = componentId.replace(/_/g, '-');
     return {
-      jsx: `          <div className="${className}-editor-preview">
+      jsx: `          <div className="${className}-editor-preview handoff-editor-canvas">
 ${jsx}
           </div>`,
       inlineEditableFields

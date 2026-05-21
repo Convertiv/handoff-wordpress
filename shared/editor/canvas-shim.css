@@ -1,0 +1,26 @@
+/**
+ * Compiled from canvas-shim.scss — universal block editor canvas shim.
+ */
+.editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button {
+  background-image: none;
+  box-shadow: none;
+  text-shadow: none;
+  min-height: unset;
+  height: auto;
+  vertical-align: unset;
+  white-space: normal;
+  text-decoration: none;
+}
+
+.editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button .handoff-editable-field,
+.editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button .block-editor-rich-text__editable {
+  color: inherit;
+  cursor: text;
+}
+
+.editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button.button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

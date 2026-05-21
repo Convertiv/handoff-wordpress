@@ -121,6 +121,15 @@ const isProduction = process.env.NODE_ENV === 'production';
 // the real component sources.
 const pluginSharedDir = path.resolve(__dirname, 'shared');
 
+// Handoff design-system JS (scoped inits for interactive block editor canvas).
+const handoffDesignSystemJs =
+  process.env.HANDOFF_DESIGN_SYSTEM_JS ||
+  path.resolve(contentDir, '../../handoff/js');
+const handoffDesignSystemNodeModules = path.resolve(
+  handoffDesignSystemJs,
+  '../node_modules',
+);
+
 module.exports = {
   ...defaultConfig,
   entry,
@@ -137,6 +146,9 @@ module.exports = {
       // Ensure the plugin's own node_modules is searched for npm deps
       // (e.g. @10up/block-components) even when blocks live outside the plugin.
       ...(isExternalContent ? [path.resolve(__dirname, 'node_modules')] : []),
+      ...(fs.existsSync(handoffDesignSystemNodeModules)
+        ? [handoffDesignSystemNodeModules]
+        : []),
     ],
     alias: {
       ...(defaultConfig.resolve?.alias || {}),
@@ -145,6 +157,9 @@ module.exports = {
       // Redirect resolved relative paths from contentDir/shared → plugin shared
       ...(isExternalContent
         ? { [path.resolve(contentDir, 'shared')]: pluginSharedDir }
+        : {}),
+      ...(fs.existsSync(handoffDesignSystemJs)
+        ? { '@handoff-ds': handoffDesignSystemJs }
         : {}),
     },
   },

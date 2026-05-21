@@ -5,6 +5,10 @@
 import { HandoffComponent, HandoffProperty, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, ItemOverrideFieldConfig, isBreadcrumbsConfig, isTaxonomyConfig, isPaginationConfig } from '../types';
 import { toBlockName } from './block-json';
 import { generateJsxPreview, toCamelCase } from './handlebars-to-jsx';
+import {
+  generateInteractiveCanvasCode,
+  injectCanvasRefIntoPreviewJsx,
+} from './interactive-canvas';
 import { normalizeSelectOptions, getTemplateReferencedAttributeNames } from './handlebars-to-jsx/utils';
 import { buildReshapeJs } from './render-php';
 
@@ -809,7 +813,8 @@ const generateIndexJs = (
   dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>,
   innerBlocksField?: string | null,
   deprecationsCode?: string,
-  hasScreenshot?: boolean
+  hasScreenshot?: boolean,
+  editorConfig?: import('../types').HandoffEditorConfig,
 ): string => {
   const blockName = toBlockName(component.id);
   const properties = component.properties;
@@ -948,7 +953,8 @@ const generateIndexJs = (
     properties,
     component.id,
     component.title,
-    innerBlocksField
+    innerBlocksField,
+    editorConfig,
   );
   let previewJsx = previewResult.jsx;
   const inlineEditableFields = previewResult.inlineEditableFields;
@@ -1315,6 +1321,16 @@ ${generatePropertyControl(key, property)}
     }
   }
 
+  const interactiveCanvas = generateInteractiveCanvasCode(
+    component.id,
+    attrNames,
+    editorConfig,
+    component.wordpress,
+  );
+  if (interactiveCanvas) {
+    previewJsx = injectCanvasRefIntoPreviewJsx(previewJsx);
+  }
+
   // When using dynamic posts, wrap preview in loading state
   const className = component.id.replace(/_/g, '-');
   const previewContent = resolvingFlags.length > 0
@@ -1442,6 +1458,17 @@ ${imageFields.map(field => `          <MediaReplaceFlow
   if (hasBreadcrumbsArray) {
     elementImports.push('useState', 'useEffect');
   }
+  if (interactiveCanvas) {
+    for (const el of interactiveCanvas.elementImports) {
+      if (!elementImports.includes(el)) elementImports.push(el);
+    }
+  }
+
+  const interactiveImport =
+    interactiveCanvas?.importLines ? `${interactiveCanvas.importLines}\n` : '';
+  const interactiveHook = interactiveCanvas?.hookLines
+    ? `${interactiveCanvas.hookLines}\n`
+    : '';
 
   // Import shared HandoffLinkField when preview uses link/button inline editing
   const linkFieldImport = previewUsesLinkField ? `import { HandoffLinkField } from '../../shared/components/LinkField';\n` : '';
@@ -1479,7 +1506,7 @@ import { ${elementImports.join(', ')} } from '@wordpress/element';
 ${tenUpImport}${sharedComponentImport}import metadata from './block.json';
 import './editor.scss';
 ${hasDynamicArrays ? "import '../../shared/components/DynamicPostSelector.editor.scss';\n" : ''}import './style.scss';
-${screenshotImport}${linkFieldImport}
+${screenshotImport}${interactiveImport}${linkFieldImport}
 ${svgIconCode}
 
 ${deprecationsCode ? `${deprecationsCode}\n\n` : ''}registerBlockType(metadata.name, {
@@ -1491,7 +1518,7 @@ ${previewEarlyReturn}${useInnerBlocks || previewUsesInnerBlocks ? "    const CON
     const { ${attrNames.join(', ')} } = attributes;
 ${dynamicArrayResolutionCode}
 ${arrayHelpers}
-    return (
+${interactiveHook}    return (
       <Fragment>
         <InspectorControls>
 ${panels.join('\n\n')}

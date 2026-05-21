@@ -35,7 +35,8 @@ import chokidar from 'chokidar';
 import * as prettier from 'prettier';
 import { execSync } from 'child_process';
 
-import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, FieldConfig, ImportConfig, ComponentImportConfig, FieldPreferences, isDynamicArrayConfig } from './types';
+import { HandoffComponent, HandoffProperty, CompilerOptions, GeneratedBlock, HandoffWpConfig, HandoffEditorConfig, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, FieldConfig, ImportConfig, ComponentImportConfig, FieldPreferences, isDynamicArrayConfig } from './types';
+import { scopeDesignSystemForEditor } from './scope-editor-css';
 
 /**
  * Auth credentials for HTTP requests
@@ -60,6 +61,7 @@ interface ResolvedConfig {
     renames?: Record<string, string>;
     transforms?: Record<string, { from: string; to: string; rule: string }>;
   }>>;
+  editor?: HandoffEditorConfig;
 }
 
 /**
@@ -149,6 +151,7 @@ const getConfig = (): ResolvedConfig => {
     import: importConfig,
     groups: fileConfig.groups ?? DEFAULT_CONFIG.groups,
     schemaMigrations: fileConfig.schemaMigrations,
+    editor: fileConfig.editor,
   };
 };
 
@@ -490,9 +493,16 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
 
   return {
     blockJson: generateBlockJson(component, hasScreenshot, apiUrl, componentDynamicArrays, innerBlocksField),
-    indexJs: generateIndexJs(component, componentDynamicArrays, innerBlocksField, deprecationsCode, hasScreenshot),
+    indexJs: generateIndexJs(
+      component,
+      componentDynamicArrays,
+      innerBlocksField,
+      deprecationsCode,
+      hasScreenshot,
+      resolvedConfig.editor,
+    ),
     renderPhp: generateRenderPhp(component, componentDynamicArrays, innerBlocksField),
-    editorScss: generateEditorScss(component),
+    editorScss: generateEditorScss(component, { editorConfig: resolvedConfig.editor }),
     styleScss: generateStyleScss(component),
     readme: generateReadme(component),
     migrationSchema: generateMigrationSchema(component),
@@ -608,6 +618,15 @@ const compile = async (options: CompilerOptions): Promise<void> => {
 
     const contentRoot = path.resolve(options.outputDir, '..');
     await syncBundleAssets(dataCtx, contentRoot);
+    if (config.editor?.scopeDesignSystem !== false) {
+      try {
+        await scopeDesignSystemForEditor(contentRoot, config.editor);
+      } catch (err) {
+        console.warn(
+          `   ⚠️  Editor CSS scoping failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
 
     console.log(`\n✨ Done! Don't forget to run 'npm run build' in your blocks plugin.\n`);
     
@@ -949,7 +968,14 @@ const compileGroup = async (
     variantScreenshots[comp.id] = !!comp.image;
   }
 
-  const mergedBlock = generateMergedBlock(groupSlug, groupComponents, variantInfos, ctx.apiUrl, variantScreenshots);
+  const mergedBlock = generateMergedBlock(
+    groupSlug,
+    groupComponents,
+    variantInfos,
+    ctx.apiUrl,
+    variantScreenshots,
+    config.editor,
+  );
   const groupBlockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const groupDir = path.join(outputDir, groupBlockName);
   if (!fs.existsSync(groupDir)) {
@@ -1010,6 +1036,20 @@ const compileGroup = async (
   const categoriesPath = path.join(includesDir, 'handoff-categories.php');
   fs.writeFileSync(categoriesPath, formattedCategoriesPhp);
   console.log(`   📄 ${categoriesPath}`);
+
+  const contentRoot = path.resolve(outputDir, '..');
+  if (ctx.localApiRoot) {
+    await syncBundleAssets(ctx, contentRoot);
+  }
+  if (config.editor?.scopeDesignSystem !== false) {
+    try {
+      await scopeDesignSystemForEditor(contentRoot, config.editor);
+    } catch (err) {
+      console.warn(
+        `   ⚠️  Editor CSS scoping failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
 };
 
 const compileAll = async (ctx: HandoffDataContext, outputDir: string): Promise<void> => {
@@ -1184,6 +1224,17 @@ const compileAll = async (ctx: HandoffDataContext, outputDir: string): Promise<v
         console.log(`   ✅ assets/js/main.js`);
       } else {
         console.warn(`   ⚠️  Could not download main.js from ${jsUrl}`);
+      }
+    }
+
+    if (config.editor?.scopeDesignSystem !== false) {
+      console.log(`\n⚙️  Scoping design system CSS for block editor...`);
+      try {
+        await scopeDesignSystemForEditor(path.resolve(outputDir, '..'), config.editor);
+      } catch (err) {
+        console.warn(
+          `   ⚠️  Editor CSS scoping failed: ${err instanceof Error ? err.message : err}`,
+        );
       }
     }
 

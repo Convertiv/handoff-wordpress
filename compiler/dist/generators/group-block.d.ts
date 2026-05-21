@@ -7,6 +7,7 @@
  * dispatcher.
  */
 import { HandoffComponent, GutenbergAttribute, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, GeneratedBlock } from '../types';
+import type { HandoffEditorConfig } from '../types';
 /** Per-variant mapping from original field name to merged attribute name */
 export type FieldMap = Record<string, string>;
 type AnyDynamicArrayConfig = DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig;
@@ -34,5 +35,5 @@ export declare const buildSupersetAttributes: (variants: VariantInfo[], groupSlu
  * Generate a merged block for a group of components.
  * Variation markup is split into include files: variations/<variant-id>.js and variations/<variant-id>.php.
  */
-export declare const generateMergedBlock: (groupSlug: string, components: HandoffComponent[], variantInfos: VariantInfo[], apiUrl?: string, variantScreenshots?: Record<string, boolean>) => GeneratedBlock;
+export declare const generateMergedBlock: (groupSlug: string, components: HandoffComponent[], variantInfos: VariantInfo[], apiUrl?: string, variantScreenshots?: Record<string, boolean>, editorConfig?: HandoffEditorConfig) => GeneratedBlock;
 export type { VariantInfo };

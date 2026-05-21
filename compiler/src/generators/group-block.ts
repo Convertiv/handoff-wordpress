@@ -28,6 +28,15 @@ import { normalizeSelectOptions, type NormalizedSelectOption } from './handlebar
 import { mapPropertyType, groupToCategory, toBlockName } from './block-json';
 import { generateRenderPhp, handlebarsToPhp, arrayToPhp, getPhpDefaultValue, generateDynamicArrayExtraction, generateBreadcrumbsArrayExtraction, generateTaxonomyArrayExtraction, generatePaginationArrayExtraction, buildReshapeJs } from './render-php';
 import { generateEditorScss, generateStyleScss } from './styles';
+import {
+  CANVAS_SHIM_SCSS_IMPORT,
+  templateUsesCanvasShim,
+} from './canvas-shim';
+import type { HandoffEditorConfig } from '../types';
+import {
+  generateInteractiveCanvasCode,
+  injectCanvasRefIntoPreviewJsx,
+} from './interactive-canvas';
 import { generateMigrationSchema, MigrationSchema, MigrationPropertySchema, extractMigrationProperty } from './schema-json';
 import {
   toTitleCase,
@@ -388,6 +397,7 @@ const generateMergedIndexJs = (
   fieldMaps: Record<string, FieldMap>,
   apiUrl?: string,
   variantScreenshots?: Record<string, boolean>,
+  editorConfig?: HandoffEditorConfig,
 ): MergedIndexResult => {
   const blockName = groupSlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -468,6 +478,7 @@ const generateMergedIndexJs = (
       comp.id ?? comp.title ?? 'variant',
       comp.title ?? comp.id ?? 'Variant',
       variant.innerBlocksField,
+      editorConfig,
     );
     let previewJsx = previewResult.jsx ?? '';
     const inlineEditableFields = previewResult.inlineEditableFields;
@@ -981,6 +992,7 @@ ${linkButtons.join('\n')}
       fieldMap,
       helperNames,
       anyPreviewUsesLinkField,
+      editorConfig,
     );
   }
 
@@ -1203,6 +1215,7 @@ const generateVariantJsFileContent = (
   fieldMap: FieldMap,
   helperNames: string[],
   anyPreviewUsesLinkField: boolean,
+  editorConfig?: HandoffEditorConfig,
 ): string => {
   const comp = variant.component;
   const variantDynConfigs = variant.dynamicArrayConfigs;
@@ -1236,6 +1249,16 @@ const generateVariantJsFileContent = (
     }
   }
   const attrNames = [...fromFieldMap];
+  let previewJsxOut = result.previewJsx;
+  const interactiveCanvas = generateInteractiveCanvasCode(
+    comp.id,
+    attrNames,
+    editorConfig,
+    comp.wordpress,
+  );
+  if (interactiveCanvas) {
+    previewJsxOut = injectCanvasRefIntoPreviewJsx(previewJsxOut);
+  }
   const helpersDestruct = [...helperNames];
   if (anyPreviewUsesLinkField) helpersDestruct.push('HandoffLinkField');
   if (variant.innerBlocksField) helpersDestruct.push('CONTENT_BLOCKS');
@@ -1284,6 +1307,16 @@ ${result.panels}
 
   const elementImportNames = ['Fragment'];
   if (varHasBreadcrumbsFetch) elementImportNames.push('useState', 'useEffect');
+  if (interactiveCanvas) {
+    for (const el of interactiveCanvas.elementImports) {
+      if (!elementImportNames.includes(el)) elementImportNames.push(el);
+    }
+  }
+  const interactiveImport =
+    interactiveCanvas?.importLines ? `${interactiveCanvas.importLines}\n` : '';
+  const interactiveHook = interactiveCanvas?.hookLines
+    ? `${interactiveCanvas.hookLines}\n`
+    : '';
 
   let dataImport = '';
   if (varHasTaxonomyFetch || varHasBreadcrumbsFetch) {
@@ -1315,13 +1348,12 @@ import {
 } from '@wordpress/components';
 import { MediaUpload, MediaUploadCheck, MediaReplaceFlow, LinkControl, RichText, InnerBlocks } from '@wordpress/block-editor';
 import { __ } from '@wordpress/i18n';
-${dataImport}${tenUpBlockComponentsImport}${sharedSelectorImport}
+${dataImport}${tenUpBlockComponentsImport}${sharedSelectorImport}${interactiveImport}
 ${panelsExport}
 
 export function Preview(${propsList}) {
-${attrDestruct}${helpersDestructLine}${specializedCode}
-  return (
-${result.previewJsx}
+${attrDestruct}${helpersDestructLine}${specializedCode}${interactiveHook}  return (
+${previewJsxOut}
   );
 }
 `;
@@ -1438,10 +1470,23 @@ ${cases.join('\n')}
 
 // ─── Merged SCSS ─────────────────────────────────────────────────────────────
 
-const generateMergedEditorScss = (variants: VariantInfo[]): string => {
-  return variants
-    .map((v) => generateEditorScss(v.component))
-    .join('\n\n');
+const generateMergedEditorScss = (
+  variants: VariantInfo[],
+  editorConfig?: HandoffEditorConfig,
+): string => {
+  const prefix =
+    editorConfig?.canvasShim !== false &&
+    variants.some((v) => templateUsesCanvasShim(v.component.code, editorConfig))
+      ? CANVAS_SHIM_SCSS_IMPORT
+      : '';
+  return (
+    prefix +
+    variants
+      .map((v) =>
+        generateEditorScss(v.component, { skipCanvasShimImport: true, editorConfig }),
+      )
+      .join('\n\n')
+  );
 };
 
 const generateMergedStyleScss = (variants: VariantInfo[]): string => {
@@ -1524,6 +1569,7 @@ export const generateMergedBlock = (
   variantInfos: VariantInfo[],
   apiUrl?: string,
   variantScreenshots?: Record<string, boolean>,
+  editorConfig?: HandoffEditorConfig,
 ): GeneratedBlock => {
   const groupTitle = toTitleCase(groupSlug);
   const screenshots = variantScreenshots || {};
@@ -1539,6 +1585,7 @@ export const generateMergedBlock = (
     fieldMaps,
     apiUrl,
     screenshots,
+    editorConfig,
   );
 
   const variationPhp: Record<string, string> = {};
@@ -1561,7 +1608,7 @@ export const generateMergedBlock = (
     blockJson: generateMergedBlockJson(groupSlug, groupTitle, variantInfos, supersetAttrs, screenshots),
     indexJs,
     renderPhp: generateMergedRenderPhp(groupSlug, variantInfos, fieldMaps),
-    editorScss: generateMergedEditorScss(variantInfos),
+    editorScss: generateMergedEditorScss(variantInfos, editorConfig),
     styleScss: generateMergedStyleScss(variantInfos),
     readme: generateMergedReadme(groupSlug, groupTitle, variantInfos),
     migrationSchema: generateMergedMigrationSchema(groupSlug, groupTitle, variantInfos),

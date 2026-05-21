@@ -1,7 +1,7 @@
 /**
  * Type definitions for the Handlebars to JSX transpiler
  */
-import { HandoffProperty } from '../../types';
+import { HandoffEditorConfig, HandoffProperty } from '../../types';
 export interface TranspilerContext {
     properties: Record<string, HandoffProperty>;
     indent: string;
@@ -9,6 +9,7 @@ export interface TranspilerContext {
     loopIndex?: string;
     loopArray?: string;
     inLoop: boolean;
+    editorConfig?: HandoffEditorConfig;
 }
 export interface ConvertedAttributeValue {
     jsxValue: string;

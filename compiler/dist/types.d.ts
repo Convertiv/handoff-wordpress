@@ -64,6 +64,10 @@ export interface HandoffComponent {
     sass?: string;
     js?: string;
     format?: string;
+    /** Handoff block definition metadata (from component .js; may be absent in API JSON). */
+    wordpress?: {
+        editorMode?: 'interactive' | string;
+    };
 }
 export interface GutenbergAttribute {
     type: 'string' | 'number' | 'boolean' | 'object' | 'array';
@@ -302,6 +306,29 @@ export type TypeImportConfig = boolean | Record<string, ComponentImportConfig>;
  */
 export type ImportConfig = Record<string, TypeImportConfig>;
 /**
+ * Block editor canvas / design-system styling (per project).
+ */
+export interface HandoffEditorConfig {
+    /** CSS paths relative to HANDOFF content root (default: assets/css/main.css when synced). */
+    designSystemStylesheets?: string[];
+    /** PostCSS-prefix design system files for the editor iframe. */
+    scopeDesignSystem?: boolean;
+    /** Selector prefix for scoped editor CSS. */
+    scopePrefix?: string;
+    /** Import canvas-shim in generated editor.scss and enqueue in the plugin. Default true. */
+    canvasShim?: boolean;
+    /** Additional editor stylesheets (theme, Bootstrap, Tailwind, etc.). */
+    extraStylesheets?: string[];
+    /** RegExp sources: anchors matching these become span.handoff-canvas-button in preview. */
+    canvasButtonPatterns?: string[];
+    /**
+     * Per-block interactive canvas toggles (boolean only).
+     * true = enable when compiler has a registry entry; false = force off.
+     * Omitted = use built-in default for known block ids.
+     */
+    interactiveBlocks?: Record<string, boolean>;
+}
+/**
  * Configuration file structure for handoff-wp.config.json
  */
 export interface HandoffWpConfig {
@@ -341,4 +368,6 @@ export interface HandoffWpConfig {
      * Dynamic array configurations keyed by "componentId.fieldName"
      */
     dynamicArrays?: Record<string, DynamicArrayConfig>;
+    /** Per-project block editor canvas styling. */
+    editor?: HandoffEditorConfig;
 }

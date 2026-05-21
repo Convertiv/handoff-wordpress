@@ -2,6 +2,7 @@
  * Generates SCSS files for Gutenberg blocks
  */
 import { HandoffComponent } from '../types';
+import { type EditorScssOptions } from './canvas-shim';
 /**
  * Generate editor.scss with preview styles
  * TODO: This is much too specific to the framework that we're using to test.
@@ -18,7 +19,7 @@ import { HandoffComponent } from '../types';
  * }
  * ```
  */
-declare const generateEditorScss: (component: HandoffComponent) => string;
+declare const generateEditorScss: (component: HandoffComponent, options?: EditorScssOptions) => string;
 /**
  * Generate style.scss for frontend styles
  */

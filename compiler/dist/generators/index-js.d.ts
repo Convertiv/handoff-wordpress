@@ -57,6 +57,6 @@ declare const generateSvgIcon: (title: string, group: string) => string;
  * @param deprecationsCode - Optional deprecation migration code
  * @param hasScreenshot - Whether a screenshot.png is available for inserter preview
  */
-declare const generateIndexJs: (component: HandoffComponent, dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>, innerBlocksField?: string | null, deprecationsCode?: string, hasScreenshot?: boolean) => string;
+declare const generateIndexJs: (component: HandoffComponent, dynamicArrayConfigs?: Record<string, DynamicArrayConfig | BreadcrumbsArrayConfig | TaxonomyArrayConfig | PaginationArrayConfig>, innerBlocksField?: string | null, deprecationsCode?: string, hasScreenshot?: boolean, editorConfig?: import("../types").HandoffEditorConfig) => string;
 export { generateIndexJs, generateSvgIcon, toTitleCase, generateFieldControl, generateArrayControl, generatePropertyControl, isOpacityRangeField, getNumberControlSpec, hasOpacityRangeField, hasNonOpacityNumberField, };
 export type { FieldContext, NumberControlSpec };

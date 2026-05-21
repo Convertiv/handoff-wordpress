@@ -1,0 +1,30 @@
+// Universal block-editor canvas shim (framework-agnostic).
+// - RichText: use <span.handoff-canvas-button> in preview JSX (not <a>).
+// - WP admin: .wp-core-ui .button collides with Handoff .button — reset layout only;
+//   variant colors come from the project's enqueued design-system CSS (main.css, etc.).
+
+.editor-styles-wrapper [class*='-editor-preview'] .handoff-canvas-button,
+.editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button {
+	background-image: none;
+	box-shadow: none;
+	text-shadow: none;
+	min-height: unset;
+	height: auto;
+	vertical-align: unset;
+	white-space: normal;
+	text-decoration: none;
+
+	.handoff-editable-field,
+	.block-editor-rich-text__editable {
+		color: inherit;
+		cursor: text;
+	}
+}
+
+.editor-styles-wrapper [class*='-editor-preview'] .handoff-canvas-button.button,
+.editor-styles-wrapper .handoff-editor-canvas .handoff-canvas-button.button {
+	appearance: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
