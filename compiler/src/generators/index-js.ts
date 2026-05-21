@@ -3,6 +3,7 @@
  */
 
 import { HandoffComponent, HandoffProperty, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, ItemOverrideFieldConfig, isBreadcrumbsConfig, isTaxonomyConfig, isPaginationConfig } from '../types';
+import { getButtonDefault, resolveButtonFieldKeys, buttonLinkMergeJs } from './button-schema';
 import { toBlockName } from './block-json';
 import { generateJsxPreview, toCamelCase } from './handlebars-to-jsx';
 import {
@@ -466,28 +467,23 @@ ${indent}    />
 ${indent}  </div>
 ${indent}</div>`;
 
-    case 'button':
-      // For buttons, provide label field and href field with link picker
-      // Button properties: label, href, target, rel, disabled
-      const buttonHandler = onChangeHandler(`{ 
-        ...${valueAccessor}, 
-        href: value.url || '#', 
-        target: value.opensInNewTab ? '_blank' : '',
-        rel: value.opensInNewTab ? 'noopener noreferrer' : ''
-      }`);
+    case 'button': {
+      const buttonKeys = resolveButtonFieldKeys(property);
+      const buttonUrlFallback = buttonKeys.urlKey === 'href' ? '#' : '';
+      const buttonHandler = onChangeHandler(buttonLinkMergeJs(valueAccessor, buttonKeys));
       return `${indent}<div className="components-base-control">
 ${indent}  <label className="components-base-control__label">{__('${label}', 'handoff')}</label>
 ${indent}  <TextControl
 ${indent}    label={__('Button Label', 'handoff')}
 ${indent}    hideLabelFromVision={true}
-${indent}    value={${valueAccessor}?.label || ''}
-${indent}    onChange={(value) => ${onChangeHandler(`{ ...${valueAccessor}, label: value }`)}}
+${indent}    value={${valueAccessor}?.${buttonKeys.labelKey} || ''}
+${indent}    onChange={(value) => ${onChangeHandler(`{ ...${valueAccessor}, ${buttonKeys.labelKey}: value }`)}}
 ${indent}  />
 ${indent}  <div style={{ marginTop: '8px' }}>
 ${indent}    <LinkControl
 ${indent}      value={{ 
-${indent}        url: ${valueAccessor}?.href || '#', 
-${indent}        title: ${valueAccessor}?.label || '',
+${indent}        url: ${valueAccessor}?.${buttonKeys.urlKey} || '${buttonUrlFallback}', 
+${indent}        title: ${valueAccessor}?.${buttonKeys.labelKey} || '',
 ${indent}        opensInNewTab: ${valueAccessor}?.target === '_blank'
 ${indent}      }}
 ${indent}      onChange={(value) => ${buttonHandler}}
@@ -504,6 +500,7 @@ ${indent}    checked={${valueAccessor}?.disabled || false}
 ${indent}    onChange={(value) => ${onChangeHandler(`{ ...${valueAccessor}, disabled: value }`)}}
 ${indent}  />
 ${indent}</div>`;
+    }
 
     case 'select': {
       const options = normalizeSelectOptions(property.options).map(opt =>
@@ -726,7 +723,7 @@ const getDefaultValue = (fieldProp: HandoffProperty): any => {
     case 'link':
       return { label: '', url: '', opensInNewTab: false };
     case 'button':
-      return { label: '', href: '#', target: '', rel: '', disabled: false };
+      return getButtonDefault(fieldProp);
     case 'image':
       return { src: '', alt: '' };
     case 'video':

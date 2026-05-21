@@ -4,6 +4,7 @@
  */
 
 import { HandoffComponent, HandoffProperty, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, FieldMappingValue, isBreadcrumbsConfig, isTaxonomyConfig, isPaginationConfig } from '../types';
+import { getButtonDefault } from './button-schema';
 import { toCamelCase } from './handlebars-to-jsx';
 
 /**
@@ -88,7 +89,7 @@ const getPhpDefaultValue = (property: HandoffProperty): string => {
       return "['label' => '', 'url' => '', 'opensInNewTab' => false]";
     
     case 'button':
-      return "['label' => '', 'href' => '#', 'target' => '', 'rel' => '', 'disabled' => false]";
+      return arrayToPhp(getButtonDefault(property));
     
     case 'object':
       if (property.default) {

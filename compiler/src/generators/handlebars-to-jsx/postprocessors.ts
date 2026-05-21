@@ -5,6 +5,12 @@
 import { parse as parseHTML } from 'node-html-parser';
 import { TranspilerContext, FieldInfo } from './types';
 import { HandoffProperty } from '../../types';
+import {
+  resolveButtonFieldKeys,
+  buttonLabelMergeJs,
+  buttonLinkMergeJs,
+  getButtonUrlFallback,
+} from '../button-schema';
 import { toCamelCase } from './utils';
 import { transpileExpression } from './expression-parser';
 import { cleanTemplate, preprocessBlocks } from './preprocessors';
@@ -563,15 +569,27 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         } else if (type === 'link' || type === 'button') {
           const safeId = path.replace(/\./g, '_');
           const objRef = valueExpr.replace(/ \|\| ''$/, '');
-          const labelValueExpr = `${objRef}?.label || ''`;
-
           const isLink = type === 'link';
-          const urlExpr = isLink ? `${objRef}?.url || ''` : `${objRef}?.href || '#'`;
+          const parentPathKey = pathParts[0];
+          const buttonParentProp =
+            !isLink && context.properties
+              ? context.properties[parentPathKey] ?? context.properties[toCamelCase(parentPathKey)]
+              : undefined;
+          const buttonKeys = !isLink ? resolveButtonFieldKeys(buttonParentProp) : null;
+
+          const labelValueExpr = isLink
+            ? `${objRef}?.label || ''`
+            : `${objRef}?.${buttonKeys!.labelKey} || ''`;
+          const urlExpr = isLink
+            ? `${objRef}?.url || ''`
+            : `${objRef}?.${buttonKeys!.urlKey} || '${getButtonUrlFallback(buttonKeys!.urlKey)}'`;
           const newTabExpr = isLink ? `${objRef}?.opensInNewTab || false` : `${objRef}?.target === '_blank'`;
-          const labelMerge = `{ ...${objRef}, label: value }`;
+          const labelMerge = isLink
+            ? `{ ...${objRef}, label: value }`
+            : buttonLabelMergeJs(objRef, buttonKeys!);
           const linkMerge = isLink
             ? `{ ...${objRef}, url: value.url || '', opensInNewTab: value.opensInNewTab || false }`
-            : `{ ...${objRef}, href: value.url || '#', target: value.opensInNewTab ? '_blank' : '', rel: value.opensInNewTab ? 'noopener noreferrer' : '' }`;
+            : buttonLinkMergeJs(objRef, buttonKeys!);
 
           // Build onChange handlers from scratch based on field context
           let labelOnChange: string;

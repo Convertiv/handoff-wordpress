@@ -3,6 +3,7 @@
  */
 
 import { HandoffComponent, HandoffProperty, BlockJsonOutput, GutenbergAttribute, HandoffMetadata, DynamicArrayConfig, BreadcrumbsArrayConfig, TaxonomyArrayConfig, PaginationArrayConfig, isBreadcrumbsConfig, isTaxonomyConfig, isPaginationConfig } from '../types';
+import { getButtonDefault } from './button-schema';
 import { sanitizeReservedName, normalizeSelectOptions, toCamelCase, getTemplateReferencedAttributeNames } from './handlebars-to-jsx/utils';
 
 /**
@@ -116,7 +117,7 @@ const getDefaultForType = (type: string): any => {
     case 'link':
       return { label: '', url: '', opensInNewTab: false };
     case 'button':
-      return { label: '', href: '#', target: '', rel: '', disabled: false };
+      return getButtonDefault();
     case 'object':
       return {};
     case 'array':
@@ -213,9 +214,9 @@ const mapPropertyType = (property: HandoffProperty, previewValue?: any): Gutenbe
       };
     
     case 'button':
-      return { 
-        type: 'object', 
-        default: getDefault({ label: '', href: '#', target: '', rel: '', disabled: false })
+      return {
+        type: 'object',
+        default: getDefault(getButtonDefault(property, previewValue)),
       };
     
     case 'object':
