@@ -137,6 +137,33 @@ export const convertAttributeValue = (
     return "'" + val.replace(/'/g, "\\'") + "'";
   };
   
+  // Handle {{#if c1}}v1{{else if c2}}v2{{else}}v3{{/if}} (nested else-if chain)
+  result = result.replace(
+    /\{\{#if\s+([^}]+)\}\}([\s\S]*?)\{\{else\s+if\s+([^}]+)\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/if\}\}/g,
+    (_: string, cond1: string, val1: string, cond2: string, val2: string, val3: string) => {
+      isExpression = true;
+      const c1 = propToExpr(normalizeWhitespace(cond1));
+      const c2 = propToExpr(normalizeWhitespace(cond2));
+      const v1 = convertInnerToExpr(collapseWhitespace(val1));
+      const v2 = convertInnerToExpr(collapseWhitespace(val2));
+      const v3 = convertInnerToExpr(collapseWhitespace(val3));
+      return '${' + c1 + ' ? ' + v1 + ' : ' + c2 + ' ? ' + v2 + ' : ' + v3 + '}';
+    }
+  );
+
+  // Handle {{#if c1}}v1{{else if c2}}v2{{/if}} (else-if without final else)
+  result = result.replace(
+    /\{\{#if\s+([^}]+)\}\}([\s\S]*?)\{\{else\s+if\s+([^}]+)\}\}([\s\S]*?)\{\{\/if\}\}/g,
+    (_: string, cond1: string, val1: string, cond2: string, val2: string) => {
+      isExpression = true;
+      const c1 = propToExpr(normalizeWhitespace(cond1));
+      const c2 = propToExpr(normalizeWhitespace(cond2));
+      const v1 = convertInnerToExpr(collapseWhitespace(val1));
+      const v2 = convertInnerToExpr(collapseWhitespace(val2));
+      return '${' + c1 + ' ? ' + v1 + ' : ' + c2 + ' ? ' + v2 + " : ''}";
+    }
+  );
+
   // Handle {{#if condition}}value{{else}}other{{/if}} pattern
   // Use [\s\S]*? to match across newlines
   result = result.replace(
