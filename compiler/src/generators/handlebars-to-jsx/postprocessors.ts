@@ -19,6 +19,63 @@ import { nodeToJsx } from './node-converter';
 
 const AUTOWRAP_TYPES = new Set(['text', 'richtext']);
 
+interface ExtractedImgAttributes {
+  className: string;
+  styleAttr: string;
+  size: string;
+}
+
+const cssPropToJsx = (prop: string): string =>
+  prop.trim().replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+
+/**
+ * Parse the original `<img>` inside a `#field` block so layout classes and
+ * inline styles survive compilation into the editor `<Image>` component.
+ */
+export const extractImgAttributes = (content: string): ExtractedImgAttributes => {
+  const imgMatch = content.match(/<img[\s\S]*?\/?>/i);
+  if (!imgMatch) {
+    return { className: 'handoff-editable-field', styleAttr: '', size: 'large' };
+  }
+
+  const imgTag = imgMatch[0];
+  const classMatch = imgTag.match(/\bclass=["']([^"']*)["']/i);
+  const originalClasses = classMatch?.[1]?.trim() ?? '';
+  const className = originalClasses
+    ? `handoff-editable-field ${originalClasses}`
+    : 'handoff-editable-field';
+
+  const styleMatch = imgTag.match(/\bstyle=["']([^"']*)["']/i);
+  let styleAttr = '';
+  if (styleMatch?.[1]) {
+    const styleEntries = styleMatch[1]
+      .split(';')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const colonIndex = entry.indexOf(':');
+        if (colonIndex === -1) {
+          return null;
+        }
+        const key = cssPropToJsx(entry.slice(0, colonIndex));
+        const value = entry.slice(colonIndex + 1).trim().replace(/'/g, "\\'");
+        return `${key}: '${value}'`;
+      })
+      .filter(Boolean);
+
+    if (styleEntries.length > 0) {
+      styleAttr = `\n            style={{ ${styleEntries.join(', ')} }}`;
+    }
+  }
+
+  let size = 'large';
+  if (/\b(?:size|w|h)-(?:10|16)\b/.test(originalClasses)) {
+    size = 'thumbnail';
+  }
+
+  return { className, styleAttr, size };
+};
+
 /**
  * Auto-wrap bare {{this.fieldName}} expressions inside loop content with
  * editable-field-marker elements when the corresponding array item property
@@ -545,12 +602,14 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
         
         // Generate appropriate component based on field type
         if (type === 'image') {
+          const { className: imageClassName, styleAttr: imageStyleAttr, size: imageSize } =
+            extractImgAttributes(content || '');
           // Use 10up Image component for inline-editable images
           return `<Image
             id={${imageIdExpr}}
-            className="handoff-editable-field"
+            className="${imageClassName}"
             onSelect={${imageOnSelectExpr}}
-            size="large"
+            size="${imageSize}"${imageStyleAttr}
           />`;
         } else if (type === 'richtext') {
           // Extract the top-level field name from the path (e.g. "content" from "content")
