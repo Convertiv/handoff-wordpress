@@ -9,19 +9,106 @@ import { transpileExpression, resolveParentPropertiesInExpression, toOptionalCha
 import { parseStyleToObject, cssStringToReactObject } from './styles';
 
 /**
+ * Resolve a Handlebars array expression inside an attribute to a JSX accessor.
+ * Examples: this.tags -> provider?.tags, properties.providers -> providers
+ */
+const resolveArrayRefInAttribute = (
+  source: string,
+  loopVar: string,
+): string => {
+  const trimmed = source.trim();
+
+  if (trimmed.startsWith('this.')) {
+    return toOptionalChainedAccess(loopVar, trimmed.replace('this.', ''));
+  }
+
+  if (trimmed.startsWith('properties.')) {
+    const parts = trimmed.replace('properties.', '').split('.');
+    return parts.map((part: string, index: number) => (index === 0 ? toCamelCase(part) : part)).join('?.');
+  }
+
+  if (trimmed.startsWith(`${loopVar}.`)) {
+    return toOptionalChainedAccess(loopVar, trimmed.replace(`${loopVar}.`, ''));
+  }
+
+  const dotIndex = trimmed.indexOf('.');
+  if (dotIndex > 0) {
+    const root = trimmed.slice(0, dotIndex);
+    const rest = trimmed.slice(dotIndex + 1);
+    if (root === loopVar) {
+      return toOptionalChainedAccess(loopVar, rest);
+    }
+  }
+
+  return toCamelCase(trimmed);
+};
+
+/**
+ * Convert {{#each array}}body{{/each}} inside an attribute value to .map().join().
+ */
+const compileNestedEachAttributeExpression = (
+  arraySpec: string,
+  body: string,
+  loopVar: string,
+  loopIndex: string,
+): string => {
+  let arraySource = arraySpec.trim();
+  let nestedVar = 'subItem';
+  let nestedIndex = 'subIndex';
+
+  const aliasMatch = arraySource.match(/^(.+?)\s+as\s+\|(\w+)(?:\s+(\w+))?\|$/);
+  if (aliasMatch) {
+    arraySource = aliasMatch[1].trim();
+    nestedVar = aliasMatch[2];
+    if (aliasMatch[3]) {
+      nestedIndex = aliasMatch[3];
+    }
+  }
+
+  const arrayRef = resolveArrayRefInAttribute(arraySource, loopVar);
+  const { jsxValue: bodyJsx } = convertAttributeValue(body, nestedVar, arrayRef, nestedIndex);
+
+  if (bodyJsx.startsWith('${') && bodyJsx.endsWith('}') && !bodyJsx.includes('${', 2)) {
+    const innerExpr = bodyJsx.slice(2, -1);
+    return `(${arrayRef} || []).map((${nestedVar}, ${nestedIndex}) => ${innerExpr}).join('')`;
+  }
+
+  const innerTemplate = bodyJsx.startsWith('`') && bodyJsx.endsWith('`')
+    ? bodyJsx.slice(1, -1)
+    : bodyJsx;
+
+  return `(${arrayRef} || []).map((${nestedVar}, ${nestedIndex}) => \`${innerTemplate}\`).join('')`;
+};
+
+/**
  * Convert conditionals inside an attribute value to JSX template literal syntax
  * Called from convertAttributes after HTML parsing
  * Example: "prefix{{#if cond}}value{{/if}}suffix" -> `prefix${cond ? 'value' : ''}suffix`
  * @param loopArray - Name of the array being iterated (for @last / @first); when inside {{#each arr}}, use 'arr'.
+ * @param loopIndex - Index variable for @first / @last / @index inside the current loop scope.
  */
 export const convertAttributeValue = (
   value: string,
   loopVar: string = 'item',
-  loopArray?: string
+  loopArray?: string,
+  loopIndex: string = 'index',
 ): ConvertedAttributeValue => {
   const arrayName = loopArray || 'items';
   let result = value;
   let isExpression = false;
+
+  // {{#each this.tags}}{{label}}{{#unless @last}}|{{/unless}}{{/each}} in attribute values
+  const nestedEachMatch = value.match(/^\{\{#each\s+([^}]+)\}\}([\s\S]*)\{\{\/each\}\}$/);
+  if (nestedEachMatch) {
+    isExpression = true;
+    const expr = compileNestedEachAttributeExpression(
+      nestedEachMatch[1],
+      nestedEachMatch[2],
+      loopVar,
+      loopIndex,
+    );
+    return { jsxValue: '${' + expr + '}', isExpression: true };
+  }
   
   // Helper to parse Handlebars helper expressions like (eq properties.layout "layout-1")
   const parseHelper = (expr: string): string => {
@@ -95,13 +182,13 @@ export const convertAttributeValue = (
     
     // Handle @first and @last special variables
     if (prop === '@first') {
-      return 'index === 0';
+      return `${loopIndex} === 0`;
     }
     if (prop === '@last') {
-      return `index === ${arrayName}?.length - 1`;
+      return `${loopIndex} === ${arrayName}?.length - 1`;
     }
     if (prop === '@index') {
-      return 'index';
+      return loopIndex;
     }
     
     if (prop.startsWith('properties.')) {
@@ -224,7 +311,7 @@ export const convertAttributeValue = (
       isExpression = true;
       const unlessExpr = convertInnerToExpr(collapseWhitespace(unlessVal));
       // @last means it's NOT the last item, so we check index < array.length - 1
-      return '${index < ' + arrayName + '?.length - 1 ? ' + unlessExpr + " : ''}";
+      return '${' + loopIndex + ' < ' + arrayName + '?.length - 1 ? ' + unlessExpr + " : ''}";
     }
   );
   
@@ -236,7 +323,7 @@ export const convertAttributeValue = (
       isExpression = true;
       const unlessExpr = convertInnerToExpr(collapseWhitespace(unlessVal));
       // @first is true when index === 0, so unless @first means index !== 0
-      return "${index !== 0 ? " + unlessExpr + " : ''}";
+      return '${' + loopIndex + ' !== 0 ? ' + unlessExpr + " : ''}";
     }
   );
 
@@ -549,7 +636,12 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
     
     // Check if value contains block conditionals {{#if...}}
     if (value.includes('{{#if')) {
-      const { jsxValue, isExpression } = convertAttributeValue(value, loopVar, context.loopArray);
+      const { jsxValue, isExpression } = convertAttributeValue(
+        value,
+        loopVar,
+        context.loopArray,
+        context.loopIndex,
+      );
       if (isExpression) {
         const wrapped = jsxName === 'className' ? `\${String(${jsxValue} ?? '')}` : jsxValue;
         attrs.push(`${jsxName}={\`${wrapped}\`}`);
@@ -579,7 +671,12 @@ export const convertAttributes = (element: HTMLElement, context: TranspilerConte
     
     // Handle other attributes with handlebars (including simple expressions)
     if (value.includes('{{')) {
-      const { jsxValue, isExpression } = convertAttributeValue(value, loopVar, context.loopArray);
+      const { jsxValue, isExpression } = convertAttributeValue(
+        value,
+        loopVar,
+        context.loopArray,
+        context.loopIndex,
+      );
       if (isExpression) {
         // Check if it's a pure expression or needs template literal
         if (jsxValue.startsWith('${') && jsxValue.endsWith('}') && !jsxValue.includes('${', 2)) {

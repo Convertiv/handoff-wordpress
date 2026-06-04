@@ -8,8 +8,9 @@ import { TranspilerContext, ConvertedAttributeValue } from './types';
  * Called from convertAttributes after HTML parsing
  * Example: "prefix{{#if cond}}value{{/if}}suffix" -> `prefix${cond ? 'value' : ''}suffix`
  * @param loopArray - Name of the array being iterated (for @last / @first); when inside {{#each arr}}, use 'arr'.
+ * @param loopIndex - Index variable for @first / @last / @index inside the current loop scope.
  */
-export declare const convertAttributeValue: (value: string, loopVar?: string, loopArray?: string) => ConvertedAttributeValue;
+export declare const convertAttributeValue: (value: string, loopVar?: string, loopArray?: string, loopIndex?: string) => ConvertedAttributeValue;
 /**
  * Pre-process conditional attributes (entire attribute wrapped in {{#if}})
  * Handles two patterns:

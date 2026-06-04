@@ -120874,10 +120874,59 @@ var require_attributes2 = __commonJS({
     var utils_1 = require_utils5();
     var expression_parser_1 = require_expression_parser();
     var styles_1 = require_styles();
-    var convertAttributeValue = (value, loopVar = "item", loopArray) => {
+    var resolveArrayRefInAttribute = (source2, loopVar) => {
+      const trimmed = source2.trim();
+      if (trimmed.startsWith("this.")) {
+        return (0, expression_parser_1.toOptionalChainedAccess)(loopVar, trimmed.replace("this.", ""));
+      }
+      if (trimmed.startsWith("properties.")) {
+        const parts = trimmed.replace("properties.", "").split(".");
+        return parts.map((part, index) => index === 0 ? (0, utils_1.toCamelCase)(part) : part).join("?.");
+      }
+      if (trimmed.startsWith(`${loopVar}.`)) {
+        return (0, expression_parser_1.toOptionalChainedAccess)(loopVar, trimmed.replace(`${loopVar}.`, ""));
+      }
+      const dotIndex = trimmed.indexOf(".");
+      if (dotIndex > 0) {
+        const root2 = trimmed.slice(0, dotIndex);
+        const rest = trimmed.slice(dotIndex + 1);
+        if (root2 === loopVar) {
+          return (0, expression_parser_1.toOptionalChainedAccess)(loopVar, rest);
+        }
+      }
+      return (0, utils_1.toCamelCase)(trimmed);
+    };
+    var compileNestedEachAttributeExpression = (arraySpec, body, loopVar, loopIndex) => {
+      let arraySource = arraySpec.trim();
+      let nestedVar = "subItem";
+      let nestedIndex = "subIndex";
+      const aliasMatch = arraySource.match(/^(.+?)\s+as\s+\|(\w+)(?:\s+(\w+))?\|$/);
+      if (aliasMatch) {
+        arraySource = aliasMatch[1].trim();
+        nestedVar = aliasMatch[2];
+        if (aliasMatch[3]) {
+          nestedIndex = aliasMatch[3];
+        }
+      }
+      const arrayRef = resolveArrayRefInAttribute(arraySource, loopVar);
+      const { jsxValue: bodyJsx } = (0, exports.convertAttributeValue)(body, nestedVar, arrayRef, nestedIndex);
+      if (bodyJsx.startsWith("${") && bodyJsx.endsWith("}") && !bodyJsx.includes("${", 2)) {
+        const innerExpr = bodyJsx.slice(2, -1);
+        return `(${arrayRef} || []).map((${nestedVar}, ${nestedIndex}) => ${innerExpr}).join('')`;
+      }
+      const innerTemplate = bodyJsx.startsWith("`") && bodyJsx.endsWith("`") ? bodyJsx.slice(1, -1) : bodyJsx;
+      return `(${arrayRef} || []).map((${nestedVar}, ${nestedIndex}) => \`${innerTemplate}\`).join('')`;
+    };
+    var convertAttributeValue = (value, loopVar = "item", loopArray, loopIndex = "index") => {
       const arrayName = loopArray || "items";
       let result = value;
       let isExpression = false;
+      const nestedEachMatch = value.match(/^\{\{#each\s+([^}]+)\}\}([\s\S]*)\{\{\/each\}\}$/);
+      if (nestedEachMatch) {
+        isExpression = true;
+        const expr = compileNestedEachAttributeExpression(nestedEachMatch[1], nestedEachMatch[2], loopVar, loopIndex);
+        return { jsxValue: "${" + expr + "}", isExpression: true };
+      }
       const parseHelper = (expr) => {
         expr = expr.replace(/@root\.properties\./g, "properties.");
         const eqMatch = expr.match(/^\(\s*eq\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
@@ -120936,13 +120985,13 @@ var require_attributes2 = __commonJS({
             return parsed;
         }
         if (prop === "@first") {
-          return "index === 0";
+          return `${loopIndex} === 0`;
         }
         if (prop === "@last") {
-          return `index === ${arrayName}?.length - 1`;
+          return `${loopIndex} === ${arrayName}?.length - 1`;
         }
         if (prop === "@index") {
-          return "index";
+          return loopIndex;
         }
         if (prop.startsWith("properties.")) {
           const parts = prop.replace("properties.", "").split(".");
@@ -121024,12 +121073,12 @@ var require_attributes2 = __commonJS({
       result = result.replace(/\{\{#unless\s+@last\s*\}\}([\s\S]*?)\{\{\/unless\}\}/g, (_9, unlessVal) => {
         isExpression = true;
         const unlessExpr = convertInnerToExpr((0, utils_1.collapseWhitespace)(unlessVal));
-        return "${index < " + arrayName + "?.length - 1 ? " + unlessExpr + " : ''}";
+        return "${" + loopIndex + " < " + arrayName + "?.length - 1 ? " + unlessExpr + " : ''}";
       });
       result = result.replace(/\{\{#unless\s+@first\s*\}\}([\s\S]*?)\{\{\/unless\}\}/g, (_9, unlessVal) => {
         isExpression = true;
         const unlessExpr = convertInnerToExpr((0, utils_1.collapseWhitespace)(unlessVal));
-        return "${index !== 0 ? " + unlessExpr + " : ''}";
+        return "${" + loopIndex + " !== 0 ? " + unlessExpr + " : ''}";
       });
       result = result.replace(/\{\{#unless\s+([^}]+)\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/unless\}\}/g, (_9, condition, unlessVal, elseVal) => {
         isExpression = true;
@@ -121234,7 +121283,7 @@ var require_attributes2 = __commonJS({
         }
         const jsxName = (0, utils_1.toJsxAttrName)(name);
         if (value.includes("{{#if")) {
-          const { jsxValue, isExpression } = (0, exports.convertAttributeValue)(value, loopVar, context.loopArray);
+          const { jsxValue, isExpression } = (0, exports.convertAttributeValue)(value, loopVar, context.loopArray, context.loopIndex);
           if (isExpression) {
             const wrapped = jsxName === "className" ? `\${String(${jsxValue} ?? '')}` : jsxValue;
             attrs.push(`${jsxName}={\`${wrapped}\`}`);
@@ -121258,7 +121307,7 @@ var require_attributes2 = __commonJS({
           }
         }
         if (value.includes("{{")) {
-          const { jsxValue, isExpression } = (0, exports.convertAttributeValue)(value, loopVar, context.loopArray);
+          const { jsxValue, isExpression } = (0, exports.convertAttributeValue)(value, loopVar, context.loopArray, context.loopIndex);
           if (isExpression) {
             if (jsxValue.startsWith("${") && jsxValue.endsWith("}") && !jsxValue.includes("${", 2)) {
               const expr = jsxValue.slice(2, -1);
