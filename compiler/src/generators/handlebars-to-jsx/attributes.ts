@@ -518,8 +518,14 @@ export const preprocessConditionalAttributes = (template: string): string => {
  * Pre-process attribute values that contain conditionals
  * This must run before preprocessBlocks to prevent if-markers from appearing inside attributes
  * @param currentLoopArray - When processing loop inner content, pass the array name so {{#unless @last}} etc. get the correct array (e.g. "ctas") instead of default "items"
+ * @param currentLoopVar - Loop item variable for this scope (e.g. "provider"); defaults to "item"
  */
-export const preprocessAttributeConditionals = (template: string, currentLoopArray?: string): string => {
+export const preprocessAttributeConditionals = (
+  template: string,
+  currentLoopArray?: string,
+  currentLoopVar?: string,
+): string => {
+  const loopVar = currentLoopVar || 'item';
   let result = template;
   
   // First handle conditional attributes (entire attribute wrapped in {{#if}})
@@ -574,7 +580,7 @@ export const preprocessAttributeConditionals = (template: string, currentLoopArr
         continue;
       }
       // Convert the attribute value using our helper (pass currentLoopArray for @last / @first)
-      const { jsxValue, isExpression } = convertAttributeValue(attrValue, 'item', currentLoopArray);
+      const { jsxValue, isExpression } = convertAttributeValue(attrValue, loopVar, currentLoopArray);
       
       if (isExpression) {
         // Get the JSX attribute name

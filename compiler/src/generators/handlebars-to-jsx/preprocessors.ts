@@ -85,8 +85,13 @@ export const preprocessFields = (template: string, properties: Record<string, Ha
 /**
  * Clean and preprocess the Handlebars template
  * @param currentLoopArray - When processing loop inner content, pass the array name so attribute conditionals (e.g. {{#unless @last}}) get the correct array name
+ * @param currentLoopVar - Loop item variable (e.g. "provider" from {{#each properties.providers as |provider|}})
  */
-export const cleanTemplate = (template: string, currentLoopArray?: string): string => {
+export const cleanTemplate = (
+  template: string,
+  currentLoopArray?: string,
+  currentLoopVar?: string,
+): string => {
   let cleaned = template ?? '';
   
   // Remove HTML/body wrapper
@@ -114,7 +119,7 @@ export const cleanTemplate = (template: string, currentLoopArray?: string): stri
   cleaned = cleaned.replace(/\{\{[\s\S]*?\}\}/g, (match) => match.replace(/@root\./g, ''));
   
   // Run attribute conditionals BEFORE preprocessBlocks so {{#if}} etc. inside attribute values (e.g. className="x {{#if prop}}y{{/if}}") get converted to template literals instead of becoming raw <if-marker> tags inside the attribute.
-  cleaned = preprocessAttributeConditionals(cleaned, currentLoopArray);
+  cleaned = preprocessAttributeConditionals(cleaned, currentLoopArray, currentLoopVar);
   // When processing the full template (no currentLoopArray), run preprocessBlocks so {{#each}} become markers and block-level {{#if}} become if-markers. Attributes have already been converted so they won't contain markers.
   if (currentLoopArray === undefined) {
     cleaned = preprocessBlocks(cleaned);

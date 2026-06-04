@@ -22,6 +22,7 @@ Early development (March–April 2026) focused on the transpiler (Handlebars →
 
 | Version | Date | Theme |
 |---------|------|--------|
+| 0.0.36 | 2026-06-04 | Loop alias in attribute preprocessor |
 | 0.0.35 | 2026-06-03 | Handlebars attribute transpiler fixes |
 | 0.0.34 | 2026-06-03 | Tailwind compile mode, per-block view assets, transpiler hardening |
 | 0.0.32 | 2026-05-21 | Editor canvas layout grid |
@@ -30,6 +31,14 @@ Early development (March–April 2026) focused on the transpiler (Handlebars →
 | 0.0.14–0.0.19 | 2026-04-13–14 | Inserter screenshots, icons, config paths, opacity/kebab-case |
 | 0.0.5–0.0.13 | 2026-04-06–07 | Schema migration, admin hub, ESM compiler bundle |
 | 0.0.2–0.0.4 | 2026-04-02 | Plugin-first architecture, WP-CLI |
+
+---
+
+## [0.0.36] - 2026-06-04
+
+### Fixed
+
+- **Handlebars attribute preprocessor** — Pass the correct loop alias (e.g. `provider` from `{{#each properties.providers as |provider|}}`) into `preprocessAttributeConditionals` so nested `{{#each}}` + `{{#unless @last}}` inside HTML attributes compile to the right JSX variable (fixes `ReferenceError: item is not defined` in block editor previews).
 
 ---
 

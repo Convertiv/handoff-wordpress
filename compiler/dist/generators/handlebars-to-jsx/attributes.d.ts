@@ -23,8 +23,9 @@ export declare const preprocessConditionalAttributes: (template: string) => stri
  * Pre-process attribute values that contain conditionals
  * This must run before preprocessBlocks to prevent if-markers from appearing inside attributes
  * @param currentLoopArray - When processing loop inner content, pass the array name so {{#unless @last}} etc. get the correct array (e.g. "ctas") instead of default "items"
+ * @param currentLoopVar - Loop item variable for this scope (e.g. "provider"); defaults to "item"
  */
-export declare const preprocessAttributeConditionals: (template: string, currentLoopArray?: string) => string;
+export declare const preprocessAttributeConditionals: (template: string, currentLoopArray?: string, currentLoopVar?: string) => string;
 /**
  * Convert HTML attributes to JSX attributes
  */

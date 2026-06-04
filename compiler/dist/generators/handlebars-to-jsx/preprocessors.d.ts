@@ -16,8 +16,9 @@ export declare const preprocessFields: (template: string, properties: Record<str
 /**
  * Clean and preprocess the Handlebars template
  * @param currentLoopArray - When processing loop inner content, pass the array name so attribute conditionals (e.g. {{#unless @last}}) get the correct array name
+ * @param currentLoopVar - Loop item variable (e.g. "provider" from {{#each properties.providers as |provider|}})
  */
-export declare const cleanTemplate: (template: string, currentLoopArray?: string) => string;
+export declare const cleanTemplate: (template: string, currentLoopArray?: string, currentLoopVar?: string) => string;
 /**
  * Pre-process template to handle block helpers before HTML parsing
  * Uses iterative approach to handle nested blocks properly

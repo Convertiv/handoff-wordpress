@@ -121205,7 +121205,8 @@ var require_attributes2 = __commonJS({
       return result;
     };
     exports.preprocessConditionalAttributes = preprocessConditionalAttributes;
-    var preprocessAttributeConditionals = (template, currentLoopArray) => {
+    var preprocessAttributeConditionals = (template, currentLoopArray, currentLoopVar) => {
+      const loopVar = currentLoopVar || "item";
       let result = template;
       result = (0, exports.preprocessConditionalAttributes)(result);
       let pos2 = 0;
@@ -121243,7 +121244,7 @@ var require_attributes2 = __commonJS({
             pos2 = valueEnd + 1;
             continue;
           }
-          const { jsxValue, isExpression } = (0, exports.convertAttributeValue)(attrValue, "item", currentLoopArray);
+          const { jsxValue, isExpression } = (0, exports.convertAttributeValue)(attrValue, loopVar, currentLoopArray);
           if (isExpression) {
             let jsxAttrName = attrName;
             if (attrName === "class") {
@@ -121400,7 +121401,7 @@ var require_preprocessors = __commonJS({
       return { template: result, inlineEditableFields };
     };
     exports.preprocessFields = preprocessFields;
-    var cleanTemplate = (template, currentLoopArray) => {
+    var cleanTemplate = (template, currentLoopArray, currentLoopVar) => {
       let cleaned = template ?? "";
       cleaned = cleaned.replace(/<html>[\s\S]*?<body[^>]*>/gi, "");
       cleaned = cleaned.replace(/<\/body>[\s\S]*?<\/html>/gi, "");
@@ -121412,7 +121413,7 @@ var require_preprocessors = __commonJS({
       cleaned = cleaned.replace(/\{\{!--[\s\S]*?--\}\}/g, "");
       cleaned = cleaned.replace(/\{\{![\s\S]*?\}\}/g, "");
       cleaned = cleaned.replace(/\{\{[\s\S]*?\}\}/g, (match) => match.replace(/@root\./g, ""));
-      cleaned = (0, attributes_1.preprocessAttributeConditionals)(cleaned, currentLoopArray);
+      cleaned = (0, attributes_1.preprocessAttributeConditionals)(cleaned, currentLoopArray, currentLoopVar);
       if (currentLoopArray === void 0) {
         cleaned = (0, exports.preprocessBlocks)(cleaned);
       }
@@ -121957,7 +121958,7 @@ var require_postprocessors = __commonJS({
           loopArray: propPath,
           inLoop: true
         };
-        const cleanedInner = (0, preprocessors_1.cleanTemplate)(innerContent, propPath);
+        const cleanedInner = (0, preprocessors_1.cleanTemplate)(innerContent, propPath, loopVarName);
         const preprocessed = (0, preprocessors_1.preprocessBlocks)(cleanedInner, propPath);
         const root2 = (0, node_html_parser_1.parse)(preprocessed, { lowerCaseTagName: false, comment: false });
         let innerJsx = (0, node_converter_1.nodeToJsx)(root2, loopContext);
@@ -121978,7 +121979,7 @@ var require_postprocessors = __commonJS({
           loopArray: propPath,
           inLoop: true
         };
-        const cleanedInner = (0, preprocessors_1.cleanTemplate)(innerContent, propPath);
+        const cleanedInner = (0, preprocessors_1.cleanTemplate)(innerContent, propPath, "item");
         const preprocessed = (0, preprocessors_1.preprocessBlocks)(cleanedInner, propPath);
         const root2 = (0, node_html_parser_1.parse)(preprocessed, { lowerCaseTagName: false, comment: false });
         let innerJsx = (0, node_converter_1.nodeToJsx)(root2, loopContext);
@@ -122005,7 +122006,7 @@ var require_postprocessors = __commonJS({
           loopArray: arrayRef,
           inLoop: true
         };
-        const cleanedInner = (0, preprocessors_1.cleanTemplate)(innerContent, arrayRef);
+        const cleanedInner = (0, preprocessors_1.cleanTemplate)(innerContent, arrayRef, nestedVar);
         const preprocessed = (0, preprocessors_1.preprocessBlocks)(cleanedInner, arrayRef);
         const root2 = (0, node_html_parser_1.parse)(preprocessed, { lowerCaseTagName: false, comment: false });
         let innerJsx = (0, node_converter_1.nodeToJsx)(root2, nestedContext);
@@ -122030,7 +122031,7 @@ var require_postprocessors = __commonJS({
           loopArray: arrayRef,
           inLoop: true
         };
-        const cleanedInner = (0, preprocessors_1.cleanTemplate)(innerContent, arrayRef);
+        const cleanedInner = (0, preprocessors_1.cleanTemplate)(innerContent, arrayRef, nestedVar);
         const preprocessed = (0, preprocessors_1.preprocessBlocks)(cleanedInner, arrayRef);
         const root2 = (0, node_html_parser_1.parse)(preprocessed, { lowerCaseTagName: false, comment: false });
         let innerJsx = (0, node_converter_1.nodeToJsx)(root2, nestedContext);
