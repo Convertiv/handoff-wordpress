@@ -39,6 +39,8 @@ export interface EditorScssOptions {
   /** When true, canvas-shim import is omitted (e.g. merged group adds it once at the top). */
   skipCanvasShimImport?: boolean;
   editorConfig?: HandoffEditorConfig;
+  /** Tailwind mode uses minimal editor chrome only. */
+  styleMode?: 'legacy' | 'tailwind';
 }
 
 /** Build RegExp sources for design-system anchor → span conversion in node-converter. */

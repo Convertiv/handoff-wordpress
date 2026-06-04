@@ -88,5 +88,16 @@
   "groups": {
     "heroes": "merged",
     "ctas": "merged"
+  },
+
+  "compiler": {
+    "styleMode": "legacy",
+    "syncDesignSystemAssets": true,
+    "enqueueGlobalDesignSystemJs": true
+  },
+
+  "editor": {
+    "extraStylesheets": [],
+    "scopeDesignSystem": true
   }
 }

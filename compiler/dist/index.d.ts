@@ -25,7 +25,7 @@
  *     "themeDir": "./path/to/theme"
  *   }
  */
-import { HandoffComponent, CompilerOptions, GeneratedBlock, HandoffEditorConfig, ImportConfig } from './types';
+import { HandoffComponent, CompilerOptions, GeneratedBlock, HandoffWpConfig, HandoffEditorConfig, ImportConfig } from './types';
 /**
  * Auth credentials for HTTP requests
  */
@@ -53,6 +53,7 @@ interface ResolvedConfig {
         }>;
     }>>;
     editor?: HandoffEditorConfig;
+    compiler?: HandoffWpConfig['compiler'];
 }
 import type { SchemaHistory } from './validators';
 /**

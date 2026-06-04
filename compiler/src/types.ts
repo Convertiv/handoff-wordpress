@@ -90,6 +90,8 @@ export interface BlockJsonOutput {
   editorScript: string;
   editorStyle: string;
   style: string;
+  viewScript?: string;
+  viewStyle?: string;
   render: string;
   attributes: Record<string, GutenbergAttribute>;
   supports?: Record<string, any>;
@@ -399,4 +401,19 @@ export interface HandoffWpConfig {
 
   /** Per-project block editor canvas styling. */
   editor?: HandoffEditorConfig;
+
+  /** Compiler behaviour for Tailwind-native (nextgen) vs legacy Handoff blocks. */
+  compiler?: HandoffCompilerConfig;
+}
+
+/**
+ * Compiler options in handoff-wp.config.json.
+ */
+export interface HandoffCompilerConfig {
+  /** "tailwind" skips legacy c-/o- SCSS fallbacks and main.css sync. */
+  styleMode?: 'legacy' | 'tailwind';
+  /** When false, do not copy main.css/main.js into wp-content/handoff/assets. */
+  syncDesignSystemAssets?: boolean;
+  /** When false, do not enqueue global handoff/assets/js/main.js on the frontend. */
+  enqueueGlobalDesignSystemJs?: boolean;
 }

@@ -12,7 +12,7 @@ import {
   getButtonUrlFallback,
 } from '../button-schema';
 import { toCamelCase } from './utils';
-import { transpileExpression } from './expression-parser';
+import { transpileExpression, toOptionalChainedAccess } from './expression-parser';
 import { cleanTemplate, preprocessBlocks } from './preprocessors';
 import { lookupFieldType } from './field-lookup';
 import { nodeToJsx } from './node-converter';
@@ -228,7 +228,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
   // Convert nested loop markers WITH alias (this.xxx as |alias|) to JSX map expressions FIRST
   // Handle both hyphenated and camelCase attribute names
   result = result.replace(
-    /<nested-loop-marker\s+(?:data-prop|dataProp)="(\w+)"\s+(?:data-alias|dataAlias)="(\w+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/nested-loop-marker>)/gi,
+    /<nested-loop-marker\s+(?:data-prop|dataProp)="([\w.]+)"\s+(?:data-alias|dataAlias)="(\w+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/nested-loop-marker>)/gi,
     (_, propName, aliasName, encodedContent) => {
       let innerContent = Buffer.from(encodedContent, 'base64').toString();
       
@@ -243,7 +243,7 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
       // Use the alias name from the Handlebars template as the nested loop variable
       const nestedVar = aliasName || 'subItem';
       const nestedIndex = `${nestedVar}Index`;
-      const arrayRef = `${parentLoopVar}.${propName}`;
+      const arrayRef = toOptionalChainedAccess(parentLoopVar, propName);
       
       const nestedContext: TranspilerContext = {
         ...context,
@@ -276,13 +276,13 @@ export const postprocessJsx = (jsx: string, context: TranspilerContext, parentLo
   // Convert nested loop markers WITHOUT alias (this.xxx) to JSX map expressions
   // Handle both hyphenated and camelCase attribute names
   result = result.replace(
-    /<nested-loop-marker\s+(?:data-prop|dataProp)="(\w+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/nested-loop-marker>)/gi,
+    /<nested-loop-marker\s+(?:data-prop|dataProp)="([\w.]+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/nested-loop-marker>)/gi,
     (_, propName, encodedContent) => {
       const innerContent = Buffer.from(encodedContent, 'base64').toString();
       // Use a different variable name for nested loops to avoid shadowing
       const nestedVar = 'subItem';
       const nestedIndex = 'subIndex';
-      const arrayRef = `${parentLoopVar}.${propName}`;
+      const arrayRef = toOptionalChainedAccess(parentLoopVar, propName);
       
       const nestedContext: TranspilerContext = {
         ...context,

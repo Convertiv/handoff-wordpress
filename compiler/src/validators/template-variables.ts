@@ -483,6 +483,11 @@ export const validateTemplateVariables = (
       content = match[3].trim();
     }
     const lineNumber = getLineNumber(match.index);
+
+    // Partials are resolved by Handoff at build time (nextgen elements).
+    if (content.startsWith('>')) {
+      continue;
+    }
     
     if (prefix === '#') {
       // Block opening: {{#each items}}, {{#with obj}}, {{#if cond}}, {{#field name}}

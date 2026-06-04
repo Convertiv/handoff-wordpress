@@ -62,6 +62,7 @@ interface ResolvedConfig {
     transforms?: Record<string, { from: string; to: string; rule: string }>;
   }>>;
   editor?: HandoffEditorConfig;
+  compiler?: HandoffWpConfig['compiler'];
 }
 
 /**
@@ -152,6 +153,7 @@ const getConfig = (): ResolvedConfig => {
     groups: fileConfig.groups ?? DEFAULT_CONFIG.groups,
     schemaMigrations: fileConfig.schemaMigrations,
     editor: fileConfig.editor,
+    compiler: fileConfig.compiler,
   };
 };
 
@@ -491,6 +493,9 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
     !!innerBlocksField
   );
 
+  const styleMode = resolvedConfig.compiler?.styleMode ?? 'legacy';
+  const styleOptions = { styleMode };
+
   return {
     blockJson: generateBlockJson(component, hasScreenshot, apiUrl, componentDynamicArrays, innerBlocksField),
     indexJs: generateIndexJs(
@@ -502,13 +507,39 @@ const generateBlock = (component: HandoffComponent, apiUrl: string, resolvedConf
       resolvedConfig.editor,
     ),
     renderPhp: generateRenderPhp(component, componentDynamicArrays, innerBlocksField),
-    editorScss: generateEditorScss(component, { editorConfig: resolvedConfig.editor }),
-    styleScss: generateStyleScss(component),
+    editorScss: generateEditorScss(component, { editorConfig: resolvedConfig.editor, ...styleOptions }),
+    styleScss: generateStyleScss(component, styleOptions),
     readme: generateReadme(component),
     migrationSchema: generateMigrationSchema(component),
     schemaChangelog: generateSchemaChangelog(component.id, historyEntry),
     screenshotUrl
   };
+};
+
+/**
+ * Copy per-component view.js / view.css from Handoff API output.
+ */
+const copyComponentViewAssets = (
+  blockDir: string,
+  componentId: string,
+  ctx: HandoffDataContext,
+): { hasViewScript: boolean; hasViewStyle: boolean } => {
+  if (!ctx.localApiRoot) {
+    return { hasViewScript: false, hasViewStyle: false };
+  }
+  let hasViewScript = false;
+  let hasViewStyle = false;
+  const jsSrc = path.join(ctx.localApiRoot, 'component', `${componentId}.js`);
+  if (fs.existsSync(jsSrc)) {
+    fs.copyFileSync(jsSrc, path.join(blockDir, 'view.js'));
+    hasViewScript = true;
+  }
+  const cssSrc = path.join(ctx.localApiRoot, 'component', `${componentId}.css`);
+  if (fs.existsSync(cssSrc)) {
+    fs.copyFileSync(cssSrc, path.join(blockDir, 'view.css'));
+    hasViewStyle = true;
+  }
+  return { hasViewScript, hasViewStyle };
 };
 
 /**
@@ -527,9 +558,22 @@ const writeBlockFiles = async (
   if (!fs.existsSync(blockDir)) {
     fs.mkdirSync(blockDir, { recursive: true });
   }
+
+  const viewAssets = copyComponentViewAssets(blockDir, componentId, ctx);
+  let blockJsonContent = block.blockJson;
+  if (viewAssets.hasViewScript || viewAssets.hasViewStyle) {
+    const blockJsonObj = JSON.parse(block.blockJson) as Record<string, unknown>;
+    if (viewAssets.hasViewScript) {
+      blockJsonObj.viewScript = 'file:./view.js';
+    }
+    if (viewAssets.hasViewStyle) {
+      blockJsonObj.viewStyle = 'file:./view.css';
+    }
+    blockJsonContent = JSON.stringify(blockJsonObj, null, 2);
+  }
   
   // Format all code files with Prettier
-  const formattedBlockJson = await formatCode(block.blockJson, 'json');
+  const formattedBlockJson = await formatCode(blockJsonContent, 'json');
   const formattedIndexJs = await formatCode(block.indexJs, 'babel');
   const formattedEditorScss = await formatCode(block.editorScss, 'scss');
   const formattedStyleScss = await formatCode(block.styleScss, 'scss');
@@ -564,6 +608,12 @@ const writeBlockFiles = async (
   console.log(`   📄 style.scss`);
   console.log(`   📄 README.md`);
   console.log(`   📄 migration-schema.json`);
+  if (viewAssets.hasViewScript) {
+    console.log(`   📄 view.js`);
+  }
+  if (viewAssets.hasViewStyle) {
+    console.log(`   📄 view.css`);
+  }
   if (screenshotDownloaded) {
     console.log(`   🖼️  screenshot.png`);
   }
@@ -598,14 +648,16 @@ const compile = async (options: CompilerOptions): Promise<void> => {
     console.log(`   Found: ${component.title} (${component.id})\n`);
     
     // Validate template variables before generating
-    console.log(`🔍 Validating template variables...`);
-    const templateValidation = validateTemplateVariables(component);
-    console.log(formatTemplateValidationResult(templateValidation));
-    console.log('');
-    
-    if (!templateValidation.isValid) {
-      console.error(`\n❌ Template validation failed! Fix the undefined variables before compiling.\n`);
-      process.exit(1);
+    if (config.compiler?.styleMode !== 'tailwind') {
+      console.log(`🔍 Validating template variables...`);
+      const templateValidation = validateTemplateVariables(component);
+      console.log(formatTemplateValidationResult(templateValidation));
+      console.log('');
+
+      if (!templateValidation.isValid) {
+        console.error(`\n❌ Template validation failed! Fix the undefined variables before compiling.\n`);
+        process.exit(1);
+      }
     }
     
     // Generate block files (with deprecation support from schema history)
@@ -617,7 +669,7 @@ const compile = async (options: CompilerOptions): Promise<void> => {
     await writeBlockFiles(options.outputDir, component.id, block, dataCtx);
 
     const contentRoot = path.resolve(options.outputDir, '..');
-    await syncBundleAssets(dataCtx, contentRoot);
+    await syncBundleAssets(dataCtx, contentRoot, config);
     if (config.editor?.scopeDesignSystem !== false) {
       try {
         await scopeDesignSystemForEditor(contentRoot, config.editor);
@@ -866,7 +918,16 @@ const ctxDownloadFile = async (ctx: HandoffDataContext, url: string, destPath: s
 /**
  * Copy Handoff bundle main.js / main.css from local public/api into wp-content/handoff/assets.
  */
-const syncBundleAssets = async (ctx: HandoffDataContext, contentRoot: string): Promise<void> => {
+const syncBundleAssets = async (
+  ctx: HandoffDataContext,
+  contentRoot: string,
+  resolvedConfig?: ResolvedConfig,
+): Promise<void> => {
+  const compiler = resolvedConfig?.compiler;
+  if (compiler?.styleMode === 'tailwind' || compiler?.syncDesignSystemAssets === false) {
+    console.log('   ⏭️  Skipping main.css/main.js sync (tailwind / syncDesignSystemAssets=false)');
+    return;
+  }
   if (!ctx.localApiRoot) return;
   const assetsCssDir = path.join(contentRoot, 'assets', 'css');
   const assetsJsDir = path.join(contentRoot, 'assets', 'js');
@@ -1039,7 +1100,7 @@ const compileGroup = async (
 
   const contentRoot = path.resolve(outputDir, '..');
   if (ctx.localApiRoot) {
-    await syncBundleAssets(ctx, contentRoot);
+    await syncBundleAssets(ctx, contentRoot, config);
   }
   if (config.editor?.scopeDesignSystem !== false) {
     try {
@@ -1081,12 +1142,14 @@ const compileAll = async (ctx: HandoffDataContext, outputDir: string): Promise<v
       try {
         const component = await ctxFetchComponent(ctx, componentId);
 
-        const templateValidation = validateTemplateVariables(component);
-        if (!templateValidation.isValid) {
-          console.log(formatTemplateValidationResult(templateValidation));
-          console.error(`   ⚠️  Skipping ${componentId} due to template variable errors`);
-          failed++;
-          continue;
+        if (config.compiler?.styleMode !== 'tailwind') {
+          const templateValidation = validateTemplateVariables(component);
+          if (!templateValidation.isValid) {
+            console.log(formatTemplateValidationResult(templateValidation));
+            console.error(`   ⚠️  Skipping ${componentId} due to template variable errors`);
+            failed++;
+            continue;
+          }
         }
 
         allComponents.push(component);
@@ -1206,8 +1269,8 @@ const compileAll = async (ctx: HandoffDataContext, outputDir: string): Promise<v
     }
 
     if (ctx.localApiRoot) {
-      await syncBundleAssets(ctx, path.resolve(outputDir, '..'));
-    } else {
+      await syncBundleAssets(ctx, path.resolve(outputDir, '..'), config);
+    } else if (config.compiler?.styleMode !== 'tailwind' && config.compiler?.syncDesignSystemAssets !== false) {
       const cssUrl = `${ctx.apiUrl}/api/component/main.css`;
       const cssPath = path.join(assetsCssDir, 'main.css');
       const cssDownloaded = await ctxDownloadFile(ctx, cssUrl, cssPath);

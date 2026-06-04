@@ -50,6 +50,31 @@ export const convertAttributeValue = (
       }
       return `${leftExpr} !== "${right}"`;
     }
+
+    // Match (eq left right) with variable/expression operands (no quotes)
+    const eqVarMatch = expr.match(/^\(\s*eq\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
+    if (eqVarMatch) {
+      const [, left, right] = eqVarMatch;
+      const resolveOperand = (operand: string): string => {
+        if (operand.startsWith('properties.')) {
+          const parts = operand.replace('properties.', '').split('.');
+          return parts.map((p: string, i: number) => i === 0 ? toCamelCase(p) : p).join('?.');
+        }
+        if (operand.startsWith('this.')) {
+          return toOptionalChainedAccess(loopVar, operand.replace('this.', ''));
+        }
+        const parts = operand.split('.');
+        if (parts.length > 1) {
+          const [root, ...rest] = parts;
+          if (root === loopVar) {
+            return toOptionalChainedAccess(loopVar, rest.join('.'));
+          }
+          return [root, ...rest].join('?.');
+        }
+        return toCamelCase(operand);
+      };
+      return `${resolveOperand(left)} === ${resolveOperand(right)}`;
+    }
     
     return '';
   };

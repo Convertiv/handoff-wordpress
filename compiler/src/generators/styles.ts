@@ -26,6 +26,15 @@ const generateEditorScss = (
   options: EditorScssOptions = {},
 ): string => {
   const className = component.id.replace(/_/g, '-');
+
+  if (options.styleMode === 'tailwind') {
+    return `.${className}-editor-preview {
+  position: relative;
+  min-height: 200px;
+}
+`;
+  }
+
   const hasBackgroundImage = component.properties.background_image?.type === 'image';
   const canvasShimPrefix = options.skipCanvasShimImport
     ? ''
@@ -321,11 +330,23 @@ const generateEditorScss = (
   return scss;
 };
 
+export interface StyleScssOptions {
+  styleMode?: 'legacy' | 'tailwind';
+}
+
 /**
  * Generate style.scss for frontend styles
  */
-const generateStyleScss = (component: HandoffComponent): string => {
+const generateStyleScss = (component: HandoffComponent, options: StyleScssOptions = {}): string => {
   const className = component.id.replace(/_/g, '-');
+
+  if (options.styleMode === 'tailwind') {
+    return `// Tailwind mode: utilities from theme design-system.css
+.wp-block-handoff-${className} {
+  margin: 0;
+}
+`;
+  }
 
   // Extract CSS classes used in the template
   const classMatches = component.code.match(/class="([^"]+)"/g) || [];

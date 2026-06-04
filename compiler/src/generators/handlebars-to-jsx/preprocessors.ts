@@ -286,8 +286,8 @@ export const preprocessBlocks = (template: string, currentLoopArray?: string): s
     }
   }
   
-  // Process {{#each this.xxx as |alias|}} blocks (nested loops with alias inside parent loops) FIRST
-  const eachThisAliasRegex = /\{\{#each\s+this\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g;
+  // Process {{#each this.xxx.yyy as |alias|}} blocks (nested loops with alias inside parent loops) FIRST
+  const eachThisAliasRegex = /\{\{#each\s+this\.([\w.]+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g;
   while ((eachMatch = eachThisAliasRegex.exec(result)) !== null) {
     const startPos = eachMatch.index;
     const openTagEnd = startPos + eachMatch[0].length;
@@ -306,8 +306,8 @@ export const preprocessBlocks = (template: string, currentLoopArray?: string): s
     }
   }
   
-  // Process {{#each this.xxx}} blocks without alias (nested loops inside parent loops)
-  const eachThisRegex = /\{\{#each\s+this\.(\w+)\s*\}\}/g;
+  // Process {{#each this.xxx.yyy}} blocks without alias (nested loops inside parent loops)
+  const eachThisRegex = /\{\{#each\s+this\.([\w.]+)\s*\}\}/g;
   while ((eachMatch = eachThisRegex.exec(result)) !== null) {
     const startPos = eachMatch.index;
     const openTagEnd = startPos + eachMatch[0].length;
@@ -362,6 +362,39 @@ export const preprocessBlocks = (template: string, currentLoopArray?: string): s
     }
   }
   
+  // Process {{#if @first}} / {{#if @last}} blocks (loop index helpers)
+  const ifFirstRegex = /\{\{#if\s+@first\s*\}\}/g;
+  let ifFirstMatch;
+  while ((ifFirstMatch = ifFirstRegex.exec(result)) !== null) {
+    const startPos = ifFirstMatch.index;
+    const openTagEnd = startPos + ifFirstMatch[0].length;
+    const closePos = findMatchingClose(result, '{{#if', '{{/if}}', openTagEnd);
+
+    if (closePos !== -1) {
+      const inner = result.substring(openTagEnd, closePos);
+      const replacement = processIfBlock('@first', inner, startPos, ifFirstMatch[0]);
+
+      result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/if}}'.length);
+      ifFirstRegex.lastIndex = startPos + replacement.length;
+    }
+  }
+
+  const ifLastRegex = /\{\{#if\s+@last\s*\}\}/g;
+  let ifLastMatch;
+  while ((ifLastMatch = ifLastRegex.exec(result)) !== null) {
+    const startPos = ifLastMatch.index;
+    const openTagEnd = startPos + ifLastMatch[0].length;
+    const closePos = findMatchingClose(result, '{{#if', '{{/if}}', openTagEnd);
+
+    if (closePos !== -1) {
+      const inner = result.substring(openTagEnd, closePos);
+      const replacement = processIfBlock('@last', inner, startPos, ifLastMatch[0]);
+
+      result = result.substring(0, startPos) + replacement + result.substring(closePos + '{{/if}}'.length);
+      ifLastRegex.lastIndex = startPos + replacement.length;
+    }
+  }
+
   // Process {{#if (eq/ne/gt/lt/etc ...)}} blocks with helper expressions FIRST
   const ifHelperRegex = /\{\{#if\s+(\([^)]+\))\s*\}\}/g;
   let ifHelperMatch;

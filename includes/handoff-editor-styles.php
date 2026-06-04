@@ -207,9 +207,43 @@ function handoff_build_editor_stylesheets(): array {
 }
 
 /**
+ * Resolved compiler config from handoff-wp.config.json.
+ *
+ * @return array<string, mixed>
+ */
+function handoff_get_compiler_config(): array {
+  $defaults = [
+    'styleMode'                    => 'legacy',
+    'syncDesignSystemAssets'       => true,
+    'enqueueGlobalDesignSystemJs'  => true,
+  ];
+
+  $config = [];
+  if (class_exists('Handoff_Admin')) {
+    $config = Handoff_Admin::get_config();
+  } else {
+    $json_path = rtrim(HANDOFF_CONTENT_DIR, '/') . '/handoff-wp.config.json';
+    if (file_exists($json_path)) {
+      $decoded = json_decode((string) file_get_contents($json_path), true);
+      if (is_array($decoded)) {
+        $config = $decoded;
+      }
+    }
+  }
+
+  $compiler = isset($config['compiler']) && is_array($config['compiler']) ? $config['compiler'] : [];
+  return array_merge($defaults, $compiler);
+}
+
+/**
  * Enqueue frontend design system (main.css / main.js).
  */
 function handoff_enqueue_frontend_design_assets(): void {
+  $compiler = handoff_get_compiler_config();
+  if (($compiler['styleMode'] ?? 'legacy') === 'tailwind') {
+    return;
+  }
+
   $assets_dir = rtrim(HANDOFF_CONTENT_DIR, '/') . '/assets';
   $assets_url = rtrim(HANDOFF_CONTENT_URL, '/') . '/assets';
   $version    = HANDOFF_BLOCKS_VERSION;

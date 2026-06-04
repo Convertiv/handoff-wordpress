@@ -27,6 +27,10 @@ const entry = {};
 
 blockFolders.forEach(block => {
   entry[`${block}/index`] = path.resolve(blocksDir, block, 'index.js');
+  const viewJs = path.join(blocksDir, block, 'view.js');
+  if (fs.existsSync(viewJs)) {
+    entry[`${block}/view`] = viewJs;
+  }
 });
 
 blockFolders.forEach(block => {
@@ -73,6 +77,13 @@ const copyPatterns = blockFolders.flatMap(block => {
     patterns.push({
       from: path.join(blockPath, 'render.php'),
       to: path.join(block, 'render.php'),
+    });
+  }
+
+  if (fs.existsSync(path.join(blockPath, 'view.css'))) {
+    patterns.push({
+      from: path.join(blockPath, 'view.css'),
+      to: path.join(block, 'view.css'),
     });
   }
 

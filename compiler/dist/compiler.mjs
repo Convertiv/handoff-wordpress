@@ -120900,6 +120900,29 @@ var require_attributes2 = __commonJS({
           }
           return `${leftExpr} !== "${right}"`;
         }
+        const eqVarMatch = expr.match(/^\(\s*eq\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
+        if (eqVarMatch) {
+          const [, left, right] = eqVarMatch;
+          const resolveOperand = (operand) => {
+            if (operand.startsWith("properties.")) {
+              const parts2 = operand.replace("properties.", "").split(".");
+              return parts2.map((p4, i) => i === 0 ? (0, utils_1.toCamelCase)(p4) : p4).join("?.");
+            }
+            if (operand.startsWith("this.")) {
+              return (0, expression_parser_1.toOptionalChainedAccess)(loopVar, operand.replace("this.", ""));
+            }
+            const parts = operand.split(".");
+            if (parts.length > 1) {
+              const [root2, ...rest] = parts;
+              if (root2 === loopVar) {
+                return (0, expression_parser_1.toOptionalChainedAccess)(loopVar, rest.join("."));
+              }
+              return [root2, ...rest].join("?.");
+            }
+            return (0, utils_1.toCamelCase)(operand);
+          };
+          return `${resolveOperand(left)} === ${resolveOperand(right)}`;
+        }
         return "";
       };
       const propToExpr = (prop) => {
@@ -121462,7 +121485,7 @@ var require_preprocessors = __commonJS({
           eachPropsRegex.lastIndex = startPos + replacement.length;
         }
       }
-      const eachThisAliasRegex = /\{\{#each\s+this\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g;
+      const eachThisAliasRegex = /\{\{#each\s+this\.([\w.]+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g;
       while ((eachMatch = eachThisAliasRegex.exec(result)) !== null) {
         const startPos = eachMatch.index;
         const openTagEnd = startPos + eachMatch[0].length;
@@ -121477,7 +121500,7 @@ var require_preprocessors = __commonJS({
           eachThisAliasRegex.lastIndex = startPos + replacement.length;
         }
       }
-      const eachThisRegex = /\{\{#each\s+this\.(\w+)\s*\}\}/g;
+      const eachThisRegex = /\{\{#each\s+this\.([\w.]+)\s*\}\}/g;
       while ((eachMatch = eachThisRegex.exec(result)) !== null) {
         const startPos = eachMatch.index;
         const openTagEnd = startPos + eachMatch[0].length;
@@ -121519,6 +121542,32 @@ var require_preprocessors = __commonJS({
           const replacement = `<unless-first-marker data-content="${escaped}"></unless-first-marker>`;
           result = result.substring(0, startPos) + replacement + result.substring(closePos + "{{/unless}}".length);
           unlessFirstRegex.lastIndex = startPos + replacement.length;
+        }
+      }
+      const ifFirstRegex = /\{\{#if\s+@first\s*\}\}/g;
+      let ifFirstMatch;
+      while ((ifFirstMatch = ifFirstRegex.exec(result)) !== null) {
+        const startPos = ifFirstMatch.index;
+        const openTagEnd = startPos + ifFirstMatch[0].length;
+        const closePos = (0, utils_1.findMatchingClose)(result, "{{#if", "{{/if}}", openTagEnd);
+        if (closePos !== -1) {
+          const inner = result.substring(openTagEnd, closePos);
+          const replacement = processIfBlock("@first", inner, startPos, ifFirstMatch[0]);
+          result = result.substring(0, startPos) + replacement + result.substring(closePos + "{{/if}}".length);
+          ifFirstRegex.lastIndex = startPos + replacement.length;
+        }
+      }
+      const ifLastRegex = /\{\{#if\s+@last\s*\}\}/g;
+      let ifLastMatch;
+      while ((ifLastMatch = ifLastRegex.exec(result)) !== null) {
+        const startPos = ifLastMatch.index;
+        const openTagEnd = startPos + ifLastMatch[0].length;
+        const closePos = (0, utils_1.findMatchingClose)(result, "{{#if", "{{/if}}", openTagEnd);
+        if (closePos !== -1) {
+          const inner = result.substring(openTagEnd, closePos);
+          const replacement = processIfBlock("@last", inner, startPos, ifLastMatch[0]);
+          result = result.substring(0, startPos) + replacement + result.substring(closePos + "{{/if}}".length);
+          ifLastRegex.lastIndex = startPos + replacement.length;
         }
       }
       const ifHelperRegex = /\{\{#if\s+(\([^)]+\))\s*\}\}/g;
@@ -121891,7 +121940,7 @@ var require_postprocessors = __commonJS({
         </Fragment>
       ))}`;
       });
-      result = result.replace(/<nested-loop-marker\s+(?:data-prop|dataProp)="(\w+)"\s+(?:data-alias|dataAlias)="(\w+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/nested-loop-marker>)/gi, (_9, propName, aliasName, encodedContent) => {
+      result = result.replace(/<nested-loop-marker\s+(?:data-prop|dataProp)="([\w.]+)"\s+(?:data-alias|dataAlias)="(\w+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/nested-loop-marker>)/gi, (_9, propName, aliasName, encodedContent) => {
         let innerContent = Buffer.from(encodedContent, "base64").toString();
         const aliasDeepRegex = new RegExp(`\\{\\{\\s*${aliasName}\\.(\\w+)\\.(\\w+)\\s*\\}\\}`, "g");
         innerContent = innerContent.replace(aliasDeepRegex, "{{this.$1.$2}}");
@@ -121899,7 +121948,7 @@ var require_postprocessors = __commonJS({
         innerContent = innerContent.replace(aliasRegex, "{{this.$1}}");
         const nestedVar = aliasName || "subItem";
         const nestedIndex = `${nestedVar}Index`;
-        const arrayRef = `${parentLoopVar}.${propName}`;
+        const arrayRef = (0, expression_parser_1.toOptionalChainedAccess)(parentLoopVar, propName);
         const nestedContext = {
           ...context,
           loopVariable: nestedVar,
@@ -121920,11 +121969,11 @@ var require_postprocessors = __commonJS({
         </Fragment>
       ))}`;
       });
-      result = result.replace(/<nested-loop-marker\s+(?:data-prop|dataProp)="(\w+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/nested-loop-marker>)/gi, (_9, propName, encodedContent) => {
+      result = result.replace(/<nested-loop-marker\s+(?:data-prop|dataProp)="([\w.]+)"\s+(?:data-content|dataContent)="([^"]+)"\s*(?:\/>|><\/nested-loop-marker>)/gi, (_9, propName, encodedContent) => {
         const innerContent = Buffer.from(encodedContent, "base64").toString();
         const nestedVar = "subItem";
         const nestedIndex = "subIndex";
-        const arrayRef = `${parentLoopVar}.${propName}`;
+        const arrayRef = (0, expression_parser_1.toOptionalChainedAccess)(parentLoopVar, propName);
         const nestedContext = {
           ...context,
           loopVariable: nestedVar,
@@ -125024,6 +125073,13 @@ var require_styles2 = __commonJS({
     var canvas_shim_1 = require_canvas_shim();
     var generateEditorScss = (component, options8 = {}) => {
       const className = component.id.replace(/_/g, "-");
+      if (options8.styleMode === "tailwind") {
+        return `.${className}-editor-preview {
+  position: relative;
+  min-height: 200px;
+}
+`;
+      }
       const hasBackgroundImage = component.properties.background_image?.type === "image";
       const canvasShimPrefix = options8.skipCanvasShimImport ? "" : (0, canvas_shim_1.editorScssCanvasShimPrefix)(component.code, options8.editorConfig);
       let scss = `${canvasShimPrefix}// Editor-specific styles for ${component.title} block
@@ -125309,8 +125365,15 @@ var require_styles2 = __commonJS({
       return scss;
     };
     exports.generateEditorScss = generateEditorScss;
-    var generateStyleScss = (component) => {
+    var generateStyleScss = (component, options8 = {}) => {
       const className = component.id.replace(/_/g, "-");
+      if (options8.styleMode === "tailwind") {
+        return `// Tailwind mode: utilities from theme design-system.css
+.wp-block-handoff-${className} {
+  margin: 0;
+}
+`;
+      }
       const classMatches = component.code.match(/class="([^"]+)"/g) || [];
       const usedClasses = /* @__PURE__ */ new Set();
       classMatches.forEach((match) => {
@@ -128791,6 +128854,9 @@ var require_template_variables = __commonJS({
           content = match[3].trim();
         }
         const lineNumber = getLineNumber(match.index);
+        if (content.startsWith(">")) {
+          continue;
+        }
         if (prefix === "#") {
           const blockMatch = content.match(/^(\w+)\s*(.*)$/);
           if (blockMatch) {
@@ -142029,7 +142095,8 @@ var require_index = __commonJS({
         import: importConfig,
         groups: fileConfig.groups ?? DEFAULT_CONFIG.groups,
         schemaMigrations: fileConfig.schemaMigrations,
-        editor: fileConfig.editor
+        editor: fileConfig.editor,
+        compiler: fileConfig.compiler
       };
     };
     var buildRequestOptions = (url3, auth) => {
@@ -142251,12 +142318,14 @@ var require_index = __commonJS({
       const currentProps = (0, validators_1.extractProperties)(component.properties);
       const migrationOverrides = resolvedConfig.schemaMigrations?.[component.id];
       const deprecationsCode = (0, generators_1.generateDeprecations)(historyEntry, currentProps, migrationOverrides, !!innerBlocksField);
+      const styleMode = resolvedConfig.compiler?.styleMode ?? "legacy";
+      const styleOptions = { styleMode };
       return {
         blockJson: (0, generators_1.generateBlockJson)(component, hasScreenshot, apiUrl, componentDynamicArrays, innerBlocksField),
         indexJs: (0, generators_1.generateIndexJs)(component, componentDynamicArrays, innerBlocksField, deprecationsCode, hasScreenshot, resolvedConfig.editor),
         renderPhp: (0, generators_1.generateRenderPhp)(component, componentDynamicArrays, innerBlocksField),
-        editorScss: (0, generators_1.generateEditorScss)(component, { editorConfig: resolvedConfig.editor }),
-        styleScss: (0, generators_1.generateStyleScss)(component),
+        editorScss: (0, generators_1.generateEditorScss)(component, { editorConfig: resolvedConfig.editor, ...styleOptions }),
+        styleScss: (0, generators_1.generateStyleScss)(component, styleOptions),
         readme: (0, generators_1.generateReadme)(component),
         migrationSchema: (0, generators_1.generateMigrationSchema)(component),
         schemaChangelog: (0, generators_1.generateSchemaChangelog)(component.id, historyEntry),
@@ -142264,13 +142333,43 @@ var require_index = __commonJS({
       };
     };
     exports.generateBlock = generateBlock;
+    var copyComponentViewAssets = (blockDir, componentId, ctx) => {
+      if (!ctx.localApiRoot) {
+        return { hasViewScript: false, hasViewStyle: false };
+      }
+      let hasViewScript = false;
+      let hasViewStyle = false;
+      const jsSrc = path15.join(ctx.localApiRoot, "component", `${componentId}.js`);
+      if (fs8.existsSync(jsSrc)) {
+        fs8.copyFileSync(jsSrc, path15.join(blockDir, "view.js"));
+        hasViewScript = true;
+      }
+      const cssSrc = path15.join(ctx.localApiRoot, "component", `${componentId}.css`);
+      if (fs8.existsSync(cssSrc)) {
+        fs8.copyFileSync(cssSrc, path15.join(blockDir, "view.css"));
+        hasViewStyle = true;
+      }
+      return { hasViewScript, hasViewStyle };
+    };
     var writeBlockFiles = async (outputDir, componentId, block, ctx) => {
       const blockName = (0, generators_1.toBlockName)(componentId);
       const blockDir = path15.join(outputDir, blockName);
       if (!fs8.existsSync(blockDir)) {
         fs8.mkdirSync(blockDir, { recursive: true });
       }
-      const formattedBlockJson = await formatCode(block.blockJson, "json");
+      const viewAssets = copyComponentViewAssets(blockDir, componentId, ctx);
+      let blockJsonContent = block.blockJson;
+      if (viewAssets.hasViewScript || viewAssets.hasViewStyle) {
+        const blockJsonObj = JSON.parse(block.blockJson);
+        if (viewAssets.hasViewScript) {
+          blockJsonObj.viewScript = "file:./view.js";
+        }
+        if (viewAssets.hasViewStyle) {
+          blockJsonObj.viewStyle = "file:./view.css";
+        }
+        blockJsonContent = JSON.stringify(blockJsonObj, null, 2);
+      }
+      const formattedBlockJson = await formatCode(blockJsonContent, "json");
       const formattedIndexJs = await formatCode(block.indexJs, "babel");
       const formattedEditorScss = await formatCode(block.editorScss, "scss");
       const formattedStyleScss = await formatCode(block.styleScss, "scss");
@@ -142300,6 +142399,12 @@ var require_index = __commonJS({
       console.log(`   \u{1F4C4} style.scss`);
       console.log(`   \u{1F4C4} README.md`);
       console.log(`   \u{1F4C4} migration-schema.json`);
+      if (viewAssets.hasViewScript) {
+        console.log(`   \u{1F4C4} view.js`);
+      }
+      if (viewAssets.hasViewStyle) {
+        console.log(`   \u{1F4C4} view.css`);
+      }
       if (screenshotDownloaded) {
         console.log(`   \u{1F5BC}\uFE0F  screenshot.png`);
       }
@@ -142327,22 +142432,24 @@ var require_index = __commonJS({
         const component = await ctxFetchComponent(dataCtx, options8.componentName);
         console.log(`   Found: ${component.title} (${component.id})
 `);
-        console.log(`\u{1F50D} Validating template variables...`);
-        const templateValidation = (0, validators_1.validateTemplateVariables)(component);
-        console.log((0, validators_1.formatTemplateValidationResult)(templateValidation));
-        console.log("");
-        if (!templateValidation.isValid) {
-          console.error(`
+        if (config.compiler?.styleMode !== "tailwind") {
+          console.log(`\u{1F50D} Validating template variables...`);
+          const templateValidation = (0, validators_1.validateTemplateVariables)(component);
+          console.log((0, validators_1.formatTemplateValidationResult)(templateValidation));
+          console.log("");
+          if (!templateValidation.isValid) {
+            console.error(`
 \u274C Template validation failed! Fix the undefined variables before compiling.
 `);
-          process.exit(1);
+            process.exit(1);
+          }
         }
         console.log(`\u2699\uFE0F  Generating Gutenberg block...`);
         const schemaHistory = (0, validators_1.loadManifest)(options8.outputDir);
         const block = generateBlock(component, options8.apiUrl, config, schemaHistory);
         await writeBlockFiles(options8.outputDir, component.id, block, dataCtx);
         const contentRoot = path15.resolve(options8.outputDir, "..");
-        await syncBundleAssets(dataCtx, contentRoot);
+        await syncBundleAssets(dataCtx, contentRoot, config);
         if (config.editor?.scopeDesignSystem !== false) {
           try {
             await (0, scope_editor_css_1.scopeDesignSystemForEditor)(contentRoot, config.editor);
@@ -142530,7 +142637,12 @@ var require_index = __commonJS({
       }
       return httpDownloadFile(url3, destPath, ctx.auth);
     };
-    var syncBundleAssets = async (ctx, contentRoot) => {
+    var syncBundleAssets = async (ctx, contentRoot, resolvedConfig) => {
+      const compiler = resolvedConfig?.compiler;
+      if (compiler?.styleMode === "tailwind" || compiler?.syncDesignSystemAssets === false) {
+        console.log("   \u23ED\uFE0F  Skipping main.css/main.js sync (tailwind / syncDesignSystemAssets=false)");
+        return;
+      }
       if (!ctx.localApiRoot)
         return;
       const assetsCssDir = path15.join(contentRoot, "assets", "css");
@@ -142656,7 +142768,7 @@ var require_index = __commonJS({
       console.log(`   \u{1F4C4} ${categoriesPath}`);
       const contentRoot = path15.resolve(outputDir, "..");
       if (ctx.localApiRoot) {
-        await syncBundleAssets(ctx, contentRoot);
+        await syncBundleAssets(ctx, contentRoot, config);
       }
       if (config.editor?.scopeDesignSystem !== false) {
         try {
@@ -142691,12 +142803,14 @@ var require_index = __commonJS({
         for (const componentId of componentIds) {
           try {
             const component = await ctxFetchComponent(ctx, componentId);
-            const templateValidation = (0, validators_1.validateTemplateVariables)(component);
-            if (!templateValidation.isValid) {
-              console.log((0, validators_1.formatTemplateValidationResult)(templateValidation));
-              console.error(`   \u26A0\uFE0F  Skipping ${componentId} due to template variable errors`);
-              failed++;
-              continue;
+            if (config.compiler?.styleMode !== "tailwind") {
+              const templateValidation = (0, validators_1.validateTemplateVariables)(component);
+              if (!templateValidation.isValid) {
+                console.log((0, validators_1.formatTemplateValidationResult)(templateValidation));
+                console.error(`   \u26A0\uFE0F  Skipping ${componentId} due to template variable errors`);
+                failed++;
+                continue;
+              }
             }
             allComponents.push(component);
           } catch (error) {
@@ -142796,8 +142910,8 @@ var require_index = __commonJS({
           fs8.mkdirSync(assetsJsDir, { recursive: true });
         }
         if (ctx.localApiRoot) {
-          await syncBundleAssets(ctx, path15.resolve(outputDir, ".."));
-        } else {
+          await syncBundleAssets(ctx, path15.resolve(outputDir, ".."), config);
+        } else if (config.compiler?.styleMode !== "tailwind" && config.compiler?.syncDesignSystemAssets !== false) {
           const cssUrl = `${ctx.apiUrl}/api/component/main.css`;
           const cssPath = path15.join(assetsCssDir, "main.css");
           const cssDownloaded = await ctxDownloadFile(ctx, cssUrl, cssPath);

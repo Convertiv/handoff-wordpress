@@ -20,8 +20,11 @@ import { type EditorScssOptions } from './canvas-shim';
  * ```
  */
 declare const generateEditorScss: (component: HandoffComponent, options?: EditorScssOptions) => string;
+export interface StyleScssOptions {
+    styleMode?: 'legacy' | 'tailwind';
+}
 /**
  * Generate style.scss for frontend styles
  */
-declare const generateStyleScss: (component: HandoffComponent) => string;
+declare const generateStyleScss: (component: HandoffComponent, options?: StyleScssOptions) => string;
 export { generateEditorScss, generateStyleScss };

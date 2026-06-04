@@ -3,6 +3,23 @@
 All notable changes to Handoff Blocks are documented here.
 
 
+## [0.0.33]
+
+### Added
+
+- **`compiler.styleMode: "tailwind"`** in `handoff-wp.config.json` — For Tailwind-native (nextgen) blocks: emits minimal `editor.scss` / `style.scss` fallbacks instead of legacy c-/o- SCSS, skips syncing global `main.css` / `main.js` into `wp-content/handoff/assets`, and skips strict template-variable validation during compile (partials are resolved at Handoff build time).
+- **`compiler.syncDesignSystemAssets`** and **`compiler.enqueueGlobalDesignSystemJs`** — Opt out of copying or enqueuing legacy Handoff bundle assets when the theme owns the design system (e.g. Tailwind `design-system.css`).
+- **Per-block `viewScript` / `viewStyle`** — When compiling from a local Handoff API (`--source`), copies `{componentId}.js` → `view.js` and `{componentId}.css` → `view.css` and patches `block.json` with `viewScript` / `viewStyle` file references.
+- **Webpack `view.js` entry + `view.css` CopyPlugin** — Block builds now include frontend view scripts/styles when present on compiled blocks.
+
+### Fixed
+
+- **Nested `#each` with dotted paths** — `{{#each this.speakerStack.avatars as |avatar|}}` (and similar deep paths) now transpile to nested `.map()` expressions with optional-chained array access instead of leaking raw Handlebars into `index.js`.
+- **`{{#if @first}}` / `{{#if @last}}` block content** — Block-level index helpers now transpile to `index === 0` / last-index checks instead of invalid JSX like `{@first && (`.
+- **`(eq a b)` in className template literals** — Attribute conditionals with unquoted operands (e.g. `(eq activeCategory category.label)`) now parse to valid JavaScript comparisons inside template literals.
+- **Partial references in template validation** — `{{> partial}}` is skipped during template-variable validation so nextgen element partials inlined at Handoff build time do not fail compile.
+- **Frontend legacy asset enqueue in Tailwind mode** — `handoff_enqueue_frontend_design_assets()` no longer enqueues global `main.css` / `main.js` when `compiler.styleMode` is `tailwind`.
+
 ## [0.0.19]
 
 ### Added
