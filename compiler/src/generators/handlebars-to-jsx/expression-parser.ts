@@ -119,24 +119,32 @@ export const transpileExpression = (expr: string, context: TranspilerContext, lo
   return expr;
 };
 
+/** Transpile a helper comparison operand (eq/ne/gt left side, etc.) to JSX. */
+const transpileHelperOperand = (operand: string, loopVar: string = 'item'): string => {
+  if (operand.startsWith('properties.')) {
+    const path = operand.replace('properties.', '');
+    const parts = path.split('.');
+    const first = toCamelCase(parts[0]);
+    return parts.length > 1 ? `${first}?.${parts.slice(1).join('?.')}` : first;
+  }
+  if (operand.startsWith('this.')) {
+    return toOptionalChainedAccess(loopVar, operand.replace('this.', ''));
+  }
+  return transpileExpression(operand, {} as TranspilerContext, loopVar);
+};
+
 /**
  * Parse Handlebars helper expressions like (eq properties.layout "layout-1")
  * and convert to JavaScript comparison expressions
  */
-export const parseHelperExpression = (expr: string): string => {
+export const parseHelperExpression = (expr: string, loopVar: string = 'item'): string => {
   // Normalize ../properties.xxx and @root.properties.xxx in the expression first
   expr = resolveParentPropertiesInExpression(expr);
   // Match (eq left right) or (eq left "string")
   const eqMatch = expr.match(/^\(\s*eq\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
   if (eqMatch) {
     const [, left, right] = eqMatch;
-    // Convert the left side (e.g., properties.layout -> layout)
-    let leftExpr = left;
-    if (left.startsWith('properties.')) {
-      leftExpr = toCamelCase(left.replace('properties.', ''));
-    } else if (left.startsWith('this.')) {
-      leftExpr = `item.${left.replace('this.', '')}`;
-    }
+    const leftExpr = transpileHelperOperand(left, loopVar);
     return `${leftExpr} === "${right}"`;
   }
   
@@ -144,21 +152,8 @@ export const parseHelperExpression = (expr: string): string => {
   const eqVarMatch = expr.match(/^\(\s*eq\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
   if (eqVarMatch) {
     const [, left, right] = eqVarMatch;
-    let leftExpr = left;
-    let rightExpr = right;
-    
-    if (left.startsWith('properties.')) {
-      leftExpr = toCamelCase(left.replace('properties.', ''));
-    } else if (left.startsWith('this.')) {
-      leftExpr = `item.${left.replace('this.', '')}`;
-    }
-    
-    if (right.startsWith('properties.')) {
-      rightExpr = toCamelCase(right.replace('properties.', ''));
-    } else if (right.startsWith('this.')) {
-      rightExpr = `item.${right.replace('this.', '')}`;
-    }
-    
+    const leftExpr = transpileHelperOperand(left, loopVar);
+    const rightExpr = transpileHelperOperand(right, loopVar);
     return `${leftExpr} === ${rightExpr}`;
   }
   
@@ -166,12 +161,7 @@ export const parseHelperExpression = (expr: string): string => {
   const neMatch = expr.match(/^\(\s*ne\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
   if (neMatch) {
     const [, left, right] = neMatch;
-    let leftExpr = left;
-    if (left.startsWith('properties.')) {
-      leftExpr = toCamelCase(left.replace('properties.', ''));
-    } else if (left.startsWith('this.')) {
-      leftExpr = `item.${left.replace('this.', '')}`;
-    }
+    const leftExpr = transpileHelperOperand(left, loopVar);
     return `${leftExpr} !== "${right}"`;
   }
   
@@ -179,8 +169,8 @@ export const parseHelperExpression = (expr: string): string => {
   const gtMatch = expr.match(/^\(\s*gt\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
   if (gtMatch) {
     const [, left, right] = gtMatch;
-    let leftExpr = left.startsWith('properties.') ? toCamelCase(left.replace('properties.', '')) : left;
-    let rightExpr = right.startsWith('properties.') ? toCamelCase(right.replace('properties.', '')) : right;
+    const leftExpr = transpileHelperOperand(left, loopVar);
+    const rightExpr = transpileHelperOperand(right, loopVar);
     return `${leftExpr} > ${rightExpr}`;
   }
   
@@ -188,8 +178,8 @@ export const parseHelperExpression = (expr: string): string => {
   const ltMatch = expr.match(/^\(\s*lt\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
   if (ltMatch) {
     const [, left, right] = ltMatch;
-    let leftExpr = left.startsWith('properties.') ? toCamelCase(left.replace('properties.', '')) : left;
-    let rightExpr = right.startsWith('properties.') ? toCamelCase(right.replace('properties.', '')) : right;
+    const leftExpr = transpileHelperOperand(left, loopVar);
+    const rightExpr = transpileHelperOperand(right, loopVar);
     return `${leftExpr} < ${rightExpr}`;
   }
   
@@ -197,8 +187,8 @@ export const parseHelperExpression = (expr: string): string => {
   const gteMatch = expr.match(/^\(\s*gte\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
   if (gteMatch) {
     const [, left, right] = gteMatch;
-    let leftExpr = left.startsWith('properties.') ? toCamelCase(left.replace('properties.', '')) : left;
-    let rightExpr = right.startsWith('properties.') ? toCamelCase(right.replace('properties.', '')) : right;
+    const leftExpr = transpileHelperOperand(left, loopVar);
+    const rightExpr = transpileHelperOperand(right, loopVar);
     return `${leftExpr} >= ${rightExpr}`;
   }
   
@@ -206,8 +196,8 @@ export const parseHelperExpression = (expr: string): string => {
   const lteMatch = expr.match(/^\(\s*lte\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
   if (lteMatch) {
     const [, left, right] = lteMatch;
-    let leftExpr = left.startsWith('properties.') ? toCamelCase(left.replace('properties.', '')) : left;
-    let rightExpr = right.startsWith('properties.') ? toCamelCase(right.replace('properties.', '')) : right;
+    const leftExpr = transpileHelperOperand(left, loopVar);
+    const rightExpr = transpileHelperOperand(right, loopVar);
     return `${leftExpr} <= ${rightExpr}`;
   }
   
@@ -215,8 +205,8 @@ export const parseHelperExpression = (expr: string): string => {
   const andMatch = expr.match(/^\(\s*and\s+(.+)\s+(.+)\s*\)$/);
   if (andMatch) {
     const [, left, right] = andMatch;
-    const leftExpr = parseHelperExpression(left.trim()) || left.trim();
-    const rightExpr = parseHelperExpression(right.trim()) || right.trim();
+    const leftExpr = parseHelperExpression(left.trim(), loopVar) || left.trim();
+    const rightExpr = parseHelperExpression(right.trim(), loopVar) || right.trim();
     return `(${leftExpr}) && (${rightExpr})`;
   }
   
@@ -224,8 +214,8 @@ export const parseHelperExpression = (expr: string): string => {
   const orMatch = expr.match(/^\(\s*or\s+(.+)\s+(.+)\s*\)$/);
   if (orMatch) {
     const [, left, right] = orMatch;
-    const leftExpr = parseHelperExpression(left.trim()) || left.trim();
-    const rightExpr = parseHelperExpression(right.trim()) || right.trim();
+    const leftExpr = parseHelperExpression(left.trim(), loopVar) || left.trim();
+    const rightExpr = parseHelperExpression(right.trim(), loopVar) || right.trim();
     return `(${leftExpr}) || (${rightExpr})`;
   }
   
@@ -233,7 +223,7 @@ export const parseHelperExpression = (expr: string): string => {
   const notMatch = expr.match(/^\(\s*not\s+(.+)\s*\)$/);
   if (notMatch) {
     const [, inner] = notMatch;
-    const innerExpr = parseHelperExpression(inner.trim()) || inner.trim();
+    const innerExpr = parseHelperExpression(inner.trim(), loopVar) || inner.trim();
     return `!(${innerExpr})`;
   }
   

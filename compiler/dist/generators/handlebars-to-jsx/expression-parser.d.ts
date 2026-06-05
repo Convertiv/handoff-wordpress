@@ -21,4 +21,4 @@ export declare const transpileExpression: (expr: string, context: TranspilerCont
  * Parse Handlebars helper expressions like (eq properties.layout "layout-1")
  * and convert to JavaScript comparison expressions
  */
-export declare const parseHelperExpression: (expr: string) => string;
+export declare const parseHelperExpression: (expr: string, loopVar?: string) => string;

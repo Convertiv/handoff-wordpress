@@ -22,6 +22,7 @@ Early development (March–April 2026) focused on the transpiler (Handlebars →
 
 | Version | Date | Theme |
 |---------|------|--------|
+| 0.0.40 | 2026-06-05 | Partial-param helpers in JSX + render.php |
 | 0.0.39 | 2026-06-05 | Nested `#each` dotted paths in render.php |
 | 0.0.38 | 2026-06-05 | Nextgen interactive editor canvas + data-component JSX |
 | 0.0.36 | 2026-06-04 | Loop alias in attribute preprocessor |
@@ -33,6 +34,15 @@ Early development (March–April 2026) focused on the transpiler (Handlebars →
 | 0.0.14–0.0.19 | 2026-04-13–14 | Inserter screenshots, icons, config paths, opacity/kebab-case |
 | 0.0.5–0.0.13 | 2026-04-06–07 | Schema migration, admin hub, ESM compiler bundle |
 | 0.0.2–0.0.4 | 2026-04-02 | Plugin-first architecture, WP-CLI |
+
+---
+
+## [0.0.40] - 2026-06-05
+
+### Fixed
+
+- **Helper `(eq alias.field "value")` in JSX** — `parseHelperExpression` now transpiles dotted alias operands (e.g. `tag.icon`) via optional-chained access instead of leaving bare partial-param names like `tagIcon` that cause `ReferenceError` in the block editor.
+- **Helper if/elseif chains in render.php** — `(eq tag.icon "precision")` chains inside nested `#each` loops now compile after loop-alias registration, emitting `$subItem['icon']` instead of `$item['icon']` or `$item['tagIcon']`. Fixes silent missing icons on the frontend for blocks using inlined `feature_tag` partials (e.g. `featured_product`).
 
 ---
 

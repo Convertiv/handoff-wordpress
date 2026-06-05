@@ -120641,93 +120641,85 @@ var require_expression_parser = __commonJS({
       return expr;
     };
     exports.transpileExpression = transpileExpression;
-    var parseHelperExpression = (expr) => {
+    var transpileHelperOperand = (operand, loopVar = "item") => {
+      if (operand.startsWith("properties.")) {
+        const path15 = operand.replace("properties.", "");
+        const parts = path15.split(".");
+        const first = (0, utils_1.toCamelCase)(parts[0]);
+        return parts.length > 1 ? `${first}?.${parts.slice(1).join("?.")}` : first;
+      }
+      if (operand.startsWith("this.")) {
+        return (0, exports.toOptionalChainedAccess)(loopVar, operand.replace("this.", ""));
+      }
+      return (0, exports.transpileExpression)(operand, {}, loopVar);
+    };
+    var parseHelperExpression = (expr, loopVar = "item") => {
       expr = (0, exports.resolveParentPropertiesInExpression)(expr);
       const eqMatch = expr.match(/^\(\s*eq\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
       if (eqMatch) {
         const [, left, right] = eqMatch;
-        let leftExpr = left;
-        if (left.startsWith("properties.")) {
-          leftExpr = (0, utils_1.toCamelCase)(left.replace("properties.", ""));
-        } else if (left.startsWith("this.")) {
-          leftExpr = `item.${left.replace("this.", "")}`;
-        }
+        const leftExpr = transpileHelperOperand(left, loopVar);
         return `${leftExpr} === "${right}"`;
       }
       const eqVarMatch = expr.match(/^\(\s*eq\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
       if (eqVarMatch) {
         const [, left, right] = eqVarMatch;
-        let leftExpr = left;
-        let rightExpr = right;
-        if (left.startsWith("properties.")) {
-          leftExpr = (0, utils_1.toCamelCase)(left.replace("properties.", ""));
-        } else if (left.startsWith("this.")) {
-          leftExpr = `item.${left.replace("this.", "")}`;
-        }
-        if (right.startsWith("properties.")) {
-          rightExpr = (0, utils_1.toCamelCase)(right.replace("properties.", ""));
-        } else if (right.startsWith("this.")) {
-          rightExpr = `item.${right.replace("this.", "")}`;
-        }
+        const leftExpr = transpileHelperOperand(left, loopVar);
+        const rightExpr = transpileHelperOperand(right, loopVar);
         return `${leftExpr} === ${rightExpr}`;
       }
       const neMatch = expr.match(/^\(\s*ne\s+([^\s"]+)\s+["']([^"']+)["']\s*\)$/);
       if (neMatch) {
         const [, left, right] = neMatch;
-        let leftExpr = left;
-        if (left.startsWith("properties.")) {
-          leftExpr = (0, utils_1.toCamelCase)(left.replace("properties.", ""));
-        } else if (left.startsWith("this.")) {
-          leftExpr = `item.${left.replace("this.", "")}`;
-        }
+        const leftExpr = transpileHelperOperand(left, loopVar);
         return `${leftExpr} !== "${right}"`;
       }
       const gtMatch = expr.match(/^\(\s*gt\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
       if (gtMatch) {
         const [, left, right] = gtMatch;
-        let leftExpr = left.startsWith("properties.") ? (0, utils_1.toCamelCase)(left.replace("properties.", "")) : left;
-        let rightExpr = right.startsWith("properties.") ? (0, utils_1.toCamelCase)(right.replace("properties.", "")) : right;
+        const leftExpr = transpileHelperOperand(left, loopVar);
+        const rightExpr = transpileHelperOperand(right, loopVar);
         return `${leftExpr} > ${rightExpr}`;
       }
       const ltMatch = expr.match(/^\(\s*lt\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
       if (ltMatch) {
         const [, left, right] = ltMatch;
-        let leftExpr = left.startsWith("properties.") ? (0, utils_1.toCamelCase)(left.replace("properties.", "")) : left;
-        let rightExpr = right.startsWith("properties.") ? (0, utils_1.toCamelCase)(right.replace("properties.", "")) : right;
+        const leftExpr = transpileHelperOperand(left, loopVar);
+        const rightExpr = transpileHelperOperand(right, loopVar);
         return `${leftExpr} < ${rightExpr}`;
       }
       const gteMatch = expr.match(/^\(\s*gte\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
       if (gteMatch) {
         const [, left, right] = gteMatch;
-        let leftExpr = left.startsWith("properties.") ? (0, utils_1.toCamelCase)(left.replace("properties.", "")) : left;
-        let rightExpr = right.startsWith("properties.") ? (0, utils_1.toCamelCase)(right.replace("properties.", "")) : right;
+        const leftExpr = transpileHelperOperand(left, loopVar);
+        const rightExpr = transpileHelperOperand(right, loopVar);
         return `${leftExpr} >= ${rightExpr}`;
       }
       const lteMatch = expr.match(/^\(\s*lte\s+([^\s]+)\s+([^\s)]+)\s*\)$/);
       if (lteMatch) {
         const [, left, right] = lteMatch;
-        let leftExpr = left.startsWith("properties.") ? (0, utils_1.toCamelCase)(left.replace("properties.", "")) : left;
-        let rightExpr = right.startsWith("properties.") ? (0, utils_1.toCamelCase)(right.replace("properties.", "")) : right;
+        const leftExpr = transpileHelperOperand(left, loopVar);
+        const rightExpr = transpileHelperOperand(right, loopVar);
         return `${leftExpr} <= ${rightExpr}`;
       }
       const andMatch = expr.match(/^\(\s*and\s+(.+)\s+(.+)\s*\)$/);
       if (andMatch) {
         const [, left, right] = andMatch;
-        const leftExpr = (0, exports.parseHelperExpression)(left.trim()) || left.trim();
-        const rightExpr = (0, exports.parseHelperExpression)(right.trim()) || right.trim();
+        const leftExpr = (0, exports.parseHelperExpression)(left.trim(), loopVar) || left.trim();
+        const rightExpr = (0, exports.parseHelperExpression)(right.trim(), loopVar) || right.trim();
         return `(${leftExpr}) && (${rightExpr})`;
       }
       const orMatch = expr.match(/^\(\s*or\s+(.+)\s+(.+)\s*\)$/);
       if (orMatch) {
         const [, left, right] = orMatch;
-        const leftExpr = (0, exports.parseHelperExpression)(left.trim()) || left.trim();
-        const rightExpr = (0, exports.parseHelperExpression)(right.trim()) || right.trim();
+        const leftExpr = (0, exports.parseHelperExpression)(left.trim(), loopVar) || left.trim();
+        const rightExpr = (0, exports.parseHelperExpression)(right.trim(), loopVar) || right.trim();
         return `(${leftExpr}) || (${rightExpr})`;
       }
       const notMatch = expr.match(/^\(\s*not\s+(.+)\s*\)$/);
       if (notMatch) {
         const [, inner] = notMatch;
-        const innerExpr = (0, exports.parseHelperExpression)(inner.trim()) || inner.trim();
+        const innerExpr = (0, exports.parseHelperExpression)(inner.trim(), loopVar) || inner.trim();
         return `!(${innerExpr})`;
       }
       return "";
@@ -122975,34 +122967,6 @@ var require_render_php = __commonJS({
         }
         return null;
       };
-      const helperIfRegex = /\{\{#if\s+(\([^)]+\))\s*\}\}/g;
-      let helperMatch;
-      while ((helperMatch = helperIfRegex.exec(php)) !== null) {
-        const openPos = helperMatch.index;
-        const openTagEnd = openPos + helperMatch[0].length;
-        const firstCondition = helperMatch[1];
-        const result = findHelperIfBranches(php, openTagEnd, firstCondition);
-        if (result === null)
-          continue;
-        const { branches, closePos } = result;
-        const parts = [];
-        for (let i = 0; i < branches.length; i++) {
-          const branch = branches[i];
-          const phpCondition = branch.condition ? parseHelperVeryEarly(branch.condition) : null;
-          const cond = phpCondition ?? "false";
-          if (i === 0) {
-            parts.push(`<?php if (${cond}) : ?>${branch.content}`);
-          } else if (branch.condition !== null) {
-            parts.push(`<?php elseif (${cond}) : ?>${branch.content}`);
-          } else {
-            parts.push(`<?php else : ?>${branch.content}`);
-          }
-        }
-        parts.push("<?php endif; ?>");
-        const replacement = parts.join("");
-        php = php.substring(0, openPos) + replacement + php.substring(closePos + 7);
-        helperIfRegex.lastIndex = openPos;
-      }
       php = php.replace(/\{\{#unless\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/unless\}\}/g, (_9, helperExpr, unlessContent, elseContent) => {
         const phpCondition = parseHelperVeryEarly(helperExpr);
         if (phpCondition) {
@@ -123182,7 +123146,7 @@ var require_render_php = __commonJS({
         } else {
           const parts = varPath.split(".");
           if (parts.length > 1) {
-            if (nestedLoopAliases[parts[0]]) {
+            if (nestedLoopAliases[parts[0]] || (aliasToDepth[parts[0]] ?? -1) > 0) {
               const fieldPath = parts.slice(1);
               return `$subItem['${fieldPath.join("']['")}']`;
             }
@@ -123212,6 +123176,34 @@ var require_render_php = __commonJS({
         }
         return null;
       };
+      const helperIfElseIfRegex = /\{\{#if\s+(\([^)]+\))\s*\}\}/g;
+      let helperIfElseIfMatch;
+      while ((helperIfElseIfMatch = helperIfElseIfRegex.exec(php)) !== null) {
+        const openPos = helperIfElseIfMatch.index;
+        const openTagEnd = openPos + helperIfElseIfMatch[0].length;
+        const firstCondition = helperIfElseIfMatch[1];
+        const result = findHelperIfBranches(php, openTagEnd, firstCondition);
+        if (result === null)
+          continue;
+        const { branches, closePos } = result;
+        const parts = [];
+        for (let i = 0; i < branches.length; i++) {
+          const branch = branches[i];
+          const phpCondition = branch.condition ? parseHelperEarly(branch.condition) : null;
+          const cond = phpCondition ?? "false";
+          if (i === 0) {
+            parts.push(`<?php if (${cond}) : ?>${branch.content}`);
+          } else if (branch.condition !== null) {
+            parts.push(`<?php elseif (${cond}) : ?>${branch.content}`);
+          } else {
+            parts.push(`<?php else : ?>${branch.content}`);
+          }
+        }
+        parts.push("<?php endif; ?>");
+        const replacement = parts.join("");
+        php = php.substring(0, openPos) + replacement + php.substring(closePos + 7);
+        helperIfElseIfRegex.lastIndex = openPos;
+      }
       php = php.replace(/\{\{#if\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/if\}\}/g, (_9, helperExpr, ifContent, elseContent) => {
         const phpCondition = parseHelperEarly(helperExpr);
         if (phpCondition) {
@@ -123355,7 +123347,7 @@ var require_render_php = __commonJS({
           } else {
             const parts = varPath.split(".");
             if (parts.length > 1) {
-              if (nestedLoopAliases[parts[0]]) {
+              if (nestedLoopAliases[parts[0]] || (aliasToDepth[parts[0]] ?? -1) > 0) {
                 const fieldPath = parts.slice(1);
                 if (fieldPath.length > 1) {
                   return `$subItem['${fieldPath.join("']['")}']`;

@@ -387,38 +387,6 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     return null;
   };
 
-  const helperIfRegex = /\{\{#if\s+(\([^)]+\))\s*\}\}/g;
-  let helperMatch;
-  while ((helperMatch = helperIfRegex.exec(php)) !== null) {
-    const openPos = helperMatch.index;
-    const openTagEnd = openPos + helperMatch[0].length;
-    const firstCondition = helperMatch[1];
-
-    const result = findHelperIfBranches(php, openTagEnd, firstCondition);
-    if (result === null) continue;
-    const { branches, closePos } = result;
-
-    const parts: string[] = [];
-    for (let i = 0; i < branches.length; i++) {
-      const branch = branches[i];
-      const phpCondition = branch.condition ? parseHelperVeryEarly(branch.condition) : null;
-      const cond = phpCondition ?? 'false';
-      if (i === 0) {
-        parts.push(`<?php if (${cond}) : ?>${branch.content}`);
-      } else if (branch.condition !== null) {
-        parts.push(`<?php elseif (${cond}) : ?>${branch.content}`);
-      } else {
-        parts.push(`<?php else : ?>${branch.content}`);
-      }
-    }
-    parts.push('<?php endif; ?>');
-    const replacement = parts.join('');
-
-    php = php.substring(0, openPos) + replacement + php.substring(closePos + 7); // '{{/if}}'.length === 7
-    // Next exec from start of replacement so we catch nested {{#if}}...{{else if}}...{{/if}} inside it
-    helperIfRegex.lastIndex = openPos;
-  }
-
   // VERY EARLY: Convert {{#unless (eq/ne ...)}} with else and without else
   // #unless is the negation of #if, so we invert the condition.
   php = php.replace(
@@ -701,7 +669,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
       // Check if the first part is a known loop alias
       const parts = varPath.split('.');
       if (parts.length > 1) {
-        if (nestedLoopAliases[parts[0]]) {
+        if (nestedLoopAliases[parts[0]] || (aliasToDepth[parts[0]] ?? -1) > 0) {
           const fieldPath = parts.slice(1);
           return `$subItem['${fieldPath.join("']['")}']`;
         }
@@ -736,7 +704,39 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     }
     return null;
   };
-  
+
+  // Convert {{#if (eq ...)}} ... {{else if (eq ...)}} ... {{/if}} chains after loop aliases are known
+  const helperIfElseIfRegex = /\{\{#if\s+(\([^)]+\))\s*\}\}/g;
+  let helperIfElseIfMatch;
+  while ((helperIfElseIfMatch = helperIfElseIfRegex.exec(php)) !== null) {
+    const openPos = helperIfElseIfMatch.index;
+    const openTagEnd = openPos + helperIfElseIfMatch[0].length;
+    const firstCondition = helperIfElseIfMatch[1];
+
+    const result = findHelperIfBranches(php, openTagEnd, firstCondition);
+    if (result === null) continue;
+    const { branches, closePos } = result;
+
+    const parts: string[] = [];
+    for (let i = 0; i < branches.length; i++) {
+      const branch = branches[i];
+      const phpCondition = branch.condition ? parseHelperEarly(branch.condition) : null;
+      const cond = phpCondition ?? 'false';
+      if (i === 0) {
+        parts.push(`<?php if (${cond}) : ?>${branch.content}`);
+      } else if (branch.condition !== null) {
+        parts.push(`<?php elseif (${cond}) : ?>${branch.content}`);
+      } else {
+        parts.push(`<?php else : ?>${branch.content}`);
+      }
+    }
+    parts.push('<?php endif; ?>');
+    const replacement = parts.join('');
+
+    php = php.substring(0, openPos) + replacement + php.substring(closePos + 7);
+    helperIfElseIfRegex.lastIndex = openPos;
+  }
+
   // Convert {{#if (eq/ne ...)}} helper expressions with if/else EARLY
   php = php.replace(
     /\{\{#if\s+(\([^)]+\))\s*\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/if\}\}/g,
@@ -1009,7 +1009,7 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
         const parts = varPath.split('.');
         if (parts.length > 1) {
           // Check nested aliases first (use $subItem)
-          if (nestedLoopAliases[parts[0]]) {
+          if (nestedLoopAliases[parts[0]] || (aliasToDepth[parts[0]] ?? -1) > 0) {
             const fieldPath = parts.slice(1);
             if (fieldPath.length > 1) {
               return `$subItem['${fieldPath.join("']['")}']`;

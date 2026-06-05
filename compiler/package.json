@@ -15,7 +15,8 @@
   "scripts": {
     "build": "tsc && npm run bundle",
     "build:types": "tsc",
-    "bundle": "node esbuild.config.mjs"
+    "bundle": "node esbuild.config.mjs",
+    "test:helper-operands": "npm run build:types && node scripts/test-helper-operands.js"
   },
   "dependencies": {
     "@prettier/plugin-php": "^0.22.2",
