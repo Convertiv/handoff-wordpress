@@ -95,18 +95,24 @@ export const toJsxAttrName = (name: string): string => {
   if (HTML_TO_JSX_ATTR_MAP[name]) {
     return HTML_TO_JSX_ATTR_MAP[name];
   }
-  
+
+  // Preserve data-* and aria-* as literal hyphenated JSX attributes so DOM hooks
+  // (e.g. data-component="hero") match frontend view.js selectors in the editor canvas.
+  if (name.startsWith('data-') || name.startsWith('aria-')) {
+    return name;
+  }
+
   // Handle any remaining namespaced attributes (prefix:suffix -> prefixSuffix)
   if (name.includes(':')) {
     const [prefix, suffix] = name.split(':');
     return prefix + suffix.charAt(0).toUpperCase() + suffix.slice(1);
   }
-  
+
   // Handle any remaining hyphenated attributes (convert to camelCase)
   if (name.includes('-')) {
     return name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
   }
-  
+
   return name;
 };
 

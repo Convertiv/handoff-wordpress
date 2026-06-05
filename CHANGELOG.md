@@ -22,6 +22,7 @@ Early development (March–April 2026) focused on the transpiler (Handlebars →
 
 | Version | Date | Theme |
 |---------|------|--------|
+| 0.0.38 | 2026-06-05 | Nextgen interactive editor canvas + data-component JSX |
 | 0.0.36 | 2026-06-04 | Loop alias in attribute preprocessor |
 | 0.0.35 | 2026-06-03 | Handlebars attribute transpiler fixes |
 | 0.0.34 | 2026-06-03 | Tailwind compile mode, per-block view assets, transpiler hardening |
@@ -31,6 +32,19 @@ Early development (March–April 2026) focused on the transpiler (Handlebars →
 | 0.0.14–0.0.19 | 2026-04-13–14 | Inserter screenshots, icons, config paths, opacity/kebab-case |
 | 0.0.5–0.0.13 | 2026-04-06–07 | Schema migration, admin hub, ESM compiler bundle |
 | 0.0.2–0.0.4 | 2026-04-02 | Plugin-first architecture, WP-CLI |
+
+---
+
+## [0.0.38] - 2026-06-05
+
+### Added
+
+- **Nextgen interactive editor canvas** — `NEXTGEN_INTERACTIVE_BLOCKS` registry wires `editor.interactiveBlocks` toggles to `@handoff-ds/components/*` modules via `useInteractiveBlockPreview` (accordions, tabs, sliders, modals, and other nextgen blocks). Root-scoped modules (e.g. `two_column_accordion`) support clean re-init on attribute changes.
+- **`shared/hooks/useInteractiveBlockPreview.js`** — Reusable editor hook for mounting Handoff view logic inside the block canvas preview.
+
+### Fixed
+
+- **Handlebars → JSX `data-*` / `aria-*` attributes** — Preserve hyphenated names (`data-component`, `aria-expanded`, etc.) instead of camelCasing to `dataComponent`, so editor canvas DOM hooks match frontend `view.js` selectors.
 
 ---
 

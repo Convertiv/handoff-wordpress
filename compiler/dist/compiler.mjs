@@ -114014,6 +114014,9 @@ var require_utils5 = __commonJS({
       if (constants_1.HTML_TO_JSX_ATTR_MAP[name]) {
         return constants_1.HTML_TO_JSX_ATTR_MAP[name];
       }
+      if (name.startsWith("data-") || name.startsWith("aria-")) {
+        return name;
+      }
       if (name.includes(":")) {
         const [prefix, suffix] = name.split(":");
         return prefix + suffix.charAt(0).toUpperCase() + suffix.slice(1);
@@ -122431,7 +122434,7 @@ var require_interactive_canvas = __commonJS({
   "dist/generators/interactive-canvas.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.injectCanvasRefIntoPreviewJsx = exports.generateInteractiveCanvasCode = exports.isInteractiveEnabled = exports.DEFAULT_INTERACTIVE_BLOCKS = void 0;
+    exports.injectCanvasRefIntoPreviewJsx = exports.generateInteractiveCanvasCode = exports.isInteractiveEnabled = exports.NEXTGEN_INTERACTIVE_BLOCKS = exports.DEFAULT_INTERACTIVE_BLOCKS = void 0;
     exports.DEFAULT_INTERACTIVE_BLOCKS = {
       "comparison-slider": {
         defaultEnabled: true,
@@ -122487,33 +122490,108 @@ var require_interactive_canvas = __commonJS({
         watchAttributes: ["desktopVideo", "mobileVideo"]
       }
     };
+    exports.NEXTGEN_INTERACTIVE_BLOCKS = {
+      hero: {
+        module: "hero-carousel",
+        init: "initHeroCarousels",
+        watchAttributes: ["slides"]
+      },
+      media_slider: {
+        module: "media-slider",
+        init: "initMediaSliders",
+        watchAttributes: ["slides"]
+      },
+      before_after: {
+        module: "before-after-slider",
+        init: "initBeforeAfterSliders",
+        watchAttributes: ["slides"]
+      },
+      two_column_before_after: {
+        module: "before-after-slider",
+        init: "initBeforeAfterSliders",
+        watchAttributes: ["slides"]
+      },
+      provider_search: {
+        module: "provider-search",
+        init: "initProviderSearches",
+        watchAttributes: ["defaultCenter", "defaultZoom"]
+      },
+      image_tabs: {
+        module: "image-tabs",
+        init: "initImageTabs",
+        watchAttributes: ["tabs"]
+      },
+      tabbed_two_column_features: {
+        module: "tabbed-two-column-features",
+        init: "initTabbedTwoColumnFeatures",
+        watchAttributes: ["tabs"]
+      },
+      tabbed_product_info: {
+        module: "tabbed-product-info",
+        init: "initTabbedProductInfo",
+        watchAttributes: ["tabs"]
+      },
+      two_column_slideshow: {
+        module: "two-column-slideshow",
+        init: "initTwoColumnSlideshows",
+        watchAttributes: ["slides"]
+      },
+      vertical_tabbed_slideshow: {
+        module: "vertical-tabbed-slideshow",
+        init: "initVerticalTabbedSlideshows",
+        watchAttributes: ["slides"]
+      },
+      two_column_accordion: {
+        module: "two-column-accordion",
+        init: "initTwoColumnAccordion",
+        destroy: "destroyTwoColumnAccordion",
+        rootScoped: true,
+        watchAttributes: ["items"]
+      },
+      featured_product: {
+        module: "featured-product-carousel",
+        init: "initFeaturedProductCarousels",
+        watchAttributes: ["slides"]
+      },
+      modal: {
+        module: "modal",
+        init: "initModals",
+        watchAttributes: ["title"]
+      },
+      context_menu: {
+        module: "context-menu",
+        init: "initContextMenus",
+        watchAttributes: ["items"]
+      },
+      menu: {
+        module: "menu",
+        init: "initMenu",
+        rootScoped: true,
+        watchAttributes: []
+      }
+    };
+    var hasRegistryEntry = (componentId) => Boolean(exports.DEFAULT_INTERACTIVE_BLOCKS[componentId] || exports.NEXTGEN_INTERACTIVE_BLOCKS[componentId]);
     var isInteractiveEnabled = (componentId, editor, wordpress) => {
-      const spec = exports.DEFAULT_INTERACTIVE_BLOCKS[componentId];
+      const legacySpec = exports.DEFAULT_INTERACTIVE_BLOCKS[componentId];
+      const nextgenSpec = exports.NEXTGEN_INTERACTIVE_BLOCKS[componentId];
       const toggles = editor?.interactiveBlocks;
       if (toggles && Object.prototype.hasOwnProperty.call(toggles, componentId)) {
         return toggles[componentId] === true;
       }
-      if (spec?.defaultEnabled)
+      if (legacySpec?.defaultEnabled)
         return true;
-      if (wordpress?.editorMode === "interactive" && spec)
+      if (wordpress?.editorMode === "interactive" && hasRegistryEntry(componentId))
         return true;
       return false;
     };
     exports.isInteractiveEnabled = isInteractiveEnabled;
-    var generateInteractiveCanvasCode = (componentId, attrNames, editor, wordpress) => {
-      if (!(0, exports.isInteractiveEnabled)(componentId, editor, wordpress)) {
-        return null;
-      }
-      const spec = exports.DEFAULT_INTERACTIVE_BLOCKS[componentId];
-      if (!spec) {
-        if (wordpress?.editorMode === "interactive") {
-          console.warn(`   \u26A0\uFE0F  ${componentId}: wordpress.editorMode is "interactive" but no built-in registry entry exists.`);
-        }
-        return null;
-      }
+    var buildDepsStr = (watchAttributes, attrNames) => {
+      const deps = watchAttributes.filter((a5) => attrNames.includes(a5));
+      return deps.length > 0 ? `[${deps.join(", ")}]` : "[]";
+    };
+    var generateLegacyInteractiveCanvasCode = (spec, attrNames) => {
       const importLines = spec.modules.map((m7) => `import { ${m7.init}, ${m7.destroy} } from '@handoff-ds/components/${m7.module}';`).join("\n");
-      const deps = spec.watchAttributes.filter((a5) => attrNames.includes(a5)) ?? spec.watchAttributes;
-      const depsStr = deps.length > 0 ? `[${deps.join(", ")}]` : "[]";
+      const depsStr = buildDepsStr(spec.watchAttributes, attrNames);
       const initCalls = spec.modules.map((m7) => `      ${m7.init}(root);`).join("\n");
       const destroyCalls = [...spec.modules].reverse().map((m7) => `      ${m7.destroy}(root);`).join("\n");
       const hookLines = `    const canvasRef = useRef(null);
@@ -122530,6 +122608,44 @@ ${destroyCalls}
         hookLines,
         elementImports: ["useRef", "useEffect"]
       };
+    };
+    var generateNextgenInteractiveCanvasCode = (spec, attrNames) => {
+      const destroyImport = spec.destroy ? `, ${spec.destroy}` : "";
+      const importLines = `import { ${spec.init}${destroyImport} } from '@handoff-ds/components/${spec.module}';
+import { useInteractiveBlockPreview } from '../../shared/hooks/useInteractiveBlockPreview';`;
+      const depsStr = buildDepsStr(spec.watchAttributes, attrNames);
+      const initBody = spec.rootScoped ? `(root) => ${spec.init}(root)` : `() => ${spec.init}()`;
+      const destroyBody = spec.destroy ? `(root) => ${spec.destroy}(root)` : "() => {}";
+      const hookLines = `    const canvasRef = useRef(null);
+    useInteractiveBlockPreview({
+      previewRef: canvasRef,
+      enabled: true,
+      init: ${initBody},
+      destroy: ${destroyBody},
+      deps: ${depsStr},
+    });`;
+      return {
+        importLines,
+        hookLines,
+        elementImports: ["useRef"]
+      };
+    };
+    var generateInteractiveCanvasCode = (componentId, attrNames, editor, wordpress) => {
+      if (!(0, exports.isInteractiveEnabled)(componentId, editor, wordpress)) {
+        return null;
+      }
+      const legacySpec = exports.DEFAULT_INTERACTIVE_BLOCKS[componentId];
+      if (legacySpec) {
+        return generateLegacyInteractiveCanvasCode(legacySpec, attrNames);
+      }
+      const nextgenSpec = exports.NEXTGEN_INTERACTIVE_BLOCKS[componentId];
+      if (nextgenSpec) {
+        return generateNextgenInteractiveCanvasCode(nextgenSpec, attrNames);
+      }
+      if (wordpress?.editorMode === "interactive") {
+        console.warn(`   \u26A0\uFE0F  ${componentId}: wordpress.editorMode is "interactive" but no built-in registry entry exists.`);
+      }
+      return null;
     };
     exports.generateInteractiveCanvasCode = generateInteractiveCanvasCode;
     var injectCanvasRefIntoPreviewJsx = (previewJsx) => {
