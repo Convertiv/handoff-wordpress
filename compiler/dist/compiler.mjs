@@ -121856,7 +121856,7 @@ var require_postprocessors = __commonJS({
   "dist/generators/handlebars-to-jsx/postprocessors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.postprocessJsx = exports.postprocessTemplateLiterals = void 0;
+    exports.postprocessJsx = exports.postprocessTemplateLiterals = exports.extractImgAttributes = void 0;
     var node_html_parser_1 = require_dist();
     var button_schema_1 = require_button_schema();
     var utils_1 = require_utils5();
@@ -121864,6 +121864,40 @@ var require_postprocessors = __commonJS({
     var preprocessors_1 = require_preprocessors();
     var node_converter_1 = require_node_converter();
     var AUTOWRAP_TYPES = /* @__PURE__ */ new Set(["text", "richtext"]);
+    var cssPropToJsx = (prop) => prop.trim().replace(/-([a-z])/g, (_9, char) => char.toUpperCase());
+    var extractImgAttributes = (content) => {
+      const imgMatch = content.match(/<img[\s\S]*?\/?>/i);
+      if (!imgMatch) {
+        return { className: "handoff-editable-field", styleAttr: "", size: "large" };
+      }
+      const imgTag = imgMatch[0];
+      const classMatch = imgTag.match(/\bclass=["']([^"']*)["']/i);
+      const originalClasses = classMatch?.[1]?.trim() ?? "";
+      const className = originalClasses ? `handoff-editable-field ${originalClasses}` : "handoff-editable-field";
+      const styleMatch = imgTag.match(/\bstyle=["']([^"']*)["']/i);
+      let styleAttr = "";
+      if (styleMatch?.[1]) {
+        const styleEntries = styleMatch[1].split(";").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+          const colonIndex = entry.indexOf(":");
+          if (colonIndex === -1) {
+            return null;
+          }
+          const key2 = cssPropToJsx(entry.slice(0, colonIndex));
+          const value = entry.slice(colonIndex + 1).trim().replace(/'/g, "\\'");
+          return `${key2}: '${value}'`;
+        }).filter(Boolean);
+        if (styleEntries.length > 0) {
+          styleAttr = `
+            style={{ ${styleEntries.join(", ")} }}`;
+        }
+      }
+      let size = "large";
+      if (/\b(?:size|w|h)-(?:10|16)\b/.test(originalClasses)) {
+        size = "thumbnail";
+      }
+      return { className, styleAttr, size };
+    };
+    exports.extractImgAttributes = extractImgAttributes;
     var autoWrapArrayFields = (innerContent, arrayPropPath, properties) => {
       const arrayProp = lookupArrayProperty(arrayPropPath, properties);
       if (!arrayProp?.items?.properties)
@@ -122198,11 +122232,12 @@ var require_postprocessors = __commonJS({
           }`;
           }
           if (type === "image") {
+            const { className: imageClassName, styleAttr: imageStyleAttr, size: imageSize } = (0, exports.extractImgAttributes)(content || "");
             return `<Image
             id={${imageIdExpr}}
-            className="handoff-editable-field"
+            className="${imageClassName}"
             onSelect={${imageOnSelectExpr}}
-            size="large"
+            size="${imageSize}"${imageStyleAttr}
           />`;
           } else if (type === "richtext") {
             const topLevelField = path15.split(".")[0];
