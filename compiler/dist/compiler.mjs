@@ -123045,6 +123045,17 @@ var require_render_php = __commonJS({
           return "$_nested_loop_count";
         return `$_nested${depth}_loop_count`;
       };
+      const dotPathToPhpAccess = (path15, baseVar) => {
+        const segments = path15.split(".");
+        const bracketAccess = segments.map((p4) => `['${p4}']`).join("");
+        return `${baseVar}${bracketAccess}`;
+      };
+      const nestedEachOpenPhp = (arrayExpr, nestedAlias) => {
+        if (nestedAlias) {
+          nestedLoopAliases[nestedAlias] = arrayExpr;
+        }
+        return `<?php if (!empty(${arrayExpr}) && is_array(${arrayExpr})) : $_nested_loop_count = count(${arrayExpr}); foreach (${arrayExpr} as $subIndex => $subItem) : ?>`;
+      };
       const eachPatterns = [];
       const eachRegex = /\{\{#each\s+([^\}]+)\}\}/g;
       let eachMatch;
@@ -123136,25 +123147,22 @@ var require_render_php = __commonJS({
         const phpVar = propPathToPhp(propPath);
         return `<?php if (!empty(${phpVar}) && is_array(${phpVar})) : $_loop_count = count(${phpVar}); foreach (${phpVar} as $index => $item) : ?>`;
       });
-      php = php.replace(/\{\{#each\s+this\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g, (_9, prop, alias) => {
-        nestedLoopAliases[alias] = prop;
-        return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+      php = php.replace(/\{\{#each\s+this\.([\w.]+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g, (_9, propPath, alias) => {
+        nestedLoopAliases[alias] = propPath;
+        return nestedEachOpenPhp(dotPathToPhpAccess(propPath, "$item"), alias);
       });
-      php = php.replace(/\{\{#each\s+this\.(\w+)\s*\}\}/g, (_9, prop) => {
-        return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
-      });
-      php = php.replace(/\{\{#each\s+(\w+)\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g, (match, parentAlias, prop, nestedAlias) => {
+      php = php.replace(/\{\{#each\s+this\.([\w.]+)\s*\}\}/g, (_9, propPath) => nestedEachOpenPhp(dotPathToPhpAccess(propPath, "$item")));
+      php = php.replace(/\{\{#each\s+(\w+)\.([\w.]+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g, (match, parentAlias, propPath, nestedAlias) => {
         if (parentAlias === "properties" || parentAlias === "this") {
           return match;
         }
-        nestedLoopAliases[nestedAlias] = prop;
-        return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+        return nestedEachOpenPhp(dotPathToPhpAccess(propPath, "$item"), nestedAlias);
       });
-      php = php.replace(/\{\{#each\s+(\w+)\.(\w+)\s*\}\}/g, (match, parentAlias, prop) => {
+      php = php.replace(/\{\{#each\s+(\w+)\.([\w.]+)\s*\}\}/g, (match, parentAlias, propPath) => {
         if (parentAlias === "properties" || parentAlias === "this") {
           return match;
         }
-        return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+        return nestedEachOpenPhp(dotPathToPhpAccess(propPath, "$item"));
       });
       php = php.replace(/\{\{\/each\}\}/g, "<?php endforeach; endif; ?>");
       const varToPhpEarly = (varPath) => {

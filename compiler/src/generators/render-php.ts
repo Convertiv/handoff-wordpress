@@ -480,6 +480,20 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     if (depth === 1) return '$_nested_loop_count';
     return `$_nested${depth}_loop_count`;
   };
+
+  /** e.g. speakerStack.avatars + $item -> $item['speakerStack']['avatars'] */
+  const dotPathToPhpAccess = (path: string, baseVar: string): string => {
+    const segments = path.split('.');
+    const bracketAccess = segments.map((p) => `['${p}']`).join('');
+    return `${baseVar}${bracketAccess}`;
+  };
+
+  const nestedEachOpenPhp = (arrayExpr: string, nestedAlias?: string): string => {
+    if (nestedAlias) {
+      nestedLoopAliases[nestedAlias] = arrayExpr;
+    }
+    return `<?php if (!empty(${arrayExpr}) && is_array(${arrayExpr})) : $_nested_loop_count = count(${arrayExpr}); foreach (${arrayExpr} as $subIndex => $subItem) : ?>`;
+  };
   
   // First pass: identify all nested loop patterns and their aliases
   // We need to process loops in order to properly track nesting
@@ -623,51 +637,42 @@ const handlebarsToPhp = (template: string, properties: Record<string, HandoffPro
     }
   );
   
-  // Convert {{#each this.xxx as |alias|}} or {{#each this.xxx as |alias index|}} nested loops with alias
+  // Convert {{#each this.xxx.yyy as |alias|}} nested loops with alias (supports dotted paths)
   // The second parameter (index) is optional and ignored since we use $subIndex in PHP
   php = php.replace(
-    /\{\{#each\s+this\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g,
-    (_, prop, alias) => {
-      nestedLoopAliases[alias] = prop;
-      return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+    /\{\{#each\s+this\.([\w.]+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g,
+    (_, propPath, alias) => {
+      nestedLoopAliases[alias] = propPath;
+      return nestedEachOpenPhp(dotPathToPhpAccess(propPath, '$item'), alias);
     }
   );
   
-  // Convert {{#each this.xxx}} nested loops without alias
-  // Use $_nested_loop_count for nested @last checking
+  // Convert {{#each this.xxx.yyy}} nested loops without alias
   php = php.replace(
-    /\{\{#each\s+this\.(\w+)\s*\}\}/g,
-    (_, prop) => {
-      return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
-    }
+    /\{\{#each\s+this\.([\w.]+)\s*\}\}/g,
+    (_, propPath) => nestedEachOpenPhp(dotPathToPhpAccess(propPath, '$item'))
   );
   
-  // Convert {{#each alias.xxx as |nestedAlias|}} or {{#each alias.xxx as |nestedAlias index|}} - nested loops referencing outer loop alias
-  // e.g., {{#each article.tags as |tag|}} where 'article' is from outer {{#each articles as |article|}}
-  // The second parameter (index) is optional and ignored since we use $subIndex in PHP
+  // Convert {{#each alias.xxx.yyy as |nestedAlias|}} — nested loops referencing outer loop alias
+  // e.g. {{#each card.speakerStack.avatars as |avatar|}} inside {{#each properties.cards as |card|}}
   php = php.replace(
-    /\{\{#each\s+(\w+)\.(\w+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g,
-    (match, parentAlias, prop, nestedAlias) => {
-      // Skip if it's properties.xxx or this.xxx (already handled)
+    /\{\{#each\s+(\w+)\.([\w.]+)\s+as\s+\|(\w+)(?:\s+\w+)?\|\s*\}\}/g,
+    (match, parentAlias, propPath, nestedAlias) => {
       if (parentAlias === 'properties' || parentAlias === 'this') {
         return match;
       }
-      // This is a nested loop referencing an outer loop alias
-      nestedLoopAliases[nestedAlias] = prop;
-      return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+      return nestedEachOpenPhp(dotPathToPhpAccess(propPath, '$item'), nestedAlias);
     }
   );
   
-  // Convert {{#each alias.xxx}} - nested loops referencing outer loop alias without nested alias
+  // Convert {{#each alias.xxx.yyy}} — nested loops referencing outer loop alias without nested alias
   php = php.replace(
-    /\{\{#each\s+(\w+)\.(\w+)\s*\}\}/g,
-    (match, parentAlias, prop) => {
-      // Skip if it's properties.xxx or this.xxx (already handled)
+    /\{\{#each\s+(\w+)\.([\w.]+)\s*\}\}/g,
+    (match, parentAlias, propPath) => {
       if (parentAlias === 'properties' || parentAlias === 'this') {
         return match;
       }
-      // This is a nested loop referencing an outer loop alias
-      return `<?php if (!empty($item['${prop}']) && is_array($item['${prop}'])) : $_nested_loop_count = count($item['${prop}']); foreach ($item['${prop}'] as $subIndex => $subItem) : ?>`;
+      return nestedEachOpenPhp(dotPathToPhpAccess(propPath, '$item'));
     }
   );
   
