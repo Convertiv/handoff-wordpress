@@ -22,6 +22,7 @@ Early development (March–April 2026) focused on the transpiler (Handlebars →
 
 | Version | Date | Theme |
 |---------|------|--------|
+| 0.0.41 | 2026-06-05 | Taxonomy array attr in editor destructure |
 | 0.0.40 | 2026-06-05 | Partial-param helpers in JSX + render.php |
 | 0.0.39 | 2026-06-05 | Nested `#each` dotted paths in render.php |
 | 0.0.38 | 2026-06-05 | Nextgen interactive editor canvas + data-component JSX |
@@ -34,6 +35,14 @@ Early development (March–April 2026) focused on the transpiler (Handlebars →
 | 0.0.14–0.0.19 | 2026-04-13–14 | Inserter screenshots, icons, config paths, opacity/kebab-case |
 | 0.0.5–0.0.13 | 2026-04-06–07 | Schema migration, admin hub, ESM compiler bundle |
 | 0.0.2–0.0.4 | 2026-04-02 | Plugin-first architecture, WP-CLI |
+
+---
+
+## [0.0.41] - 2026-06-05
+
+### Fixed
+
+- **Taxonomy dynamic arrays in block editor** — Include the manual array attribute (e.g. `tags`) in `const { … } = attributes` destructuring when generating taxonomy preview `useSelect` hooks. Fixes `ReferenceError: tags is not defined` in blocks like `article_hero` that use config-driven taxonomy arrays.
 
 ---
 

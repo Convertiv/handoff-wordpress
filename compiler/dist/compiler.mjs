@@ -124724,6 +124724,7 @@ ${indent5}</Repeater>`;
             attrNames.push(`${attrName}Enabled`);
             attrNames.push(`${attrName}Taxonomy`);
             attrNames.push(`${attrName}Source`);
+            attrNames.push(attrName);
           } else {
             attrNames.push(`${attrName}Source`);
             attrNames.push(`${attrName}PostType`);
@@ -127399,6 +127400,7 @@ import { store as coreDataStore } from '@wordpress/core-data';
             allAttrNames.add(`${attrName}Enabled`);
             allAttrNames.add(`${attrName}Taxonomy`);
             allAttrNames.add(`${attrName}Source`);
+            allAttrNames.add(attrName);
             continue;
           }
           allAttrNames.add(`${attrName}Source`);
@@ -127666,6 +127668,7 @@ ${anyUsesInnerBlocks || anyPreviewUsesInnerBlocks ? "    return <InnerBlocks.Con
           fromFieldMap.add(`${mergedAttrName}Enabled`);
           fromFieldMap.add(`${mergedAttrName}Taxonomy`);
           fromFieldMap.add(`${mergedAttrName}Source`);
+          fromFieldMap.add(mergedAttrName);
         }
       }
       const attrNames = [...fromFieldMap];

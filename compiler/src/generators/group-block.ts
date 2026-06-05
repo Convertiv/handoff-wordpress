@@ -910,6 +910,7 @@ ${linkButtons.join('\n')}
         allAttrNames.add(`${attrName}Enabled`);
         allAttrNames.add(`${attrName}Taxonomy`);
         allAttrNames.add(`${attrName}Source`);
+        allAttrNames.add(attrName);
         continue;
       }
       // DynamicArrayConfig (posts)
@@ -1246,6 +1247,7 @@ const generateVariantJsFileContent = (
       fromFieldMap.add(`${mergedAttrName}Enabled`);
       fromFieldMap.add(`${mergedAttrName}Taxonomy`);
       fromFieldMap.add(`${mergedAttrName}Source`);
+      fromFieldMap.add(mergedAttrName);
     }
   }
   const attrNames = [...fromFieldMap];

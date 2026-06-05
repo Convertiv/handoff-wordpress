@@ -879,6 +879,7 @@ const generateIndexJs = (
         attrNames.push(`${attrName}Enabled`);
         attrNames.push(`${attrName}Taxonomy`);
         attrNames.push(`${attrName}Source`);
+        attrNames.push(attrName);
       } else {
         // DynamicArrayConfig (posts)
         attrNames.push(`${attrName}Source`);
